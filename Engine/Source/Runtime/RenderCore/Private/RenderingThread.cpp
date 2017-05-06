@@ -12,6 +12,7 @@
 #include "Misc/CoreStats.h"
 #include "Misc/TimeGuard.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/ScopeLock.h"
 #include "RenderCore.h"
 #include "RenderCommandFence.h"
 #include "RHI.h"
@@ -1100,6 +1101,43 @@ FRHICommandListImmediate& GetImmediateCommandList_ForRenderCommand()
 	return FRHICommandListExecutor::GetImmediateCommandList();
 }
 
+#if WITH_EDITOR || IS_PROGRAM
+
+// mainly concerned about the cooker here, but anyway, the editor can run without a frame for a very long time (hours) and we do not have enough lock free links. 
+
+/** The set of deferred cleanup objects which are pending cleanup. */
+TArray<FDeferredCleanupInterface*> PendingCleanupObjectsList;
+FCriticalSection PendingCleanupObjectsListLock;
+
+FPendingCleanupObjects::FPendingCleanupObjects()
+{
+	check(IsInGameThread());
+	{
+		FScopeLock Lock(&PendingCleanupObjectsListLock);
+		Exchange(CleanupArray, PendingCleanupObjectsList);
+	}
+}
+
+FPendingCleanupObjects::~FPendingCleanupObjects()
+{
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_FPendingCleanupObjects_Destruct);
+
+	for (int32 ObjectIndex = 0; ObjectIndex < CleanupArray.Num(); ObjectIndex++)
+	{
+		CleanupArray[ObjectIndex]->FinishCleanup();
+	}
+}
+
+void BeginCleanup(FDeferredCleanupInterface* CleanupObject)
+{
+	{
+		FScopeLock Lock(&PendingCleanupObjectsListLock);
+		PendingCleanupObjectsList.Add(CleanupObject);
+	}
+}
+
+#else
+
 /** The set of deferred cleanup objects which are pending cleanup. */
 static TLockFreePointerListUnordered<FDeferredCleanupInterface, PLATFORM_CACHE_LINE_SIZE>	PendingCleanupObjectsList;
 
@@ -1113,7 +1151,7 @@ FPendingCleanupObjects::~FPendingCleanupObjects()
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_FPendingCleanupObjects_Destruct);
 
-	for(int32 ObjectIndex = 0;ObjectIndex < CleanupArray.Num();ObjectIndex++)
+	for (int32 ObjectIndex = 0; ObjectIndex < CleanupArray.Num(); ObjectIndex++)
 	{
 		CleanupArray[ObjectIndex]->FinishCleanup();
 	}
@@ -1123,6 +1161,8 @@ void BeginCleanup(FDeferredCleanupInterface* CleanupObject)
 {
 	PendingCleanupObjectsList.Push(CleanupObject);
 }
+
+#endif
 
 FPendingCleanupObjects* GetPendingCleanupObjects()
 {
