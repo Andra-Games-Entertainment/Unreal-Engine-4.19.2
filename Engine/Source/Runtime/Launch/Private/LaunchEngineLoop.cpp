@@ -2867,7 +2867,7 @@ bool FEngineLoop::ShouldUseIdleMode() const
 	return bIdleMode;
 }
 
-#if !UE_BUILD_SHIPPING && !UE_BUILD_TEST
+#if !UE_BUILD_SHIPPING && !UE_BUILD_TEST && MALLOC_GT_HOOKS
 
 #include "Containers/StackTracker.h"
 static TAutoConsoleVariable<int32> CVarLogGameThreadMallocChurn(
@@ -2991,7 +2991,7 @@ uint64 FScopedSampleMallocChurn::DumpFrame = 0;
 
 void FEngineLoop::Tick()
 {
-#if !UE_BUILD_SHIPPING && !UE_BUILD_TEST
+#if !UE_BUILD_SHIPPING && !UE_BUILD_TEST && MALLOC_GT_HOOKS
 	FScopedSampleMallocChurn ChurnTracker;
 #endif
 
@@ -3823,6 +3823,11 @@ void FEngineLoop::AppPreExit( )
 
 void FEngineLoop::AppExit( )
 {
+#if !WITH_ENGINE
+	// when compiled WITH_ENGINE, this will happen in FEngineLoop::Exit()
+	FTaskGraphInterface::Shutdown();
+#endif // WITH_ENGINE
+
 	UE_LOG(LogExit, Log, TEXT("Exiting."));
 
 	FPlatformMisc::PlatformTearDown();
