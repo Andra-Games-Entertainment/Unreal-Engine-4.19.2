@@ -25,6 +25,7 @@ class UVREditorInteractor;
 class FMenuBuilder;
 class FUICommandList;
 class UVREditorWidgetComponent;
+class UWidgetComponent;
 
 typedef FName VREditorPanelID;
 
@@ -129,9 +130,9 @@ public:
 	bool IsShowingEditorUIPanel(const VREditorPanelID& InPanelID) const;
 
 	/** Sets whether the specified editor UI panel should be visible.  Any other UI floating off this hand will be dismissed when showing it. */
-	void ShowEditorUIPanel(const class UWidgetComponent* WidgetComponent, UVREditorInteractor* Interactor, const bool bShouldShow, const bool bSpawnInFront = false, const bool bDragFromOpen = false, const bool bPlaySound = true);
+	void ShowEditorUIPanel(const UWidgetComponent* WidgetComponent, UVREditorInteractor* Interactor, const bool bShouldShow, const bool bSpawnInFront = false, const bool bDragFromOpen = false, const bool bPlaySound = true);
 	void ShowEditorUIPanel(const VREditorPanelID& InPanelID, UVREditorInteractor* Interactor, const bool bShouldShow, const bool bSpawnInFront = false, const bool bDragFromOpen = false, const bool bPlaySound = true);
-	void ShowEditorUIPanel(class AVREditorFloatingUI* Panel, UVREditorInteractor* Interactor, const bool bShouldShow, const bool bSpawnInFront = false, const bool bDragFromOpen = false, const bool bPlaySound = true);
+	void ShowEditorUIPanel(AVREditorFloatingUI* Panel, UVREditorInteractor* Interactor, const bool bShouldShow, const bool bSpawnInFront = false, const bool bDragFromOpen = false, const bool bPlaySound = true);
 
 	/** Returns true if the radial menu is visible on this hand */
 	bool IsShowingRadialMenu(const UVREditorInteractor* Interactor ) const;
