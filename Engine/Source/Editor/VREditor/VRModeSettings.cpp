@@ -3,8 +3,15 @@
 #include "VRModeSettings.h"
 #include "Dialogs.h"
 #include "UnrealType.h"
+#include "HAL/IConsoleManager.h"
 
 #define LOCTEXT_NAMESPACE "VREditor"
+
+namespace VREd
+{
+	static FAutoConsoleVariable SettingsTriggerPressedThreshold_Vive(TEXT("VREd.SettingsTriggerPressedThreshold_Vive"), 0.33f, TEXT("The amount (between 0-1) you have to depress the Vive controller trigger to register a press"));
+	static FAutoConsoleVariable SettingsTriggerPressedThreshold_Rift(TEXT("VREd.SettingsTriggerPressedThreshold_Rift"), 0.5f, TEXT("The amount (between 0-1) you have to depress the Oculus Touch controller trigger to register a press "));
+}
 
 UVRModeSettings::UVRModeSettings(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -14,11 +21,11 @@ UVRModeSettings::UVRModeSettings(const FObjectInitializer& ObjectInitializer)
 	bShowWorldMovementGrid = true;
 	bShowWorldMovementPostProcess = true;
 	bShowWorldScaleProgressBar = true;
-	UIBrightness = 1.5f;
+	UIBrightness = 0.2f;
 	GizmoScale = 0.8f;
 	DoubleClickTime = 0.25f;
-	TriggerPressedThreshold_Vive = 0.03f;
-	TriggerPressedThreshold_Rift = 0.2f;
+	TriggerPressedThreshold_Vive = VREd::SettingsTriggerPressedThreshold_Vive->GetFloat();
+	TriggerPressedThreshold_Rift = VREd::SettingsTriggerPressedThreshold_Rift->GetFloat();
 }
 
 #if WITH_EDITOR

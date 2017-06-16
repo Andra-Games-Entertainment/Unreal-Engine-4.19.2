@@ -251,15 +251,15 @@ private:
 	/** Issues a timestamp query for the end of the separate translucency pass. */
 	void EndTimingSeparateTranslucencyPass(FRHICommandListImmediate& RHICmdList, const FViewInfo& View);
 
-	/** 
-	 * Renders the scene's translucency, parallel version
-	 */
-	void RenderTranslucencyParallel(FRHICommandListImmediate& RHICmdList);
 
-	/**
-	* Renders the scene's translucency.
-	*/
-	void RenderTranslucency(FRHICommandListImmediate& RHICmdList);
+	/** Setup the downsampled view uniform buffer if it was not already built */
+	void SetupDownsampledTranslucencyViewUniformBuffer(FRHICommandListImmediate& RHICmdList, FViewInfo& View);
+
+	/** Resolve the scene color if any translucent material needs it. */
+	void ConditionalResolveSceneColorForTranslucentMaterials(FRHICommandListImmediate& RHICmdList);
+
+	/** Renders the scene's translucency. */
+	void RenderTranslucency(FRHICommandListImmediate& RHICmdList, ETranslucencyPass::Type TranslucencyPass);
 
 	/** Renders the scene's light shafts */
 	void RenderLightShaftOcclusion(FRHICommandListImmediate& RHICmdList, FLightShaftsOutput& Output);
@@ -437,7 +437,8 @@ private:
 
 	void UpdateGlobalDistanceFieldObjectBuffers(FRHICommandListImmediate& RHICmdList);
 
-	void DrawAllTranslucencyPasses(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, ETranslucencyPass::Type TranslucenyPassType);
+	void RenderViewTranslucency(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, ETranslucencyPass::Type TranslucenyPass);
+	void RenderViewTranslucencyParallel(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, ETranslucencyPass::Type TranslucencyPass);
 
 	void CopySceneCaptureComponentToTarget(FRHICommandListImmediate& RHICmdList);
 

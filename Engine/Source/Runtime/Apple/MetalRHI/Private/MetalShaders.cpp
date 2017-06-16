@@ -14,6 +14,7 @@
 #include "MetalCommandBuffer.h"
 #include "Serialization/MemoryReader.h"
 #include "Misc/FileHelper.h"
+#include "ScopeRWLock.h"
 
 #define SHADERCOMPILERCOMMON_API
 #	include "Developer/ShaderCompilerCommon/Public/ShaderCompilerCommon.h"
@@ -56,14 +57,10 @@ struct FMetalCompiledShaderCache
 public:
 	FMetalCompiledShaderCache()
 	{
-		int Err = pthread_rwlock_init(&Lock, nullptr);
-		checkf(Err == 0, TEXT("pthread_rwlock_init failed with error: %d"), Err);
 	}
 	
 	~FMetalCompiledShaderCache()
 	{
-		int Err = pthread_rwlock_destroy(&Lock);
-		checkf(Err == 0, TEXT("pthread_rwlock_destroy failed with error: %d"), Err);
 		for (TPair<FMetalCompiledShaderKey, id<MTLFunction>> Pair : Cache)
 		{
 			[Pair.Value release];
@@ -72,25 +69,19 @@ public:
 	
 	id<MTLFunction> FindRef(FMetalCompiledShaderKey Key)
 	{
-		int Err = pthread_rwlock_rdlock(&Lock);
-		checkf(Err == 0, TEXT("pthread_rwlock_rdlock failed with error: %d"), Err);
+		FRWScopeLock(Lock, SLT_ReadOnly);
 		id<MTLFunction> Func = Cache.FindRef(Key);
-		Err = pthread_rwlock_unlock(&Lock);
-		checkf(Err == 0, TEXT("pthread_rwlock_unlock failed with error: %d"), Err);
 		return Func;
 	}
 	
 	void Add(FMetalCompiledShaderKey Key, id<MTLFunction> Function)
 	{
-		int Err = pthread_rwlock_wrlock(&Lock);
-		checkf(Err == 0, TEXT("pthread_rwlock_wrlock failed with error: %d"), Err);
+		FRWScopeLock(Lock, SLT_Write);
 		Cache.Add(Key, Function);
-		Err = pthread_rwlock_unlock(&Lock);
-		checkf(Err == 0, TEXT("pthread_rwlock_unlock failed with error: %d"), Err);
 	}
 	
 private:
-	pthread_rwlock_t Lock;
+	FRWLock Lock;
 	TMap<FMetalCompiledShaderKey, id<MTLFunction>> Cache;
 };
 
@@ -102,7 +93,7 @@ static FMetalCompiledShaderCache& GetMetalCompiledShaderCache()
 
 /** Initialization constructor. */
 template<typename BaseResourceType, int32 ShaderType>
-void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& InShaderCode, FMetalCodeHeader& Header)
+void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& InShaderCode, FMetalCodeHeader& Header, id<MTLLibrary> InLibrary)
 {
 	FShaderCodeReader ShaderCode(InShaderCode);
 
@@ -118,19 +109,44 @@ void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& I
 	// get the header
 	Header = { 0 };
 	Ar << Header;
+	
+	// Validate that the compiler flags match the offline compiled flag - somehow they sometimes don't..
+	check((Header.CompileFlags & (1 << CFLAG_Debug)) == ((!OfflineCompiledFlag) << CFLAG_Debug));
+	
+    SourceLen = Header.SourceLen;
+    SourceCRC = Header.SourceCRC;
 
 	// remember where the header ended and code (precompiled or source) begins
 	int32 CodeOffset = Ar.Tell();
 	uint32 BufferSize = ShaderCode.GetActualShaderCodeSize() - CodeOffset;
 	const ANSICHAR* SourceCode = (ANSICHAR*)InShaderCode.GetData() + CodeOffset;
 
+	// Only archived shaders should be in here.
+	UE_CLOG(InLibrary && !(Header.CompileFlags & (1 << CFLAG_Archive)), LogMetal, Warning, TEXT("Shader being loaded wasn't marked for archiving but a MTLLibrary was provided - this is unsupported."));
+	
 	if (!OfflineCompiledFlag)
 	{
-		UE_LOG(LogMetal, Display, TEXT("Loaded a non-offline compiled shader (will be slower to load)"));
+		UE_LOG(LogMetal, Display, TEXT("Loaded a text shader (will be slower to load)"));
 	}
 	
 	FMetalCompiledShaderKey Key(Header.SourceLen, Header.SourceCRC);
 
+	static NSString* const Offline = @"OFFLINE";
+	bool bOfflineCompile = (OfflineCompiledFlag > 0);
+	
+	const ANSICHAR* ShaderSource = ShaderCode.FindOptionalData('c');
+	bool const bHasShaderSource = (ShaderSource && FCStringAnsi::Strlen(ShaderSource) > 0);
+	if (bOfflineCompile && bHasShaderSource)
+	{
+		GlslCodeNSString = [NSString stringWithUTF8String:ShaderSource];
+		check(GlslCodeNSString);
+		[GlslCodeNSString retain];
+	}
+	else
+	{
+		GlslCodeNSString = [Offline retain];
+	}
+	
 	// Find the existing compiled shader in the cache.
 	if (!Header.bFunctionConstants)
 	{
@@ -138,24 +154,6 @@ void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& I
 	}
 	if (!Function)
 	{
-		// Archived shaders should never get in here.
-		check(!(Header.CompileFlags & (1 << CFLAG_Archive)) || BufferSize > 0);
-		
-		static NSString* const Offline = @"OFFLINE";
-		bool bOfflineCompile = (OfflineCompiledFlag > 0);
-		
-		const ANSICHAR* ShaderSource = ShaderCode.FindOptionalData('c');
-		bool const bHasShaderSource = (ShaderSource && FCStringAnsi::Strlen(ShaderSource) > 0);
-		if (bOfflineCompile && bHasShaderSource)
-		{
-			GlslCodeNSString = [NSString stringWithUTF8String:ShaderSource];
-			[GlslCodeNSString retain];
-		}
-		else
-		{
-			GlslCodeNSString = [Offline retain];
-		}
-		
 		if (bOfflineCompile && bHasShaderSource)
 		{
 			// For debug/dev/test builds we can use the stored code for debugging - but shipping builds shouldn't have this as it is inappropriate.
@@ -197,7 +195,7 @@ void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& I
 #endif
 			// Switch the compile mode so we get debuggable shaders even if we failed to save - if we didn't want
 			// shader debugging we wouldn't have included the code...
-			bOfflineCompile = bSavedSource;
+			bOfflineCompile = bSavedSource || (bOfflineCompile && !FMetalCommandQueue::SupportsFeature(EMetalFeaturesGPUTrace));
 #endif
 		}
 		else
@@ -205,24 +203,33 @@ void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& I
 			GlslCodeNSString = [Offline retain];
 		}
 
-		if (bOfflineCompile)
+		if (bOfflineCompile METAL_DEBUG_OPTION(&& !(bHasShaderSource && FMetalCommandQueue::SupportsFeature(EMetalFeaturesGPUTrace))))
 		{
-		
-			// allow GCD to copy the data into its own buffer
-			//		dispatch_data_t GCDBuffer = dispatch_data_create(InShaderCode.GetTypedData() + CodeOffset, ShaderCode.GetActualShaderCodeSize() - CodeOffset, nil, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
-			void* Buffer = FMemory::Malloc( BufferSize );
-			FMemory::Memcpy( Buffer, InShaderCode.GetData() + CodeOffset, BufferSize );
-			dispatch_data_t GCDBuffer = dispatch_data_create(Buffer, BufferSize, dispatch_get_main_queue(), ^(void) { FMemory::Free(Buffer); } );
-
-			// load up the already compiled shader
-			NSError* Error;
-			Library = [GetMetalDeviceContext().GetDevice() newLibraryWithData:GCDBuffer error:&Error];
-			if (Library == nil)
+			if (InLibrary)
 			{
-				NSLog(@"Failed to create library: %@", Error);
+				Library = [InLibrary retain];
 			}
-			
-			dispatch_release(GCDBuffer);
+			else
+			{
+				// Archived shaders should never get in here.
+				check(!(Header.CompileFlags & (1 << CFLAG_Archive)) || BufferSize > 0);
+				
+				// allow GCD to copy the data into its own buffer
+				//		dispatch_data_t GCDBuffer = dispatch_data_create(InShaderCode.GetTypedData() + CodeOffset, ShaderCode.GetActualShaderCodeSize() - CodeOffset, nil, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+				void* Buffer = FMemory::Malloc( BufferSize );
+				FMemory::Memcpy( Buffer, InShaderCode.GetData() + CodeOffset, BufferSize );
+				dispatch_data_t GCDBuffer = dispatch_data_create(Buffer, BufferSize, dispatch_get_main_queue(), ^(void) { FMemory::Free(Buffer); } );
+
+				// load up the already compiled shader
+				NSError* Error;
+				Library = [GetMetalDeviceContext().GetDevice() newLibraryWithData:GCDBuffer error:&Error];
+				if (Library == nil)
+				{
+					NSLog(@"Failed to create library: %@", Error);
+				}
+				
+				dispatch_release(GCDBuffer);
+			}
 		}
 		else
 		{
@@ -238,11 +245,18 @@ void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& I
 			CompileOptions.fastMathEnabled = (BOOL)(!(Header.CompileFlags & (1 << CFLAG_NoFastMath)));
 			if (GetMetalDeviceContext().SupportsFeature(EMetalFeaturesShaderVersions))
 			{
+                if (Header.Version < 3)
+                {
 #if PLATFORM_MAC
-				CompileOptions.languageVersion = Header.Version == 0 ? MTLLanguageVersion1_1 : (MTLLanguageVersion)((1 << 16) + Header.Version);
+                    CompileOptions.languageVersion = Header.Version == 0 ? MTLLanguageVersion1_1 : (MTLLanguageVersion)((1 << 16) + FMath::Min(Header.Version, (uint8)2u));
 #else
-				CompileOptions.languageVersion = (MTLLanguageVersion)((1 << 16) + Header.Version);
+                    CompileOptions.languageVersion = (MTLLanguageVersion)((1 << 16) + FMath::Min(Header.Version, (uint8)2u));
 #endif
+                }
+                else if (Header.Version == 3)
+                {
+                    CompileOptions.languageVersion = (MTLLanguageVersion)(2 << 16);
+                }
 			}
 #if DEBUG_METAL_SHADERS
 			NSDictionary *PreprocessorMacros = @{ @"MTLSL_ENABLE_DEBUG_INFO" : @(1)};
@@ -284,68 +298,6 @@ void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& I
 	Bindings = Header.Bindings;
 	UniformBuffersCopyInfo = Header.UniformBuffersCopyInfo;
 	SideTableBinding = Header.SideTable;
-}
-
-template<typename BaseResourceType, int32 ShaderType>
-void TMetalBaseShader<BaseResourceType, ShaderType>::Init(const TArray<uint8>& InShaderCode, id<MTLLibrary> InLibrary, FMetalCodeHeader& Header)
-{
-	check(InLibrary);
-	
-	FShaderCodeReader ShaderCode(InShaderCode);
-	
-	FMemoryReader Ar(InShaderCode, true);
-	
-	Ar.SetLimitSize(ShaderCode.GetActualShaderCodeSize());
-	
-	// was the shader already compiled offline?
-	uint8 OfflineCompiledFlag;
-	Ar << OfflineCompiledFlag;
-	
-	// Should always be offline compiled
-	if(OfflineCompiledFlag == 1)
-	{
-		// get the header
-		Header = { 0 };
-		Ar << Header;
-		
-		// Only archived shaders should be in here.
-		UE_CLOG(!(Header.CompileFlags & (1 << CFLAG_Archive)), LogMetal, Warning, TEXT("Loaded a shader from a library that wasn't marked for archiving."));
-		{
-			// Find the existing compiled shader in the cache.
-			FMetalCompiledShaderKey Key(Header.SourceLen, Header.SourceCRC);
-			if (!Header.bFunctionConstants)
-			{
-				Function = [GetMetalCompiledShaderCache().FindRef(Key) retain];
-			}
-			if (!Function)
-			{
-				Library = [InLibrary retain];
-				
-				static NSString* const Offline = @"OFFLINE";
-				GlslCodeNSString = [Offline retain];
-
-				if (!Header.bFunctionConstants)
-				{
-					// Get the function from the library - the function name is "Main" followed by the CRC32 of the source MTLSL as 0-padded hex.
-					// This ensures that even if we move to a unified library that the function names will be unique - duplicates will only have one entry in the library.
-					NSString* Name = [NSString stringWithFormat:@"Main_%0.8x_%0.8x", Header.SourceLen, Header.SourceCRC];
-					Function = [[Library newFunctionWithName:Name] retain];
-					check(Function);
-					if (Function)
-					{
-						GetMetalCompiledShaderCache().Add(Key, Function);
-						TRACK_OBJECT(STAT_MetalFunctionCount, Function);
-					}
-					[Library release];
-					Library = nil;
-				}
-			}
-			
-			Bindings = Header.Bindings;
-			UniformBuffersCopyInfo = Header.UniformBuffersCopyInfo;
-			SideTableBinding = Header.SideTable;
-		}
-	}
 }
 
 /** Destructor */
@@ -414,7 +366,7 @@ FMetalComputeShader::FMetalComputeShader(const TArray<uint8>& InCode, id<MTLLibr
 , NumThreadsZ(0)
 {
 	FMetalCodeHeader Header = {0};
-	Init(InCode, InLibrary, Header);
+	Init(InCode, Header, InLibrary);
 	
 	NumThreadsX = FMath::Max((int32)Header.NumThreadsX, 1);
 	NumThreadsY = FMath::Max((int32)Header.NumThreadsY, 1);
@@ -491,7 +443,7 @@ FMetalVertexShader::FMetalVertexShader(const TArray<uint8>& InCode)
 FMetalVertexShader::FMetalVertexShader(const TArray<uint8>& InCode, id<MTLLibrary> InLibrary)
 {
 	FMetalCodeHeader Header = {0};
-	Init(InCode, InLibrary, Header);
+	Init(InCode, Header, InLibrary);
 	
 	TessellationOutputAttribs = Header.TessellationOutputAttribs;
 	TessellationPatchCountBuffer = Header.TessellationPatchCountBuffer;
@@ -516,7 +468,7 @@ FMetalPixelShader::FMetalPixelShader(const TArray<uint8>& InCode)
 FMetalPixelShader::FMetalPixelShader(const TArray<uint8>& InCode, id<MTLLibrary> InLibrary)
 {
 	FMetalCodeHeader Header = {0};
-	Init(InCode, InLibrary, Header);
+	Init(InCode, Header, InLibrary);
 }
 
 FMetalHullShader::FMetalHullShader(const TArray<uint8>& InCode)
@@ -528,7 +480,7 @@ FMetalHullShader::FMetalHullShader(const TArray<uint8>& InCode)
 FMetalHullShader::FMetalHullShader(const TArray<uint8>& InCode, id<MTLLibrary> InLibrary)
 {
 	FMetalCodeHeader Header = {0};
-	Init(InCode, InLibrary, Header);
+	Init(InCode, Header, InLibrary);
 }
 
 FMetalDomainShader::FMetalDomainShader(const TArray<uint8>& InCode)
@@ -561,7 +513,7 @@ FMetalDomainShader::FMetalDomainShader(const TArray<uint8>& InCode)
 FMetalDomainShader::FMetalDomainShader(const TArray<uint8>& InCode, id<MTLLibrary> InLibrary)
 {
 	FMetalCodeHeader Header = {0};
-	Init(InCode, InLibrary, Header);
+	Init(InCode, Header, InLibrary);
 	
 	// for VSHS
 	TessellationHSOutBuffer = Header.TessellationHSOutBuffer;
@@ -975,150 +927,6 @@ FRHIShaderLibraryRef FMetalDynamicRHI::RHICreateShaderLibrary(EShaderPlatform Pl
 	}
 }
 
-FMetalBoundShaderState::FMetalBoundShaderState(
-			FVertexDeclarationRHIParamRef InVertexDeclarationRHI,
-			FVertexShaderRHIParamRef InVertexShaderRHI,
-			FPixelShaderRHIParamRef InPixelShaderRHI,
-			FHullShaderRHIParamRef InHullShaderRHI,
-			FDomainShaderRHIParamRef InDomainShaderRHI,
-			FGeometryShaderRHIParamRef InGeometryShaderRHI)
-	:	CacheLink(InVertexDeclarationRHI,InVertexShaderRHI,InPixelShaderRHI,InHullShaderRHI,InDomainShaderRHI,InGeometryShaderRHI,this)
-{
-	FMetalVertexDeclaration* InVertexDeclaration = ResourceCast(InVertexDeclarationRHI);
-	FMetalVertexShader* InVertexShader = ResourceCast(InVertexShaderRHI);
-	FMetalPixelShader* InPixelShader = ResourceCast(InPixelShaderRHI);
-	FMetalHullShader* InHullShader = ResourceCast(InHullShaderRHI);
-	FMetalDomainShader* InDomainShader = ResourceCast(InDomainShaderRHI);
-	FMetalGeometryShader* InGeometryShader = ResourceCast(InGeometryShaderRHI);
-
-	// cache everything
-	VertexDeclaration = InVertexDeclaration;
-	VertexShader = InVertexShader;
-	PixelShader = InPixelShader;
-	HullShader = InHullShader;
-	DomainShader = InDomainShader;
-	GeometryShader = InGeometryShader;
-
-#if 0
-	if (GFrameCounter > 3)
-	{
-		NSLog(@"===============================================================");
-		NSLog(@"Creating a BSS at runtime frame %lld... this may hitch! [this = %p]", GFrameCounter, this);
-		NSLog(@"Vertex declaration:");
-		FVertexDeclarationElementList& Elements = VertexDeclaration->Elements;
-		for (int32 i = 0; i < Elements.Num(); i++)
-		{
-			FVertexElement& Elem = Elements[i];
-			NSLog(@"   Elem %d: attr: %d, stream: %d, type: %d, stride: %d, offset: %d", i, Elem.AttributeIndex, Elem.StreamIndex, (uint32)Elem.Type, Elem.Stride, Elem.Offset);
-		}
-		
-		NSLog(@"\nVertexShader:");
-		NSLog(@"%@", VertexShader ? VertexShader->GlslCodeNSString : @"NONE");
-		NSLog(@"\nPixelShader:");
-		NSLog(@"%@", PixelShader ? PixelShader->GlslCodeNSString : @"NONE");
-		NSLog(@"===============================================================");
-	}
-#endif
-	
-	AddRef();
-	
-#if METAL_SUPPORTS_PARALLEL_RHI_EXECUTE
-	CacheLink.AddToCache();
-#endif
-	
-	int Err = pthread_rwlock_init(&PipelineMutex, nullptr);
-	checkf(Err == 0, TEXT("pthread_rwlock_init failed with errno: %d"), Err);
-}
-
-FMetalBoundShaderState::~FMetalBoundShaderState()
-{
-#if METAL_SUPPORTS_PARALLEL_RHI_EXECUTE
-	CacheLink.RemoveFromCache();
-#endif
-	
-	int Err = pthread_rwlock_destroy(&PipelineMutex);
-	checkf(Err == 0, TEXT("pthread_rwlock_destroy failed with errno: %d"), Err);
-}
-
-FMetalShaderPipeline* FMetalBoundShaderState::PrepareToDraw(FMetalHashedVertexDescriptor const& VertexDesc, const FMetalRenderPipelineDesc& RenderPipelineDesc)
-{
-	SCOPE_CYCLE_COUNTER(STAT_MetalBoundShaderPrepareDrawTime);
-	
-	// generate a key for the current statez
-	FMetalRenderPipelineHash PipelineHash = RenderPipelineDesc.GetHash();
-	
-	if(GUseRHIThread)
-	{
-		SCOPE_CYCLE_COUNTER(STAT_MetalBoundShaderLockTime);
-		int Err = pthread_rwlock_rdlock(&PipelineMutex);
-		checkf(Err == 0, TEXT("pthread_rwlock_rdlock failed with errno: %d"), Err);
-	}
-	
-	// have we made a matching state object yet?
-    FMetalShaderPipeline* PipelineStatePack = nil;
-	TMap<FMetalHashedVertexDescriptor, FMetalShaderPipeline*>* Dict = PipelineStates.Find(PipelineHash);
-	if (Dict)
-	{
-		PipelineStatePack = Dict->FindRef(VertexDesc);
-	}
-	
-	if(GUseRHIThread)
-	{
-		SCOPE_CYCLE_COUNTER(STAT_MetalBoundShaderLockTime);
-		int Err = pthread_rwlock_unlock(&PipelineMutex);
-		checkf(Err == 0, TEXT("pthread_rwlock_unlock failed with errno: %d"), Err);
-	}
-	
-	// make one if not
-	if (PipelineStatePack == nil)
-	{
-		PipelineStatePack = RenderPipelineDesc.CreatePipelineStateForBoundShaderState(this, VertexDesc);
-		check(PipelineStatePack);
-		
-		if(GUseRHIThread)
-		{
-			SCOPE_CYCLE_COUNTER(STAT_MetalBoundShaderLockTime);
-			int Err = pthread_rwlock_wrlock(&PipelineMutex);
-			checkf(Err == 0, TEXT("pthread_rwlock_wrlock failed with errno: %d"), Err);
-		}
-		
-		Dict = PipelineStates.Find(PipelineHash);
-		FMetalShaderPipeline* ExistingPipeline = Dict ? Dict->FindRef(VertexDesc) : nil;
-		if (!ExistingPipeline)
-		{
-			if (Dict)
-			{
-				Dict->Add(VertexDesc, PipelineStatePack);
-			}
-			else
-			{
-				TMap<FMetalHashedVertexDescriptor, FMetalShaderPipeline*>& InnerDict = PipelineStates.Add(PipelineHash);
-				InnerDict.Add(VertexDesc, PipelineStatePack);
-			}
-		}
-		else
-		{
-			PipelineStatePack = ExistingPipeline;
-		}
-		
-		if(GUseRHIThread)
-		{
-			SCOPE_CYCLE_COUNTER(STAT_MetalBoundShaderLockTime);
-			int Err = pthread_rwlock_unlock(&PipelineMutex);
-			checkf(Err == 0, TEXT("pthread_rwlock_unlock failed with errno: %d"), Err);
-		}
-		
-#if METAL_DEBUG_OPTIONS
-		if (GFrameCounter > 3)
-		{
-			NSLog(@"Created a hitchy pipeline state for hash %llx%llx%llx (this = %p)", (uint64)PipelineHash.RasterBits, (uint64)(PipelineHash.TargetBits), (uint64)VertexDesc.VertexDescHash, this);
-		}
-#endif
-	}
-
-	return PipelineStatePack;
-}
-
 FBoundShaderStateRHIRef FMetalDynamicRHI::RHICreateBoundShaderState(
 	FVertexDeclarationRHIParamRef VertexDeclarationRHI, 
 	FVertexShaderRHIParamRef VertexShaderRHI, 
@@ -1128,60 +936,9 @@ FBoundShaderStateRHIRef FMetalDynamicRHI::RHICreateBoundShaderState(
 	FGeometryShaderRHIParamRef GeometryShaderRHI
 	)
 {
-	@autoreleasepool {
-#if METAL_SUPPORTS_PARALLEL_RHI_EXECUTE
-	// Check for an existing bound shader state which matches the parameters
-	FBoundShaderStateRHIRef CachedBoundShaderStateLink = GetCachedBoundShaderState_Threadsafe(
-		VertexDeclarationRHI,
-		VertexShaderRHI,
-		PixelShaderRHI,
-		HullShaderRHI,
-		DomainShaderRHI,
-		GeometryShaderRHI
-		);
-
-	if(CachedBoundShaderStateLink.GetReference())
-	{
-		// If we've already created a bound shader state with these parameters, reuse it.
-		return CachedBoundShaderStateLink;
-	}
-#else
-	// Check for an existing bound shader state which matches the parameters
-	FCachedBoundShaderStateLink* CachedBoundShaderStateLink = GetCachedBoundShaderState(
-		VertexDeclarationRHI,
-		VertexShaderRHI,
-		PixelShaderRHI,
-		HullShaderRHI,
-		DomainShaderRHI,
-		GeometryShaderRHI
-		);
-
-	if(CachedBoundShaderStateLink)
-	{
-		// If we've already created a bound shader state with these parameters, reuse it.
-		return CachedBoundShaderStateLink->BoundShaderState;
-	}
-#endif
-	else
-	{
-		SCOPE_CYCLE_COUNTER(STAT_MetalBoundShaderStateTime);
-//		FBoundShaderStateKey Key(VertexDeclarationRHI,VertexShaderRHI,PixelShaderRHI,HullShaderRHI,DomainShaderRHI,GeometryShaderRHI);
-//		NSLog(@"BSS Key = %x", GetTypeHash(Key));
-		FMetalBoundShaderState* State = new FMetalBoundShaderState(VertexDeclarationRHI,VertexShaderRHI,PixelShaderRHI,HullShaderRHI,DomainShaderRHI,GeometryShaderRHI);
-		
-		FShaderCache::LogBoundShaderState(ImmediateContext.Context->GetCurrentState().GetShaderCacheStateObject(), GMaxRHIShaderPlatform, VertexDeclarationRHI, VertexShaderRHI, State->PixelShader, HullShaderRHI, DomainShaderRHI, GeometryShaderRHI, State);
-		
-		return State;
-	}
-	}
+	NOT_SUPPORTED("RHICreateBoundShaderState");
+	return nullptr;
 }
-
-
-
-
-
-
-
 
 FMetalShaderParameterCache::FMetalShaderParameterCache() :
 	GlobalUniformArraySize(-1)
@@ -1279,8 +1036,8 @@ void FMetalShaderParameterCache::CommitPackedGlobals(FMetalStateCache* Cache, FM
 			uint8 const* Bytes = PackedGlobalUniforms[UniformBufferIndex];
 			uint32 Size = FMath::Min(TotalSize, SizeToUpload);
 			
-			uint32 Offset = Encoder->GetRingBuffer()->Allocate(Size, 0);
-			id<MTLBuffer> Buffer = Encoder->GetRingBuffer()->Buffer;
+			uint32 Offset = Encoder->GetRingBuffer().Allocate(Size, 0);
+			id<MTLBuffer> Buffer = Encoder->GetRingBuffer().Buffer->Buffer;
 			
 			FMemory::Memcpy((uint8*)[Buffer contents] + Offset, Bytes, Size);
 			
@@ -1292,7 +1049,7 @@ void FMetalShaderParameterCache::CommitPackedGlobals(FMetalStateCache* Cache, FM
 	}
 }
 
-void FMetalShaderParameterCache::CommitPackedUniformBuffers(FMetalStateCache* Cache, TRefCountPtr<FMetalBoundShaderState> BoundShaderState, FMetalComputeShader* ComputeShader, int32 Stage, const TArray< TRefCountPtr<FRHIUniformBuffer> >& RHIUniformBuffers, const TArray<CrossCompiler::FUniformBufferCopyInfo>& UniformBuffersCopyInfo)
+void FMetalShaderParameterCache::CommitPackedUniformBuffers(FMetalStateCache* Cache, TRefCountPtr<FMetalGraphicsPipelineState> BoundShaderState, FMetalComputeShader* ComputeShader, int32 Stage, const TArray< TRefCountPtr<FRHIUniformBuffer> >& RHIUniformBuffers, const TArray<CrossCompiler::FUniformBufferCopyInfo>& UniformBuffersCopyInfo)
 {
 //	SCOPE_CYCLE_COUNTER(STAT_MetalConstantBufferUpdateTime);
 	// Uniform Buffers are split into precision/type; the list of RHI UBs is traversed and if a new one was set, its

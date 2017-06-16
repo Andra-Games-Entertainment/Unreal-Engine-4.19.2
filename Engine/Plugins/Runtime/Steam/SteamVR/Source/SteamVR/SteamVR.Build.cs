@@ -41,7 +41,13 @@ namespace UnrealBuildTool.Rules
             if (Target.Platform == UnrealTargetPlatform.Win32 || Target.Platform == UnrealTargetPlatform.Win64)
             {
 				AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenVR");
-                PrivateDependencyModuleNames.AddRange(new string[] { "D3D11RHI" });     //@todo steamvr: multiplatform
+                PrivateDependencyModuleNames.AddRange(new string[] { "D3D11RHI" });
+            }
+            else if (Target.Platform == UnrealTargetPlatform.Mac)
+            {
+				PublicFrameworks.Add("IOSurface");
+                AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenVR");
+                PrivateDependencyModuleNames.AddRange(new string[] { "MetalRHI" });
             }
 			else if (Target.Platform == UnrealTargetPlatform.Linux)
 			{

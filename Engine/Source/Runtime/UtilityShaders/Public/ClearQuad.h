@@ -14,6 +14,7 @@ class FRHIUnorderedAccessView;
 extern UTILITYSHADERS_API const uint32 GMaxSizeUAVDMA;
 extern UTILITYSHADERS_API void ClearUAV(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, const FRWBufferStructured& StructuredBuffer, uint32 Value);
 extern UTILITYSHADERS_API void ClearUAV(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, const FRWBuffer& Buffer, uint32 Value);
+extern UTILITYSHADERS_API void ClearUAV(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FRHIUnorderedAccessView* Buffer, uint32 NumBytes, uint32 Value);
 
 extern UTILITYSHADERS_API void ClearUAV(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, const FSceneRenderTargetItem& RenderTargetItem, const float(&ClearValues)[4]);
 extern UTILITYSHADERS_API void ClearUAV(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, const FSceneRenderTargetItem& RenderTargetItem, const uint32(&ClearValues)[4]);

@@ -108,14 +108,14 @@ ENGINE_API bool DoSkeletalMeshIndexBuffersNeedSRV()
 {
 	// currently only implemented and tested on Window SM5 (needs Compute, Atomics, SRV for index buffers, UAV for VertexBuffers)
 //#todo-gpuskin: Enable on PS4 when SRVs for IB exist
-	return (GMaxRHIShaderPlatform == SP_PCD3D_SM5 || GMaxRHIShaderPlatform == SP_METAL_SM5) && IsGPUSkinCacheAvailable();
+	return (GMaxRHIShaderPlatform == SP_PCD3D_SM5 || GMaxRHIShaderPlatform == SP_METAL_SM5 || GMaxRHIShaderPlatform == SP_METAL_MRT_MAC || GMaxRHIShaderPlatform == SP_METAL_MRT) && IsGPUSkinCacheAvailable();
 }
 
 ENGINE_API bool DoRecomputeSkinTangentsOnGPU_RT()
 {
 	// currently only implemented and tested on Window SM5 (needs Compute, Atomics, SRV for index buffers, UAV for VertexBuffers)
 //#todo-gpuskin: Enable on PS4 when SRVs for IB exist
-	return (GMaxRHIShaderPlatform == SP_PCD3D_SM5 || GMaxRHIShaderPlatform == SP_METAL_SM5) && GEnableGPUSkinCacheShaders != 0 && ((GEnableGPUSkinCache && GSkinCacheRecomputeTangents != 0) || GForceRecomputeTangents != 0);
+	return (GMaxRHIShaderPlatform == SP_PCD3D_SM5 || GMaxRHIShaderPlatform == SP_METAL_SM5 || GMaxRHIShaderPlatform == SP_METAL_MRT_MAC || GMaxRHIShaderPlatform == SP_METAL_MRT) && GEnableGPUSkinCacheShaders != 0 && ((GEnableGPUSkinCache && GSkinCacheRecomputeTangents != 0) || GForceRecomputeTangents != 0);
 }
 
 
@@ -236,7 +236,14 @@ public:
 
 	bool IsSectionValid(int32 Section)
 	{
-		return DispatchData[Section].SectionIndex == Section;
+		const FSectionDispatchData& SectionData = DispatchData[Section];
+		return SectionData.SectionIndex == Section;
+	}
+
+	bool IsSourceFactoryValid(int32 Section, FGPUBaseSkinVertexFactory* SourceVertexFactory)
+	{
+		const FSectionDispatchData& SectionData = DispatchData[Section];
+		return SectionData.SourceVertexFactory == SourceVertexFactory;
 	}
 
 	bool IsValid(FSkeletalMeshObjectGPUSkin* InSkin)
@@ -546,7 +553,7 @@ public:
 	static bool ShouldCache(EShaderPlatform Platform)
 	{
 		// currently only implemented and tested on Window SM5 (needs Compute, Atomics, SRV for index buffers, UAV for VertexBuffers)
-		return Platform == SP_PCD3D_SM5 || Platform == SP_METAL_SM5;
+		return Platform == SP_PCD3D_SM5 || Platform == SP_METAL_SM5 || Platform == SP_METAL_MRT_MAC || Platform == SP_METAL_MRT;
 	}
 
 	static const uint32 ThreadGroupSizeX = 64;
@@ -668,7 +675,7 @@ class FRecomputeTangentsPerVertexPassCS : public FGlobalShader
 	static bool ShouldCache(EShaderPlatform Platform)
 	{
 		// currently only implemented and tested on Window SM5 (needs Compute, Atomics, SRV for index buffers, UAV for VertexBuffers)
-		return Platform == SP_PCD3D_SM5 || Platform == SP_METAL_SM5;
+		return Platform == SP_PCD3D_SM5 || Platform == SP_METAL_SM5 || Platform == SP_METAL_MRT_MAC || Platform == SP_METAL_MRT;
 	}
 
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
@@ -923,7 +930,7 @@ void FGPUSkinCache::ProcessEntry(FRHICommandListImmediate& RHICmdList, FGPUBaseS
 		}
 		else
 		{
-			if (!InOutEntry->IsSectionValid(Section))
+			if (!InOutEntry->IsSectionValid(Section) || !InOutEntry->IsSourceFactoryValid(Section, VertexFactory))
 			{
 				// This section might not be valid yet, so set it up
 				int32 TotalNumVertices = VertexFactory->GetSkinVertexBuffer()->GetNumVertices();
@@ -1013,7 +1020,7 @@ void FGPUSkinCache::SetVertexStreams(FGPUSkinCacheEntry* Entry, int32 Section, F
 	FGPUSkinCacheEntry::FSectionDispatchData& DispatchData = Entry->DispatchData[Section];
 
 	//UE_LOG(LogSkinCache, Warning, TEXT("*** SetVertexStreams E %p All %p Sec %d(%p) LOD %d"), Entry, Entry->DispatchData[Section].Allocation, Section, Entry->DispatchData[Section].Section, Entry->LOD);
-	RHICmdList.SetStreamSource(VertexFactory->GetStreamIndex(), DispatchData.GetRWBuffer().Buffer, RWStrideInFloats * sizeof(float), 0);
+	RHICmdList.SetStreamSource(VertexFactory->GetStreamIndex(), DispatchData.GetRWBuffer().Buffer, 0);
 
 	FVertexShaderRHIParamRef ShaderRHI = Shader->GetVertexShader();
 	if (ShaderRHI && PreviousStreamBuffer.IsBound())

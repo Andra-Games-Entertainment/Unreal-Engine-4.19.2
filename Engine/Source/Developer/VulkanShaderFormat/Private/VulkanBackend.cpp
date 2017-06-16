@@ -235,6 +235,13 @@ static const char * const GLSLExpressionTable[ir_opcode_count][4] =
 	{ "findMSB(", ")", "", "" }, // ir_unop_msb,
 	{ "findLSB(", ")", "", "" }, // ir_unop_lsb,
 
+	/**
+	* \name Saturate.
+	*/
+	/*@{*/
+	{ "ERROR_NO_SATURATE_FUNCS(", ")", "", "" }, // ir_unop_saturate,
+	/*@}*/
+
 	{ "ERROR_NO_NOISE_FUNCS(", ")", "", "" }, // ir_unop_noise,
 
 	{ "(", "+", ")", "" }, // ir_binop_add,

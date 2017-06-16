@@ -18,11 +18,15 @@ DECLARE_DELEGATE_FourParams(FOnRadialMenuGenerated, FMenuBuilder&, TSharedPtr<FU
 * VR Editor user interface manager
 */
 UCLASS()
-class UVRRadialMenuHandler : public UObject
+class UVRRadialMenuHandler: public UObject
 {
-	GENERATED_UCLASS_BODY()
+	GENERATED_BODY()
 
 public:
+
+	/** Default constructor */
+	UVRRadialMenuHandler();
+
 	/** Builds the current radial menu */
 	void BuildRadialMenuCommands(FMenuBuilder& MenuBuilder, TSharedPtr<FUICommandList> CommandList, UVREditorMode* VRMode, float& RadiusOverride);
 

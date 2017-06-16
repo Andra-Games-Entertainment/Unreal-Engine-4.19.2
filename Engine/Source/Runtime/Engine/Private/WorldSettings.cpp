@@ -175,6 +175,8 @@ float AWorldSettings::SetTimeDilation(float NewTimeDilation)
 void AWorldSettings::NotifyBeginPlay()
 {
 	UWorld* World = GetWorld();
+	MatineeTimeDilation = 1.0f;
+	DemoPlayTimeDilation = 1.0f;
 	if (!World->bBegunPlay)
 	{
 		for (FActorIterator It(World); It; ++It)

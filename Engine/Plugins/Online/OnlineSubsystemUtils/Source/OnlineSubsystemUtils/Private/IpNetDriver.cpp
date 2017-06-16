@@ -22,6 +22,8 @@ Notes:
 #include "IPAddress.h"
 #include "Sockets.h"
 
+#include "Engine/ActorChannel.h"
+
 /*-----------------------------------------------------------------------------
 	Declarations.
 -----------------------------------------------------------------------------*/
@@ -616,3 +618,50 @@ UIpConnection* UIpNetDriver::GetServerConnection()
 	return (UIpConnection*)ServerConnection;
 }
 
+
+namespace Net
+{
+	extern ENGINE_API FAutoConsoleVariable UseSmoothing;
+	extern ENGINE_API FAutoConsoleVariable SmoothingAlpha;
+}
+
+void UIpNetDriver::UpdateSmoothingOnClient( float DeltaSeconds )
+{
+	if( ServerConnection != nullptr )
+	{
+		const bool bUseSmoothing = Net::UseSmoothing->GetInt() != 0;
+		const float SmoothInterpAlpha = Net::SmoothingAlpha->GetFloat();
+
+		for( UChannel* Channel : ServerConnection->Channels )
+		{
+			UActorChannel* ActorChannel = Cast<UActorChannel>( Channel );
+			if( ActorChannel != nullptr )
+			{
+				AActor* Actor = ActorChannel->Actor;
+				if( Actor != nullptr )
+				{
+					if( bUseSmoothing )
+					{
+						if( Actor->IsNetMode( NM_Client ) )
+						{
+							auto& Components = Actor->GetComponents();
+							for( UActorComponent* Component : Components )
+							{
+								USceneComponent* SceneComponent = Cast<USceneComponent>( Component );
+								if( SceneComponent != nullptr )
+								{
+									if( SceneComponent->bAllowReplicatedTransformSmoothing && SceneComponent->bIsSmoothTargetTransformValid )
+									{
+										const FVector NewRelativeLocation = FMath::Lerp( SceneComponent->RelativeLocation, SceneComponent->SmoothTargetRelativeLocation, SmoothInterpAlpha );
+										const FRotator NewRelativeRotation = FQuat::Slerp( SceneComponent->RelativeRotation.Quaternion(), SceneComponent->SmoothTargetRelativeRotation.Quaternion(), SmoothInterpAlpha ).Rotator();
+										SceneComponent->SetRelativeLocationAndRotation( NewRelativeLocation, NewRelativeRotation, false, nullptr, ETeleportType::None );
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

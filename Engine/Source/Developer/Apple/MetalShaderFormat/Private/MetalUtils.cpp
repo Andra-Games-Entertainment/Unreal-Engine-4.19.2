@@ -189,6 +189,7 @@ namespace MetalUtils
 		{"SV_InstanceID", glsl_type::uint_type, "IN_InstanceID", ir_var_in, "[[ instance_id ]]"},
 		{"SV_Position", glsl_type::vec4_type, "Position", ir_var_out, "[[ position ]]"},
 		{"SV_RenderTargetArrayIndex", glsl_type::uint_type, "OUT_Layer", ir_var_out, "[[ render_target_array_index ]]"},
+		{"SV_ViewPortArrayIndex", glsl_type::uint_type, "OUT_Viewport", ir_var_out, "[[ viewport_array_index ]]"},
         {"SV_ClipDistance", glsl_type::float_type, "ClipDistance0", ir_var_out, "[[ clip_distance ]]"},
         {"SV_ClipDistance0", glsl_type::float_type, "ClipDistance0", ir_var_out, "[[ clip_distance ]]"},
 		//#todo-rco: Values 1..7 are not really defined well in the Metal Language Doc...
@@ -211,6 +212,7 @@ namespace MetalUtils
 		{"SV_IsFrontFace", glsl_type::bool_type, "IN_FrontFacing", ir_var_in, "[[ front_facing ]]"},
 		//{"SV_PrimitiveID", glsl_type::int_type, "IN_PrimitiveID", ir_var_in, "[[  ]]"},
 		//{"SV_RenderTargetArrayIndex", glsl_type::uint_type, "IN_Layer", ir_var_in, "[[ render_target_array_index ]]"},
+		//{"SV_ViewPortArrayIndex", glsl_type::uint_type, "IN_Viewport", ir_var_in, "[[ viewport_array_index ]]"},
 		{"SV_Target0", glsl_type::half4_type, "FragColor0", ir_var_out, "[[ color(0) ]]"},
 		{"SV_Target1", glsl_type::half4_type, "FragColor1", ir_var_out, "[[ color(1) ]]"},
 		{"SV_Target2", glsl_type::half4_type, "FragColor2", ir_var_out, "[[ color(2) ]]"},
@@ -256,6 +258,7 @@ namespace MetalUtils
 		{"SV_Coverage", glsl_type::uint_type, "OUT_Coverage", ir_var_out, "[[ sample_mask ]]"},
 		//{"SV_PrimitiveID", glsl_type::int_type, "IN_PrimitiveID", ir_var_in, "[[  ]]"},
 		//{"SV_RenderTargetArrayIndex", glsl_type::uint_type, "IN_Layer", ir_var_in, "[[ render_target_array_index ]]"},
+		//{"SV_ViewPortArrayIndex", glsl_type::uint_type, "IN_Viewport", ir_var_in, "[[ viewport_array_index ]]"},
 		{"SV_Target0", glsl_type::vec4_type, "FragColor0", ir_var_out, "[[ color(0) ]]"},
 		{"SV_Target1", glsl_type::vec4_type, "FragColor1", ir_var_out, "[[ color(1) ]]"},
 		{"SV_Target2", glsl_type::vec4_type, "FragColor2", ir_var_out, "[[ color(2) ]]"},
@@ -359,6 +362,7 @@ namespace MetalUtils
 		{"SV_DomainLocation", glsl_type::vec2_type, "PositionInPatch", ir_var_in, "[[ position_in_patch ]]"}, // @todo maybe add a NULL/void_type/error_type and set it using the passed in type for GenerateInputFromSemantic -- use it to simplify SV_Target as well
 		{"SV_DomainLocation", glsl_type::vec3_type, "PositionInPatch", ir_var_in, "[[ position_in_patch ]]"},
 		{"SV_RenderTargetArrayIndex", glsl_type::uint_type, "OUT_Layer", ir_var_out, "[[ render_target_array_index ]]"},
+		{"SV_ViewPortArrayIndex", glsl_type::uint_type, "OUT_Viewport", ir_var_out, "[[ viewport_array_index ]]"},
 		{"SV_ClipDistance", glsl_type::float_type, "ClipDistance0", ir_var_out, "[[ clip_distance ]]"},
 		{"SV_ClipDistance0", glsl_type::float_type, "ClipDistance0", ir_var_out, "[[ clip_distance ]]"},
 		//#todo-rco: Values 1..7 are not really defined well in the Metal Language Doc...
@@ -477,11 +481,16 @@ namespace MetalUtils
 
 		// If we're here, no built-in variables matched.
 		bool bUseSlice = false;
+		bool bUseViewport = false;
 		if (FCStringAnsi::Strnicmp(Semantic, "SV_", 3) == 0)
 		{
 			if (FCStringAnsi::Strnicmp(Semantic, "SV_RenderTargetArrayIndex", 25) == 0)
 			{
 				bUseSlice = true;
+			}
+			else if (FCStringAnsi::Strnicmp(Semantic, "SV_ViewPortArrayIndex", 21) == 0)
+			{
+				bUseViewport = true;
 			}
 			else
 			{
@@ -508,6 +517,11 @@ namespace MetalUtils
 		{
 			check(Frequency == HSF_PixelShader);
 			Variable->semantic = ralloc_asprintf(ParseState, "[[ render_target_array_index ]]");
+		}
+		else if (bUseViewport)
+		{
+			check(Frequency == HSF_PixelShader);
+			Variable->semantic = ralloc_asprintf(ParseState, "[[ viewport_array_index ]]");
 		}
 
 		if (Variable->type->is_patch())
@@ -1071,15 +1085,36 @@ void FMetalCodeBackend::MovePackedUniformsToMain(exec_list* ir, _mesa_glsl_parse
 		auto* Var = Instruction->as_variable();
 		if (Var)
 		{
-			check(Var->mode == ir_var_uniform || Var->mode == ir_var_out || Var->mode == ir_var_in || Var->mode == ir_var_shared);
-			if ((!Var->type->is_sampler() && !Var->type->is_image()) || Var->type->sampler_buffer)
-            {
-                OutBuffers.Buffers.Add(Var);
-            }
-            else
-            {
-                OutBuffers.Textures.Add(Var);
-            }
+			bool bIsBuffer = false;
+			switch(TypedMode)
+			{
+				case EMetalTypeBufferModeNone:
+				{
+					bIsBuffer = (!Var->type->is_sampler() && !Var->type->is_image()) || Var->type->sampler_buffer;
+					break;
+				}
+				case EMetalTypeBufferModeSRV:
+				{
+					bIsBuffer = (!Var->type->is_sampler() && !Var->type->is_image()) || (Var->type->sampler_buffer && (Var->type->is_image() || Var->type->inner_type->is_record() || OutBuffers.AtomicVariables.find(Var) != OutBuffers.AtomicVariables.end()));
+					break;
+				}
+				case EMetalTypeBufferModeUAV:
+				{
+					bIsBuffer = (!Var->type->is_sampler() && !Var->type->is_image()) || (Var->type->sampler_buffer && (OutBuffers.AtomicVariables.find(Var) != OutBuffers.AtomicVariables.end() || Var->type->inner_type->is_record()));
+					break;
+				}
+				default:
+					check(false);
+					break;
+			}
+			if (bIsBuffer)
+			{
+				OutBuffers.AddBuffer(Var);
+			}
+			else
+			{
+				OutBuffers.AddTexture(Var);
+			}
 		}
 	}
     
@@ -1289,7 +1324,8 @@ static FSystemValue VertexSystemValueTable[] =
 {
 	{"SV_VertexID", glsl_type::uint_type, "gl_VertexID", ir_var_in, false, false},
 	{"SV_InstanceID", glsl_type::uint_type, "gl_InstanceID", ir_var_in, false, false},
-    {"SV_RenderTargetArrayIndex", glsl_type::uint_type, "OUT_Layer", ir_var_out, false, false},
+	{"SV_RenderTargetArrayIndex", glsl_type::uint_type, "OUT_Layer", ir_var_out, false, false},
+	{"SV_ViewPortArrayIndex", glsl_type::uint_type, "OUT_Viewport", ir_var_out, false, false},
     //{ "SV_Position", glsl_type::vec4_type, "gl_Position", ir_var_out, false, true },
 	{NULL, NULL, NULL, ir_var_auto, false, false}
 };
@@ -1303,7 +1339,8 @@ static FSystemValue PixelSystemValueTable[] =
 	{"SV_Coverage", glsl_type::uint_type, "OUT_Coverage", ir_var_out, false, false},
 	//	{ "SV_IsFrontFace", glsl_type::bool_type, "gl_FrontFacing", ir_var_in, false, true },
     {"SV_PrimitiveID", glsl_type::int_type, "gl_PrimitiveID", ir_var_in, false, false},
-    {"SV_RenderTargetArrayIndex", glsl_type::uint_type, "IN_Layer", ir_var_in, false, false},
+	{"SV_RenderTargetArrayIndex", glsl_type::uint_type, "IN_Layer", ir_var_in, false, false},
+	{"SV_ViewPortArrayIndex", glsl_type::uint_type, "IN_Viewport", ir_var_in, false, false},
 	//	{ "SV_RenderTargetArrayIndex", glsl_type::uint_type, "gl_Layer", ir_var_in, false, false },
 	//	{ "SV_Target0", glsl_type::vec4_type, "gl_FragColor", ir_var_out, false, true },
 	{NULL, NULL, NULL, ir_var_auto, false, false}

@@ -19,6 +19,7 @@
 #include "PipelineStateCache.h"
 #include "ClearQuad.h"
 #include "Engine/Texture2D.h"
+#include "IImageWrapper.h"
 
 //////////////////////////////////////////////////////////////////////////
 // UKismetRenderingLibrary
@@ -49,7 +50,7 @@ void UKismetRenderingLibrary::ClearRenderTarget2D(UObject* WorldContextObject, U
 	}
 }
 
-UTextureRenderTarget2D* UKismetRenderingLibrary::CreateRenderTarget2D(UObject* WorldContextObject, int32 Width, int32 Height)
+UTextureRenderTarget2D* UKismetRenderingLibrary::CreateRenderTarget2D(UObject* WorldContextObject, int32 Width, int32 Height, bool bHDR)
 {
 	check(WorldContextObject);
 	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject);
@@ -57,6 +58,7 @@ UTextureRenderTarget2D* UKismetRenderingLibrary::CreateRenderTarget2D(UObject* W
 	if (Width > 0 && Height > 0 && World && FApp::CanEverRender())
 	{
 		UTextureRenderTarget2D* NewRenderTarget2D = NewObject<UTextureRenderTarget2D>(WorldContextObject);
+		NewRenderTarget2D->bHDR = bHDR;
 		check(NewRenderTarget2D);
 		NewRenderTarget2D->InitAutoFormat(Width, Height); 
 		NewRenderTarget2D->UpdateResourceImmediate(true);
@@ -145,7 +147,25 @@ void UKismetRenderingLibrary::ExportRenderTarget(UObject* WorldContextObject, UT
 		if (Ar)
 		{
 			FBufferArchive Buffer;
-			bool bSuccess = FImageUtils::ExportRenderTarget2DAsHDR(TextureRenderTarget, Buffer);
+
+			bool bSuccess = false;
+			if (TextureRenderTarget->bHDR)
+			{
+				// Note == is case insensitive
+				if (FPaths::GetExtension(TotalFileName) == TEXT("HDR"))
+				{
+					bSuccess = FImageUtils::ExportRenderTarget2DAsHDR(TextureRenderTarget, Buffer);
+				}
+				else
+				{
+					bSuccess = FImageUtils::ExportRenderTarget2DAsEXR(TextureRenderTarget, Buffer);
+				}
+				
+			}
+			else
+			{
+				bSuccess = FImageUtils::ExportRenderTarget2DAsPNG(TextureRenderTarget, Buffer);
+			}
 
 			if (bSuccess)
 			{
@@ -264,6 +284,11 @@ void UKismetRenderingLibrary::ExportTexture2D(UObject* WorldContextObject, UText
 	{
 		FMessageLog("Blueprint").Warning(LOCTEXT("ExportTexture2D_InvalidFileName", "ExportTexture2D: FileName must be non-empty."));
 	}
+}
+
+UTexture2D* UKismetRenderingLibrary::ImportFileAsTexture2D(UObject* WorldContextObject, const FString& Filename)
+{
+	return FImageUtils::ImportFileAsTexture2D(Filename);
 }
 
 void UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(UObject* WorldContextObject, UTextureRenderTarget2D* TextureRenderTarget, UCanvas*& Canvas, FVector2D& Size, FDrawToRenderTargetContext& Context)

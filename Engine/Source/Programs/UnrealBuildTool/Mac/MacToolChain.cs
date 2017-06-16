@@ -179,8 +179,15 @@ namespace UnrealBuildTool
 			Result += " -isysroot " + Settings.BaseSDKDir + "/MacOSX" + Settings.MacOSSDKVersion + ".sdk";
 			Result += " -mmacosx-version-min=" + (CompileEnvironment.bEnableOSX109Support ? "10.9" : Settings.MacOSVersion);
 
+			bool bStaticAnalysis = false;
+			string StaticAnalysisMode = Environment.GetEnvironmentVariable("CLANG_STATIC_ANALYZER_MODE");
+			if(StaticAnalysisMode != null && StaticAnalysisMode != "")
+			{
+				bStaticAnalysis = true;
+			}
+
 			// Optimize non- debug builds.
-			if (CompileEnvironment.bOptimizeCode)
+			if (CompileEnvironment.bOptimizeCode && !bStaticAnalysis)
 			{
 				// Don't over optimise if using AddressSanitizer or you'll get false positive errors due to erroneous optimisation of necessary AddressSanitizer instrumentation.
 				if (AddressSanitizer != null && AddressSanitizer == "YES")
@@ -209,12 +216,6 @@ namespace UnrealBuildTool
 			if (CompileEnvironment.bCreateDebugInfo)
 			{
 				Result += " -gdwarf-2";
-			}
-
-			string StaticAnalysisMode = Environment.GetEnvironmentVariable("CLANG_STATIC_ANALYZER_MODE");
-			if(StaticAnalysisMode != null && StaticAnalysisMode != "")
-			{
-				Result += " --analyze";
 			}
 
 			return Result;
@@ -458,6 +459,7 @@ namespace UnrealBuildTool
 				// Add the C++ source file and its included files to the prerequisite item list.
 				AddPrerequisiteSourceFile(CompileEnvironment, SourceFile, CompileAction.PrerequisiteItems);
 
+				string OutputFilePath = null;
 				if (CompileEnvironment.PrecompiledHeaderAction == PrecompiledHeaderAction.Create)
 				{
 					var PrecompiledHeaderExtension = UEBuildPlatform.GetBuildPlatform(UnrealTargetPlatform.Mac).GetBinaryExtension(UEBuildBinaryType.PrecompiledHeader);
@@ -496,6 +498,7 @@ namespace UnrealBuildTool
 					CompileAction.ProducedItems.Add(RemoteObjectFile);
 					Result.ObjectFiles.Add(RemoteObjectFile);
 					FileArguments += string.Format(" -o \"{0}\"", RemoteObjectFile.AbsolutePath);
+					OutputFilePath = RemoteObjectFile.AbsolutePath;
 				}
 
 				// Add the source file path to the command-line.
@@ -505,15 +508,28 @@ namespace UnrealBuildTool
 				{
 					CompileAction.ActionHandler = new Action.BlockingActionHandler(RPCUtilHelper.RPCActionHandler);
 				}
+				
+				string AllArgs = Arguments + FileArguments + CompileEnvironment.AdditionalArguments;
+				string CompilerPath = Settings.ToolchainDir + MacCompiler;
+				
+				// Analyze and then compile using the shell to perform the indirection
+				string StaticAnalysisMode = Environment.GetEnvironmentVariable("CLANG_STATIC_ANALYZER_MODE");
+				if(StaticAnalysisMode != null && StaticAnalysisMode != "" && OutputFilePath != null)
+				{
+					string TempArgs = "-c \"" + CompilerPath + " " + AllArgs + " --analyze -Wno-unused-command-line-argument -Xclang -analyzer-output=html -Xclang -analyzer-config -Xclang path-diagnostics-alternate=true -Xclang -analyzer-config -Xclang report-in-main-source-file=true -Xclang -analyzer-disable-checker -Xclang deadcode.DeadStores -o " + OutputFilePath.Replace(".o", ".html") + "; " + CompilerPath + " " + AllArgs + "\"";
+					AllArgs = TempArgs;
+					CompilerPath = "/bin/sh";
+				}
 
 				CompileAction.WorkingDirectory = GetMacDevSrcRoot();
-				CompileAction.CommandPath = Settings.ToolchainDir + MacCompiler;
-				CompileAction.CommandArguments = Arguments + FileArguments + CompileEnvironment.AdditionalArguments;
+				CompileAction.CommandPath = CompilerPath;
+				CompileAction.CommandArguments = AllArgs;
 				CompileAction.CommandDescription = "Compile";
 				CompileAction.StatusDescription = Path.GetFileName(SourceFile.AbsolutePath);
 				CompileAction.bIsGCCCompiler = true;
 				// We're already distributing the command by execution on Mac.
 				CompileAction.bCanExecuteRemotely = false;
+				CompileAction.bShouldOutputStatusDescription = true;
 				CompileAction.OutputEventHandler = new DataReceivedEventHandler(RemoteOutputReceivedEventHandler);
 			}
 			return Result;

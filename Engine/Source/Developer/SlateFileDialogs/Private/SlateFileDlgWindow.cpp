@@ -155,29 +155,39 @@ public:
 
 		while (FilterExt)
 		{
+			// Handle wild cards from non-Windows platforms
+			if (FCString::Strcmp(FilterExt, TEXT("*")) == 0)
+			{
+				// * matches all
+				RC = true;
+				break;
+			}
+
 			// strip leading spaces and '*' from beginning.
 			FilterExt = FCString::Strchr(FilterExt, '.');
-
-			// strip any trailing spaces
-			for (i = FCString::Strlen(FilterExt) - 1; i >= 0 && FilterExt[i] == TCHAR(' '); i--)
+			// Don't crash if a filter is passed in that doesn't contain a '.'
+			if (FilterExt != nullptr)
 			{
-				FilterExt[i] = 0;
-			}
+				// strip any trailing spaces
+				for (i = FCString::Strlen(FilterExt) - 1; i >= 0 && FilterExt[i] == TCHAR(' '); i--)
+				{
+					FilterExt[i] = 0;
+				}
 
-			if (FCString::Strcmp(FilterExt, TEXT(".*")) == 0)
-			{
-				// *.* matches all
-				RC = true;
-				break;
-			}
+				if (FCString::Strcmp(FilterExt, TEXT(".*")) == 0)
+				{
+					// *.* matches all
+					RC = true;
+					break;
+				}
 
-			if (FCString::Stricmp(FilterExt, Extension) == 0)
-			{
-				// positive hit.
-				RC = true;
-				break;
+				if (FCString::Stricmp(FilterExt, Extension) == 0)
+				{
+					// positive hit.
+					RC = true;
+					break;
+				}
 			}
-
 			// next filter entry
 			FilterExt = FCString::Strtok(nullptr, TEXT(";"), &ContextStr);
 		}

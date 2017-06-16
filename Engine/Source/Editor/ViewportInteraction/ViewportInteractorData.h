@@ -118,6 +118,10 @@ struct FViewportInteractorData
 	/** Our gizmo bounds at the start of the interaction, in actor local space. */
 	FBox GizmoStartLocalBounds;
 
+	ELockedWorldDragMode LockedWorldDragMode;
+	float GizmoScaleSinceDragStarted;
+	float GizmoRotationRadiansSinceDragStarted;
+
 	/** For a single axis drag, this is the cached local offset where the laser pointer ray intersected the axis line on the first frame of the drag */
 	FVector GizmoSpaceFirstDragUpdateOffsetAlongAxis;
 
@@ -176,6 +180,9 @@ struct FViewportInteractorData
 		GizmoLastTransform = GizmoTargetTransform = GizmoUnsnappedTargetTransform = GizmoInterpolationSnapshotTransform = GizmoStartTransform;
 		GizmoSpaceFirstDragUpdateOffsetAlongAxis = FVector::ZeroVector;
 		GizmoSpaceDragDeltaFromStartOffset = FVector::ZeroVector;
+		LockedWorldDragMode = ELockedWorldDragMode::Unlocked;
+		GizmoScaleSinceDragStarted = 0.0f;
+		GizmoRotationRadiansSinceDragStarted = 0.0f;
 		TransformGizmoInteractionType = ETransformGizmoInteractionType::None;
 		OptionalHandlePlacement.Reset();
 		DraggingTransformGizmoComponent = nullptr;

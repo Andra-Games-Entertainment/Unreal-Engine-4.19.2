@@ -62,6 +62,21 @@ public:
 	 * Free memory after it has been used to initialize RHI resource 
 	 */
 	virtual void Discard() = 0;
+	
+	enum class EBulkDataType
+	{
+		Default,
+		MediaTexture,
+		VREyeBuffer,
+	};
+	
+	/**
+	 * @return the type of bulk data for special handling
+	 */
+	virtual EBulkDataType GetResourceType() const
+	{
+		return EBulkDataType::Default;
+	}
 };
 
 

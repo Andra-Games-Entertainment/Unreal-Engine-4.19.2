@@ -2008,7 +2008,7 @@ void FPostProcessing::Process(FRHICommandListImmediate& RHICmdList, const FViewI
 			if (PaniniConfig.IsEnabled() || bDoScreenPercentage)
 			{
 				int32 UpscaleQuality = CVarUpscaleQuality.GetValueOnRenderThread();
-				UpscaleQuality = FMath::Clamp(UpscaleQuality, 0, 5);
+				UpscaleQuality = FMath::Clamp(UpscaleQuality, 0, 6);
 				FRenderingCompositePass* Node = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessUpscale(View, UpscaleQuality, PaniniConfig));
 				Node->SetInput(ePId_Input0, FRenderingCompositeOutputRef(Context.FinalOutput)); // Bilinear sampling.
 				Node->SetInput(ePId_Input1, FRenderingCompositeOutputRef(Context.FinalOutput)); // Point sampling.

@@ -249,6 +249,26 @@ public:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=LOD)
 	TEnumAsByte<enum EDetailMode> DetailMode;
 
+	//////
+	// Hacks for globally smoothed replicated component transforms
+
+	// Saved smoothed location and rotation
+	FVector SavedSmoothRelativeLocation;
+	FRotator SavedSmoothRelativeRotation;
+
+	// Current target location and rotation
+	FVector SmoothTargetRelativeLocation;
+	FRotator SmoothTargetRelativeRotation;
+	
+	// Whether we have a valid target yet
+	uint8 bIsSmoothTargetTransformValid : 1;
+
+	// Whether we're allowed to do smoothing on replication
+	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = Transform )
+	uint8 bAllowReplicatedTransformSmoothing : 1;
+
+	//////
+
 private:
 
 	uint8 bNetUpdateTransform:1;

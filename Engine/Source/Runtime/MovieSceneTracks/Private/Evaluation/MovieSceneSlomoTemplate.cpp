@@ -27,7 +27,7 @@ struct FSlomoTrackToken
 		UObject* PlaybackContext = Player.GetPlaybackContext();
 		UWorld* World = PlaybackContext ? PlaybackContext->GetWorld() : nullptr;
 
-		if (!World || (!GIsEditor && World->GetNetMode() == NM_Client) || SlomoValue <= 0.f)
+		if (!World || SlomoValue <= 0.f)
 		{
 			return;
 		}

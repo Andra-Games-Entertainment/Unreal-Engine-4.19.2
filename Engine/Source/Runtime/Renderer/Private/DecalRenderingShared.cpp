@@ -339,7 +339,7 @@ void FDecalRendering::SetShader(FRHICommandList& RHICmdList, FGraphicsPipelineSt
 		GraphicsPSOInit.BoundShaderState.PixelShaderRHI = PixelShader->GetPixelShader();
 		GraphicsPSOInit.PrimitiveType = PT_TriangleList;
 
-		RHICmdList.SetLocalGraphicsPipelineState(RHICmdList.BuildLocalGraphicsPipelineState(GraphicsPSOInit));
+		SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
 		PixelShader->SetParameters(RHICmdList, View, DecalData.MaterialProxy, *DecalData.DecalProxy, DecalData.FadeAlpha);
 	}
 
@@ -374,6 +374,6 @@ void FDecalRendering::SetVertexShaderOnly(FRHICommandList& RHICmdList, FGraphics
 	GraphicsPSOInit.BoundShaderState.VertexShaderRHI = VertexShader->GetVertexShader();
 	GraphicsPSOInit.PrimitiveType = PT_TriangleList;
 
-	RHICmdList.SetLocalGraphicsPipelineState(RHICmdList.BuildLocalGraphicsPipelineState(GraphicsPSOInit));
+	SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
 	VertexShader->SetParameters(RHICmdList, View.ViewUniformBuffer, FrustumComponentToClip);
 }

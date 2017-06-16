@@ -233,6 +233,25 @@ void MainPS(noperspective float4 UVAndScreenPos : TEXCOORD0, float4 SvPosition :
 	}
 #endif
 
+#if METHOD == 6
+	float2 TexelUV = UVAndScreenPos.xy * PostprocessInput1Size.xy;
+	float2 Texel = floor(TexelUV);
+	float2 UV = (Texel + 0.5) * PostprocessInput1Size.zw;
+
+	float3 Sum = 0.0;
+	uint SampleCount = 0;
+	for (int FilterY = -2; FilterY <= 2; ++FilterY)
+	{
+		for (int FilterX = -2; FilterX <= 2; ++FilterX)
+		{
+			Sum += PostprocessInput1.SampleLevel(PostprocessInput1Sampler, UV, 0, int2(FilterX, FilterY)).rgb;
+			SampleCount++;
+		}
+	}
+
+	OutColor.rgb = Sum / float(SampleCount);
+#endif
+
 #if 0
     // Traditional gaussian resampling, assuming uniform scaling.
     // This can be sharper and higher quality than the default for minor amounts of up sampling.
@@ -275,9 +294,7 @@ void MainPS(noperspective float4 UVAndScreenPos : TEXCOORD0, float4 SvPosition :
 
 	// Sharpness
 	float Scale = rcp(UpscaleSoftness);
-	Scale = rcp(0.25);
-	Scale = -0.25 * Scale * Scale;
-	
+
 	// Filter weights
 	float WeightA = Gaussian(Scale, Offset - float2(-1.0, -2.0));
 	float WeightB = Gaussian(Scale, Offset - float2( 0.0, -2.0));
@@ -301,7 +318,7 @@ void MainPS(noperspective float4 UVAndScreenPos : TEXCOORD0, float4 SvPosition :
 	float WeightT = Gaussian(Scale, Offset - float2( 0.0,  2.0));
 	float WeightU = Gaussian(Scale, Offset - float2( 1.0,  2.0));
 	
-	#define UPSCALE_QUALITY 2
+	#define UPSCALE_QUALITY 3
 	
 	// Filtering at different quality levels
 	// 9 taps
@@ -350,7 +367,6 @@ void MainPS(noperspective float4 UVAndScreenPos : TEXCOORD0, float4 SvPosition :
 			          WeightS + WeightT + WeightU
 			);
 	#endif
-
 #endif
 
 #if 0

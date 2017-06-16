@@ -46,12 +46,13 @@ void StandardShadingPerLight( Shared, float3 L, float3 V, half3 N )
 
 float3 StandardShading( float3 DiffuseColor, float3 SpecularColor, float3 LobeRoughness, float3 LobeEnergy, float3 L, float3 V, half3 N )
 {
-	float3 H = normalize(V + L);
 	float NoL = saturate( dot(N, L) );
 	float NoV = saturate( abs( dot(N, V) ) + 1e-5 );
-	float NoH = saturate( dot(N, H) );
-	float VoH = saturate( dot(V, H) );
-	
+	float LoV = dot(L, V);
+	float InvLenH = rsqrt( 2 + 2 * LoV );
+	float NoH = saturate( ( NoL + NoV ) * InvLenH );
+	float VoH = saturate( InvLenH + InvLenH * LoV );
+
 	// Generalized microfacet specular
 	float D = D_GGX( LobeRoughness[1], NoH ) * LobeEnergy[1];
 	float Vis = Vis_SmithJointApprox( LobeRoughness[1], NoV, NoL );
@@ -219,11 +220,12 @@ float3 ClothShading( FGBufferData GBuffer, float3 LobeRoughness, float3 LobeEner
 	const float3 FuzzColor	= saturate(GBuffer.CustomData.rgb);
 	const float  Cloth		= saturate(GBuffer.CustomData.a);
 
-	float3 H = normalize(V + L);
 	float NoL = saturate( dot(N, L) );
 	float NoV = saturate( abs( dot(N, V) ) + 1e-5 );
-	float NoH = saturate( dot(N, H) );
-	float VoH = saturate( dot(V, H) );
+	float LoV = dot(L, V);
+	float InvLenH = rsqrt( 2 + 2 * LoV );
+	float NoH = saturate( ( NoL + NoV ) * InvLenH );
+	float VoH = saturate( InvLenH + InvLenH * LoV );
 
 	// Diffuse	
 	float3 Diffuse = Diffuse_Lambert( GBuffer.DiffuseColor );
@@ -639,12 +641,13 @@ float3 SubsurfaceShadingTwoSided( float3 SubsurfaceColor, float3 L, float3 V, ha
 
 float3 EyeShading( FGBufferData GBuffer, float3 LobeRoughness, float3 LobeEnergy, float3 L, float3 V, half3 N )
 {
-	float3 H = normalize(V + L);
 	float NoL = saturate( dot(N, L) );
 	float NoV = saturate( abs( dot(N, V) ) + 1e-5 );
-	float NoH = saturate( dot(N, H) );
-	float VoH = saturate( dot(V, H) );
-	
+	float LoV = dot(L, V);
+	float InvLenH = rsqrt( 2 + 2 * LoV );
+	float NoH = saturate( ( NoL + NoV ) * InvLenH );
+	float VoH = saturate( InvLenH + InvLenH * LoV );
+
 	// Generalized microfacet specular
 	float D = D_GGX( LobeRoughness[1], NoH ) * LobeEnergy[1];
 	float Vis = Vis_SmithJointApprox( LobeRoughness[1], NoV, NoL );
@@ -655,9 +658,10 @@ float3 EyeShading( FGBufferData GBuffer, float3 LobeRoughness, float3 LobeEnergy
 
 float3 EyeSubsurfaceShading( FGBufferData GBuffer, float3 L, float3 V, half3 N )
 {
-	float3 H = normalize(V + L);
-	float VoH = saturate( dot(V, H) );
-	float NoV = saturate( abs( dot(N, V) ) + 1e-5 );
+	float NoL = dot(N, L);
+	float LoV = dot(L, V);
+	float InvLenH = rsqrt( 2 + 2 * LoV );
+	float VoH = saturate( InvLenH + InvLenH * LoV );
 
 	// F_Schlick
 	float F0 = GBuffer.Specular * 0.08;
@@ -676,14 +680,14 @@ float3 EyeSubsurfaceShading( FGBufferData GBuffer, float3 L, float3 V, half3 N )
 	// introduce some concavity, this does the job.
 	float3 CausticNormal = normalize(lerp(IrisNormal, -N, IrisMask*IrisDistance));
 
-	float NoL = saturate( dot( IrisNormal, L ) );
-	float Power = lerp( 12, 1, NoL );
+	float IrisNoL = saturate( dot( IrisNormal, L ) );
+	float Power = lerp( 12, 1, IrisNoL );
 	float Caustic = 0.6 + 0.2 * ( Power + 1 ) * pow( saturate( dot( CausticNormal, L ) ), Power );
-	float Iris = NoL * Caustic;
+	float Iris = IrisNoL * Caustic;
 
 	// http://blog.stevemcauley.com/2011/12/03/energy-conserving-wrapped-diffuse/
 	float Wrap = 0.15;
-	float Sclera = saturate( ( dot(N, L) + Wrap ) / Square( 1 + Wrap ) );
+	float Sclera = saturate( ( NoL + Wrap ) / Square( 1 + Wrap ) );
 	
 	return (1 - F) * lerp( Sclera, Iris, IrisMask ) * GBuffer.DiffuseColor / PI;
 }
@@ -705,19 +709,39 @@ float3 SurfaceShading( FGBufferData GBuffer, float3 LobeRoughness, float3 LobeEn
 {
 	switch( GBuffer.ShadingModelID )
 	{
+#if (SUPPORTS_SHADINGMODELID_UNLIT || SUPPORTS_SHADINGMODELID_DEFAULT_LIT || SUPPORTS_SHADINGMODELID_SUBSURFACE || SUPPORTS_SHADINGMODELID_PREINTEGRATED_SKIN || SUPPORTS_SHADINGMODELID_SUBSURFACE_PROFILE || SUPPORTS_SHADINGMODELID_TWOSIDED_FOLIAGE)
+	#if SUPPORTS_SHADINGMODELID_UNLIT
 		case SHADINGMODELID_UNLIT:
+	#endif
+	#if SUPPORTS_SHADINGMODELID_DEFAULT_LIT
 		case SHADINGMODELID_DEFAULT_LIT:
+	#endif
+	#if SUPPORTS_SHADINGMODELID_SUBSURFACE
 		case SHADINGMODELID_SUBSURFACE:
+	#endif
+	#if SUPPORTS_SHADINGMODELID_PREINTEGRATED_SKIN
 		case SHADINGMODELID_PREINTEGRATED_SKIN:
+	#endif
+	#if SUPPORTS_SHADINGMODELID_SUBSURFACE_PROFILE
 		case SHADINGMODELID_SUBSURFACE_PROFILE:
+	#endif
+	#if SUPPORTS_SHADINGMODELID_TWOSIDED_FOLIAGE
 		case SHADINGMODELID_TWOSIDED_FOLIAGE:
+	#endif
 			return StandardShading( GBuffer.DiffuseColor, GBuffer.SpecularColor, LobeRoughness, LobeEnergy, L, V, N );
+#endif
+#if SUPPORTS_SHADINGMODELID_CLEAR_COAT
 		case SHADINGMODELID_CLEAR_COAT:
 			return ClearCoatShading( GBuffer, LobeRoughness, LobeEnergy, L, V, N );
+#endif
+#if SUPPORTS_SHADINGMODELID_CLOTH
 		case SHADINGMODELID_CLOTH:
 			return ClothShading( GBuffer, LobeRoughness, LobeEnergy, L, V, N );
+#endif
+#if SUPPORTS_SHADINGMODELID_EYE
 		case SHADINGMODELID_EYE:
 			return EyeShading( GBuffer, LobeRoughness, LobeEnergy, L, V, N );
+#endif
 		default:
 			return 0;
 	}
@@ -729,16 +753,26 @@ float3 SubsurfaceShading( FGBufferData GBuffer, float3 L, float3 V, half3 N, flo
 
 	switch( GBuffer.ShadingModelID )
 	{
+#if SUPPORTS_SHADINGMODELID_SUBSURFACE
 		case SHADINGMODELID_SUBSURFACE:
 			return SubsurfaceShadingSubsurface( GBuffer, L, V, N );
+#endif
+#if SUPPORTS_SHADINGMODELID_PREINTEGRATED_SKIN
 		case SHADINGMODELID_PREINTEGRATED_SKIN:
 			return SubsurfaceShadingPreintegratedSkin( GBuffer, L, V, N );
+#endif
+#if SUPPORTS_SHADINGMODELID_TWOSIDED_FOLIAGE
 		case SHADINGMODELID_TWOSIDED_FOLIAGE:
 			return SubsurfaceShadingTwoSided( SubsurfaceColor, L, V, N );
+#endif
+#if SUPPORTS_SHADINGMODELID_HAIR
 		case SHADINGMODELID_HAIR:
 			return HairShading( GBuffer, L, V, N, Shadow, 1, 0, Random );
+#endif
+#if SUPPORTS_SHADINGMODELID_EYE
 		case SHADINGMODELID_EYE:
 			return EyeSubsurfaceShading( GBuffer, L, V, N );
+#endif
 		default:
 			return 0;
 	}

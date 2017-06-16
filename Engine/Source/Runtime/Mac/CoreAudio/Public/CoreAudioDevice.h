@@ -317,6 +317,8 @@ protected:
 	
 	int32						MixerInputNumber;
 
+	FCriticalSection			CriticalSection;
+
 private:
 
 	void FreeResources();

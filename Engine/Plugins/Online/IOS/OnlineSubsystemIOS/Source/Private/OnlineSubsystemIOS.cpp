@@ -198,7 +198,8 @@ void FOnlineSubsystemIOS::InitStoreKitHelper()
 
 void FOnlineSubsystemIOS::CleanupStoreKitHelper()
 {
-	[StoreHelper release];
+	// @todo Rhino: This needs to be analyzed with ASAN - but this pointer is garbage on shutdown...
+	// [StoreHelper release];
 }
 
 void FOnlineSubsystemIOS::InitAppStoreHelper()

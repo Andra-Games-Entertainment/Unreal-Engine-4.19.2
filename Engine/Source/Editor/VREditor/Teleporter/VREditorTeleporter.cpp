@@ -8,6 +8,7 @@
 #include "VREditorMotionControllerInteractor.h"
 #include "VREditorAssetContainer.h"
 #include "Components/StaticMeshComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "Engine/EngineTypes.h"
 #include "HeadMountedDisplayTypes.h"
 #include "Sound/SoundCue.h"
@@ -23,12 +24,13 @@ namespace VREd
 	static FAutoConsoleVariable TeleportDistance(TEXT("VREd.TeleportDistance"), 500.0f, TEXT("Default distance for teleporting when not hitting anything"));
 	static FAutoConsoleVariable TeleportScaleSensitivity(TEXT("VREd.TeleportScaleSensitivity"), 0.05f, TEXT("Teleport world to meters scale touchpad sensitivity"));
 	static FAutoConsoleVariable TeleportOffsetMultiplier(TEXT("VREd.TeleportOffsetMultiplier"), 0.3f, TEXT("Teleport offset multiplier"));
-	static FAutoConsoleVariable TeleportEnableChangeScale(TEXT("VREd.TeleportEnableChangeScale"), 1, TEXT("Ability to change the world to meters scale while teleporting"));
+	static FAutoConsoleVariable TeleportEnableChangeScale(TEXT("VREd.TeleportEnableChangeScale"), 0, TEXT("Ability to change the world to meters scale while teleporting"));
 	static FAutoConsoleVariable TeleportFadeInAnimateSpeed(TEXT("VREd.TeleportAnimateSpeed"), 3.0f, TEXT("How fast the teleporter should fade in"));
 	static FAutoConsoleVariable TeleportDragSpeed(TEXT("VREd.TeleportDragSpeed"), 0.3f, TEXT("How fast the teleporter should drag behind the laser aiming location"));
 	static FAutoConsoleVariable TeleportAllowScaleBackToDefault(TEXT("VREd.TeleportAllowScaleBackToDefault"), 1, TEXT("Scale back to default world to meters scale"));
 	static FAutoConsoleVariable TeleportAllowPushPull(TEXT("VREd.TeleportAllowPushPull"), 1, TEXT("Allow being able to push and pull the teleporter along the laser."));
 	static FAutoConsoleVariable TeleportSlideBuffer(TEXT("VREd.TeleportSlideBuffer"), 0.01f, TEXT("The minimum slide on trackpad to push/pull or change scale."));
+	static FAutoConsoleVariable TeleportToTargetPointIfLongRange( TEXT( "VREd.TeleportToTargetPointIfLongRange" ), 1, TEXT( "" ) );
 }
 
 AVREditorTeleporter::AVREditorTeleporter():
@@ -38,6 +40,8 @@ AVREditorTeleporter::AVREditorTeleporter():
 	TeleportLerpAlpha(0),
 	TeleportStartLocation(FVector::ZeroVector),
 	TeleportGoalLocation(FVector::ZeroVector),
+	TeleportGoalActorTag(),
+	TeleportGoalActorLocation(FVector::ZeroVector),
 	TeleportDirectionMeshComponent(nullptr),
 	HMDMeshComponent(nullptr),
 	LeftMotionControllerMeshComponent(nullptr),
@@ -95,20 +99,23 @@ void AVREditorTeleporter::Init(UVREditorMode* InMode)
 		TeleportDirectionMeshComponent->SetCollisionResponseToChannel(COLLISION_GIZMO, ECollisionResponse::ECR_Ignore);
 		TeleportDirectionMeshComponent->SetCastShadow(false);
 
-		HMDMeshComponent = VRMode->CreateMesh(this, AssetContainer.GenericHMDMesh, GetRootComponent());
-		HMDMeshComponent->SetMaterial(0, TeleportMID);
-		HMDMeshComponent->SetCastShadow(false);
+		if( !GIsDemoMode )
+		{
+			HMDMeshComponent = VRMode->CreateMesh(this, AssetContainer.GenericHMDMesh, GetRootComponent());
+			HMDMeshComponent->SetMaterial(0, TeleportMID);
+			HMDMeshComponent->SetCastShadow(false);
 
-		LeftMotionControllerMeshComponent = VRMode->CreateMotionControllerMesh(this, GetRootComponent());
-		check(LeftMotionControllerMeshComponent != nullptr);
-		LeftMotionControllerMeshComponent->SetCastShadow(false);
+			LeftMotionControllerMeshComponent = VRMode->CreateMotionControllerMesh(this, GetRootComponent());
+			check(LeftMotionControllerMeshComponent != nullptr);
+			LeftMotionControllerMeshComponent->SetCastShadow(false);
 
-		RightMotionControllerMeshComponent = VRMode->CreateMotionControllerMesh(this, GetRootComponent());
-		check(RightMotionControllerMeshComponent != nullptr);
-		RightMotionControllerMeshComponent->SetCastShadow(false);
+			RightMotionControllerMeshComponent = VRMode->CreateMotionControllerMesh(this, GetRootComponent());
+			check(RightMotionControllerMeshComponent != nullptr);
+			RightMotionControllerMeshComponent->SetCastShadow(false);
 
-		LeftMotionControllerMeshComponent->SetMaterial(0, TeleportMID);
-		RightMotionControllerMeshComponent->SetMaterial(0, TeleportMID);
+			LeftMotionControllerMeshComponent->SetMaterial(0, TeleportMID);
+			RightMotionControllerMeshComponent->SetMaterial(0, TeleportMID);
+		}
 	}
 
 	// Set the initial teleport scale to the current world to meters
@@ -128,6 +135,12 @@ bool AVREditorTeleporter::IsAiming() const
 {
 	return TeleportingState == EState::Aiming;
 }
+
+bool AVREditorTeleporter::IsTeleporting() const
+{
+	return TeleportingState == EState::Teleporting;
+}
+
 
 void AVREditorTeleporter::Tick(const float DeltaTime)
 {
@@ -163,12 +176,27 @@ void AVREditorTeleporter::StartTeleport(UViewportInteractor* Interactor)
 
 	if (VREd::TeleportEnableChangeScale->GetInt() != 0 || VREd::TeleportAllowScaleBackToDefault->GetInt() != 0)
 	{
-		// Set the world to meters scale @todo vreditor: This causes some strange movement 
-		VRMode->GetWorldInteraction().SetWorldToMetersScale(TeleportGoalScale * 100, true);
+		bool bCanResetScale = true;
+
+		if( GIsDemoMode && VREd::TeleportToTargetPointIfLongRange->GetInt() > 0 )
+		{
+			bCanResetScale = false;	// This will be handled later on
+		}
+
+		if( bCanResetScale )
+		{
+			// Set the world to meters scale @todo vreditor: This causes some strange movement 
+			VRMode->GetWorldInteraction().SetWorldToMetersScale( TeleportGoalScale * 100, true );
+		}
 	}
 
 	TeleportingState = EState::Teleporting;
 	TeleportLerpAlpha = 0.0f;
+
+	if( GIsDemoMode && !TeleportGoalActorTag.IsEmpty() )
+	{
+		TeleportGoalLocation = TeleportGoalActorLocation;
+	}
 
 	const UVREditorAssetContainer& AssetContainer = VRMode->GetAssetContainer();
 	VRMode->PlaySound(AssetContainer.TeleportSound, TeleportGoalLocation);
@@ -244,6 +272,14 @@ void AVREditorTeleporter::Teleport(const float DeltaTime)
 		TeleportingState = EState::None;
 		VRMode->GetWorldInteraction().AllowWorldMovement(true);
 		TeleportTickDelay = 0;
+
+		if( GIsDemoMode && !TeleportGoalActorTag.IsEmpty() )
+		{
+			TArray<FString> Args;
+			Args.Add( TeleportGoalActorTag );
+			VRMode->TeleportToTaggedActor( Args );
+			return;
+		}
 	}
 
 	// Calculate the new position of the roomspace
@@ -349,9 +385,12 @@ FVector AVREditorTeleporter::UpdatePushPullTeleporter(UVREditorMotionControllerI
 void AVREditorTeleporter::SetVisibility(const bool bVisible)
 {
 	TeleportDirectionMeshComponent->SetVisibility(bVisible);
-	HMDMeshComponent->SetVisibility(bVisible);
-	LeftMotionControllerMeshComponent->SetVisibility(bVisible);
-	RightMotionControllerMeshComponent->SetVisibility(bVisible);
+	if( !GIsDemoMode )
+	{
+		HMDMeshComponent->SetVisibility(bVisible);
+		LeftMotionControllerMeshComponent->SetVisibility(bVisible);
+		RightMotionControllerMeshComponent->SetVisibility(bVisible);
+	}
 }
 
 void AVREditorTeleporter::SetColor(const FLinearColor& Color)
@@ -377,9 +416,12 @@ void AVREditorTeleporter::UpdateVisuals(const FVector& NewLocation)
 		TeleportDirectionMeshComponent->SetRelativeLocation(FVector(0.0f, 0.0f, AnimatedScale.Z * 0.5f));
 	}
 
-	HMDTransform.SetLocation(FVector(NewLocation.X, NewLocation.Y, NewLocation.Z + ((VRMode->GetRoomSpaceHeadTransform().GetLocation().Z / WorldScale) * TeleportGoalScale)));
-	HMDTransform.SetScale3D(AnimatedScale);
-	HMDMeshComponent->SetWorldTransform(HMDTransform);
+	HMDTransform.SetLocation( FVector( NewLocation.X, NewLocation.Y, NewLocation.Z + ( ( VRMode->GetRoomSpaceHeadTransform().GetLocation().Z / WorldScale ) * TeleportGoalScale ) ) );
+	HMDTransform.SetScale3D( AnimatedScale );
+	if( !GIsDemoMode )
+	{
+		HMDMeshComponent->SetWorldTransform(HMDTransform);
+	}
 
 	//Calculate the teleported room transform
 	FTransform HeadToWorld = VRMode->GetHeadTransform();
@@ -391,6 +433,38 @@ void AVREditorTeleporter::UpdateVisuals(const FVector& NewLocation)
 	HMDTransform.SetRotation(FQuat::Identity);
 	FTransform TeleportRoomInWorld = HMDTransform + RoomToHeadInWorld;
 	TeleportGoalLocation = TeleportRoomInWorld.GetLocation();
+
+	TeleportGoalActorTag = FString();
+	TeleportGoalActorLocation = TeleportGoalLocation;
+	if( GIsDemoMode && VREd::TeleportToTargetPointIfLongRange->GetInt() > 0 )
+	{
+		TArray<FString> CandidateTags;
+		CandidateTags.Add( TEXT( "VRTeleportTarget" ) );
+
+		FString ClosestCandidateTag;
+		FVector ClosestCandidateLocation = TeleportGoalLocation;
+		float ClosestCandidateDistance = TNumericLimits<float>::Max();
+		for( const FString CandidateTag : CandidateTags )
+		{
+			TArray<AActor*> TaggedActors;
+			UGameplayStatics::GetAllActorsWithTag( GetWorld(), FName( *CandidateTag ), /* Out */ TaggedActors );
+
+			if( ensure( TaggedActors.Num() > 0 ) )
+			{
+				AActor* TaggedActor = TaggedActors[ 0 ];
+				const float Distance = ( TaggedActor->GetActorLocation() - TeleportGoalLocation ).Size();
+				if( Distance < ClosestCandidateDistance )
+				{
+					ClosestCandidateTag = CandidateTag;
+					ClosestCandidateDistance = Distance;
+					ClosestCandidateLocation = TaggedActor->GetActorLocation();
+				}
+			}
+		}
+
+		TeleportGoalActorTag = ClosestCandidateTag;
+		TeleportGoalActorLocation = ClosestCandidateLocation;
+	}
 
 	// Calculate the teleported motion controllers
 	for (int i = 0; i < 2; i++)
@@ -405,7 +479,10 @@ void AVREditorTeleporter::UpdateVisuals(const FVector& NewLocation)
 		TeleportedMotionControllerToWorld.SetRotation(MotionControllerToWorld.GetRotation());
 		TeleportedMotionControllerToWorld.SetScale3D(AnimatedScale);
 
-		MotionControllerMeshComponent->SetWorldTransform(TeleportedMotionControllerToWorld);
+		if( !GIsDemoMode )
+		{
+			MotionControllerMeshComponent->SetWorldTransform(TeleportedMotionControllerToWorld);
+		}
 	}	
 }
 

@@ -631,6 +631,7 @@ static void DirectCompile(const TArray<const class IShaderFormat*>& ShaderFormat
 	FName FormatName;
 	FString Entry = TEXT("Main");
 	bool bPipeline = false;
+	bool bUseMCPP = false;
 	EShaderFrequency Frequency = SF_Pixel;
 	TArray<FString> UsedOutputs;
 	bool bIncludeUsedOutputs = false;
@@ -679,6 +680,10 @@ static void DirectCompile(const TArray<const class IShaderFormat*>& ShaderFormat
 			{
 				bPipeline = true;
 			}
+			else if (!FCString::Strcmp(*Token, TEXT("mcpp")))
+			{
+				bUseMCPP = true;
+			}
 			else if (Token.StartsWith(TEXT("usedoutputs=")))
 			{
 				FString Outputs = Token.RightChop(12);
@@ -709,7 +714,7 @@ static void DirectCompile(const TArray<const class IShaderFormat*>& ShaderFormat
 	Input.SourceFilename = InputFile;
 	Input.Target.Platform =  FormatNameToEnum(FormatName);
 	Input.Target.Frequency = Frequency;
-	Input.bSkipPreprocessedCache = true;
+	Input.bSkipPreprocessedCache = !bUseMCPP;
 
 	auto AddResourceTableEntry = [](TMap<FString, FResourceTableEntry>& Map, const FString& Name, const FString& UBName, int32 Type, int32 ResourceIndex)
 	{

@@ -23,17 +23,15 @@
 #include "EngineGlobals.h"
 #include "IMotionController.h"
 #include "IHeadMountedDisplay.h"
-#include "MotionControllerComponent.h"
 #include "Features/IModularFeatures.h"
 #include "Engine/Selection.h"
 #include "VREditorWidgetComponent.h"
 #include "LevelEditorActions.h"
-#include "Components/SplineComponent.h"
-#include "Components/SplineMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "VREditorActions.h"
 #include "VREditorAssetContainer.h"
 #include "VRModeSettings.h"
+#include "UnrealNetwork.h"
 
 namespace VREd
 {
@@ -44,20 +42,23 @@ namespace VREd
 	static FAutoConsoleVariable ViveLaserPointerStartOffset( TEXT( "VI.ViveLaserPointerStartOffset" ), 1.25f /* 8.5f */, TEXT( "How far to offset the start of the laser pointer to avoid overlapping the hand mesh geometry (Vive)" ) );
 
 	// Laser visuals
-	static FAutoConsoleVariable LaserPointerRadius( TEXT( "VREd.LaserPointerRadius" ), .5f, TEXT( "Radius of the laser pointer line" ) );
+	static FAutoConsoleVariable LaserPointerRadius( TEXT( "VREd.LaserPointerRadius" ), 0.8f, TEXT( "Radius of the laser pointer line" ) );
 	static FAutoConsoleVariable LaserPointerHoverBallRadius( TEXT( "VREd.LaserPointerHoverBallRadius" ), 1.0f, TEXT( "Radius of the visual cue for a hovered object along the laser pointer ray" ) );
 	static FAutoConsoleVariable LaserPointerLightPullBackDistance( TEXT( "VREd.LaserPointerLightPullBackDistance" ), 2.5f, TEXT( "How far to pull back our little hover light from the impact surface" ) );
 	static FAutoConsoleVariable LaserPointerLightRadius( TEXT( "VREd.LaserPointLightRadius" ), 10.0f, TEXT( "How big our hover light is" ) );
 	static FAutoConsoleVariable LaserRadiusScaleWhenOverUI( TEXT( "VREd.LaserRadiusScaleWhenOverUI" ), 0.25f, TEXT( "How much to scale down the size of the laser pointer radius when over UI" ) );
 	static FAutoConsoleVariable HoverBallRadiusScaleWhenOverUI(TEXT("VREd.HoverBallRadiusScaleWhenOverUI"), 0.4f, TEXT("How much to scale down the size of the hover ball when over UI"));
 	//Trigger
-	static FAutoConsoleVariable TriggerDeadZone_Vive( TEXT( "VI.TriggerDeadZone_Vive" ), 0.01f, TEXT( "Trigger dead zone.  The trigger must be fully released before we'll trigger a new 'light press'" ) );
-	static FAutoConsoleVariable TriggerDeadZone_Rift( TEXT( "VI.TriggerDeadZone_Rift" ), 0.15f, TEXT( "Trigger dead zone.  The trigger must be fully released before we'll trigger a new 'light press'" ) );
+	static FAutoConsoleVariable TriggerTouchThreshold_Vive(TEXT("VI.TriggerTouchThreshold_Vive"), 0.025f, TEXT("Minimum trigger threshold before we consider the trigger 'touched'"));
+	static FAutoConsoleVariable TriggerTouchThreshold_Rift(TEXT("VI.TriggerTouchThreshold_Rift"), 0.15f, TEXT("Minimum trigger threshold before we consider the trigger 'touched'"));
+	static FAutoConsoleVariable TriggerDeadZone_Vive( TEXT( "VI.TriggerDeadZone_Vive" ), 0.25f, TEXT( "Trigger dead zone.  The trigger must be fully released before we'll trigger a new 'light press'" ) );
+	static FAutoConsoleVariable TriggerDeadZone_Rift( TEXT( "VI.TriggerDeadZone_Rift" ), 0.25f, TEXT( "Trigger dead zone.  The trigger must be fully released before we'll trigger a new 'light press'" ) );
 	static FAutoConsoleVariable TriggerFullyPressedThreshold_Vive( TEXT( "VI.TriggerFullyPressedThreshold_Vive" ), 0.90f, TEXT( "Minimum trigger threshold before we consider the trigger 'fully pressed'" ) );
 	static FAutoConsoleVariable TriggerFullyPressedThreshold_Rift( TEXT( "VI.TriggerFullyPressedThreshold_Rift" ), 0.99f, TEXT( "Minimum trigger threshold before we consider the trigger 'fully pressed'" ) );
 
-	static FAutoConsoleVariable TrackpadAbsoluteDragSpeed( TEXT( "VREd.TrackpadAbsoluteDragSpeed" ), 40.0f, TEXT( "How fast objects move toward or away when you drag on the touchpad while carrying them" ) );
+	static FAutoConsoleVariable TrackpadAbsoluteDragSpeed( TEXT( "VREd.TrackpadAbsoluteDragSpeed" ), 80.0f, TEXT( "How fast objects move toward or away when you drag on the touchpad while carrying them" ) );
 	static FAutoConsoleVariable TrackpadRelativeDragSpeed( TEXT( "VREd.TrackpadRelativeDragSpeed" ), 8.0f, TEXT( "How fast objects move toward or away when you hold a direction on an analog stick while carrying them" ) );
+	static FAutoConsoleVariable TrackpadStopImpactAtLaserBuffer( TEXT( "VREd.TrackpadStopImpactAtLaserBuffer" ), 0.4f, TEXT( "Required amount to slide with input to stop transforming to end of laser" ) );
 	static FAutoConsoleVariable InvertTrackpadVertical( TEXT( "VREd.InvertTrackpadVertical" ), 1, TEXT( "Toggles inverting the touch pad vertical axis" ) );
 	static FAutoConsoleVariable MinVelocityForInertia( TEXT( "VREd.MinVelocityForMotionControllerInertia" ), 1.0f, TEXT( "Minimum velocity (in cm/frame in unscaled room space) before inertia will kick in when releasing objects (or the world)" ) );
 	static FAutoConsoleVariable MinTrackpadOffsetBeforeRadialMenu( TEXT( "VREd.MinTrackpadOffsetBeforeRadialMenu" ), 0.5f, TEXT( "How far you have to hold the trackpad upward before you can placing objects instantly by pulling the trigger" ) );
@@ -69,7 +70,11 @@ namespace VREd
 	static FAutoConsoleVariable MinJoystickOffsetBeforeFlick(TEXT("VREd.MinJoystickOffsetBeforeFlick"), 0.4f, TEXT("Dead zone for flick actions on the motion controller"));
 	
 	static FAutoConsoleVariable SequencerScrubMax(TEXT("VREd.SequencerScrubMax"), 2.0f, TEXT("Max fast forward or fast reverse magnitude"));
+	static FAutoConsoleVariable AllowCollisionOnMotionControllers(TEXT("VREd.AllowCollisionOnMotionControllers"), 0, TEXT("If the motioncontroller has collision in simulate mode"));
 
+	static FAutoConsoleVariable ShowControllers(TEXT("VREd.ShowControllers"), 1, TEXT("Toggles whether the actual controller meshes are drawn"));
+	static FAutoConsoleVariable ShowLaserOnTriggerTouch( TEXT( "VREd.ShowLaserOnTriggerTouch" ), 1, TEXT( "If we want the laser to depend on if the trigger is touched." ) );
+	static FAutoConsoleVariable LaserOnTriggerTouchCooldownTime( TEXT( "VREd.LaserOnTriggerTouchCooldownTime" ), 2.0f, TEXT( "" ) );
 }
 
 const FName UVREditorMotionControllerInteractor::TrackpadPositionX = FName( "TrackpadPositionX" );
@@ -99,15 +104,56 @@ namespace SteamVRControllerKeyNames
 
 #define LOCTEXT_NAMESPACE "VREditor"
 
+
+ULaserSplineMeshComponent::ULaserSplineMeshComponent()
+{
+	Mobility = EComponentMobility::Movable;
+}
+
+void UVREditorMotionControllerComponent::GetLifetimeReplicatedProps( TArray< FLifetimeProperty > & OutLifetimeProps ) const
+{
+	Super::GetLifetimeReplicatedProps( OutLifetimeProps );
+
+	DOREPLIFETIME( UVREditorMotionControllerComponent, bIsSteamVR );
+}
+
+void UVREditorMotionControllerComponent::LoadAssetsIfNeeded( UStaticMeshComponent* HoverMeshComponent, const TArray<ULaserSplineMeshComponent*>& LaserSplineMeshComponents )
+{
+	if( LaserPointerMID == nullptr )
+	{
+		const FString AssetContainerPath = FString( "/Engine/VREditor/VREditorAssetContainerData" );
+		UVREditorAssetContainer* AssetContainer = LoadObject<UVREditorAssetContainer>( nullptr, *AssetContainerPath );
+		check( AssetContainer != nullptr );
+
+		{
+			UMaterialInterface* LaserPointerMaterial = AssetContainer->LaserPointerMaterial;
+			check( LaserPointerMaterial != nullptr );
+			LaserPointerMID = UMaterialInstanceDynamic::Create( LaserPointerMaterial, GetTransientPackage() );
+			check( LaserPointerMID != nullptr );
+
+			UMaterialInterface* TranslucentLaserPointerMaterial = AssetContainer->LaserPointerTranslucentMaterial;
+			check( TranslucentLaserPointerMaterial != nullptr );
+			TranslucentLaserPointerMID = UMaterialInstanceDynamic::Create( TranslucentLaserPointerMaterial, GetTransientPackage() );
+			check( TranslucentLaserPointerMID != nullptr );
+
+			HoverMeshComponent->SetMaterial( 0, LaserPointerMID );
+			HoverMeshComponent->SetMaterial( 1, GIsDemoMode ? LaserPointerMID : TranslucentLaserPointerMID );	// @todo vreditor demo hack: Force opaque laser during demo.  We don't want translucency support, it looks weird in third person
+			for( ULaserSplineMeshComponent* SplineMeshComponent : LaserSplineMeshComponents )
+			{
+				SplineMeshComponent->SetMaterial( 0, LaserPointerMID );
+				SplineMeshComponent->SetMaterial( 1, GIsDemoMode ? LaserPointerMID : TranslucentLaserPointerMID );	// @todo vreditor demo hack: Force opaque laser during demo.  We don't want translucency support, it looks weird in third person
+			}
+		}
+	}
+}
+
+
 UVREditorMotionControllerInteractor::UVREditorMotionControllerInteractor( const FObjectInitializer& Initializer ) :
 	Super( Initializer ),
 	MotionControllerComponent( nullptr ),
 	HandMeshComponent( nullptr ),
-	LaserPointerMID( nullptr ),
-	TranslucentLaserPointerMID( nullptr ),
 	HoverMeshComponent( nullptr ),
 	HoverPointLightComponent( nullptr ),
-	HandMeshMID( nullptr ),
 	ControllerHandSide( EControllerHand::Pad ),
 	bHaveMotionController( false ),
 	bIsTriggerFullyPressed( false ),
@@ -126,6 +172,7 @@ UVREditorMotionControllerInteractor::UVREditorMotionControllerInteractor( const 
 	LastSwipe(ETouchSwipeDirection::None),
 	InitialTouchPosition(FVector2D::ZeroVector)
 {
+	LastLaserTriggerTouchRealTime = -99999.0;
 }
 
 
@@ -198,47 +245,45 @@ void UVREditorMotionControllerInteractor::SetupComponent( AActor* OwningActor )
 	// Setup a motion controller component.  This allows us to take advantage of late frame updates, so
 	// our motion controllers won't lag behind the HMD
 	{
-		MotionControllerComponent = NewObject<UMotionControllerComponent>( OwningActor );
+		MotionControllerComponent = NewObject<UVREditorMotionControllerComponent>( OwningActor );
 		OwningActor->AddOwnedComponent( MotionControllerComponent );
 		MotionControllerComponent->SetupAttachment( OwningActor->GetRootComponent() );
 		MotionControllerComponent->RegisterComponent();
 
 		MotionControllerComponent->SetMobility( EComponentMobility::Movable );
 		MotionControllerComponent->SetCollisionEnabled( ECollisionEnabled::NoCollision );
-
+		MotionControllerComponent->SetIsReplicated(true);
 		MotionControllerComponent->Hand = ControllerHandSide;
 
 		// @todo vreditor: Reenable late frame updates after we've sorted out why they cause popping artifacts on Rift
 		MotionControllerComponent->bDisableLowLatencyUpdate = true;
+
+		const bool bIsSteamVR = GetVRMode().GetHMDDeviceType() == EHMDDeviceType::DT_SteamVR;
+		MotionControllerComponent->bIsSteamVR = bIsSteamVR;
+
 	}
 
 	const UVREditorAssetContainer& AssetContainer = VRMode->GetAssetContainer();
+
+	const bool bIsSteamVR = GetVRMode().GetHMDDeviceType() == EHMDDeviceType::DT_SteamVR;
+	UMaterialInterface* HandMeshMaterial = bIsSteamVR ? AssetContainer.VivePreControllerMaterial : AssetContainer.OculusControllerMaterial;
+	check( HandMeshMaterial != nullptr );
+	MotionControllerComponent->HandMeshMID = UMaterialInstanceDynamic::Create( HandMeshMaterial, GetTransientPackage() );
+	check( MotionControllerComponent->HandMeshMID != nullptr );
+
 
 	// Hand mesh
 	{
 		HandMeshComponent = VRMode->CreateMotionControllerMesh( OwningActor, MotionControllerComponent ); 
 		check( HandMeshComponent != nullptr );
 		HandMeshComponent->SetCastShadow(false);
-		HandMeshComponent->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
-		HandMeshComponent->SetCollisionResponseToAllChannels(ECR_Block);
 
-		UMaterialInterface* HandMeshMaterial = GetVRMode().GetHMDDeviceType() == EHMDDeviceType::DT_SteamVR ? AssetContainer.VivePreControllerMaterial : AssetContainer.OculusControllerMaterial;
-		check( HandMeshMaterial != nullptr );
-		HandMeshMID = UMaterialInstanceDynamic::Create( HandMeshMaterial, GetTransientPackage() );
-		check( HandMeshMID != nullptr );
-		HandMeshComponent->SetMaterial( 0, HandMeshMID );
-	}
-
-	{
-		UMaterialInterface* LaserPointerMaterial = AssetContainer.LaserPointerMaterial;
-		check(LaserPointerMaterial != nullptr);
-		LaserPointerMID = UMaterialInstanceDynamic::Create(LaserPointerMaterial, GetTransientPackage());
-		check(LaserPointerMID != nullptr);
-
-		UMaterialInterface* TranslucentLaserPointerMaterial = AssetContainer.LaserPointerTranslucentMaterial;
-		check(TranslucentLaserPointerMaterial != nullptr);
-		TranslucentLaserPointerMID = UMaterialInstanceDynamic::Create(TranslucentLaserPointerMaterial, GetTransientPackage());
-		check(TranslucentLaserPointerMID != nullptr);
+		if (VREd::AllowCollisionOnMotionControllers->GetInt() == 1)
+		{
+			HandMeshComponent->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+			HandMeshComponent->SetCollisionResponseToAllChannels(ECR_Block);
+		}
+		HandMeshComponent->SetMaterial( 0, MotionControllerComponent->HandMeshMID );
 	}
 
 	// Hover cue for laser pointer
@@ -254,9 +299,7 @@ void UVREditorMotionControllerInteractor::SetupComponent( AActor* OwningActor )
 		HoverMeshComponent->SetMobility( EComponentMobility::Movable );
 		HoverMeshComponent->SetCollisionEnabled( ECollisionEnabled::NoCollision );
 		HoverMeshComponent->SetCastShadow(false);
-
-		HoverMeshComponent->SetMaterial( 0, LaserPointerMID );
-		HoverMeshComponent->SetMaterial( 1, TranslucentLaserPointerMID );
+		HoverMeshComponent->SetIsReplicated( true );
 
 		// Add a light!
 		{
@@ -265,13 +308,8 @@ void UVREditorMotionControllerInteractor::SetupComponent( AActor* OwningActor )
 			HoverPointLightComponent->SetupAttachment( HoverMeshComponent );
 			HoverPointLightComponent->RegisterComponent();
 
-			HoverPointLightComponent->SetLightColor( FLinearColor::Red );
-			//Hand.HoverPointLightComponent->SetLightColor( FLinearColor( 0.0f, 1.0f, 0.2f, 1.0f ) );
-			HoverPointLightComponent->SetIntensity( 30.0f );	// @todo: VREditor tweak
 			HoverPointLightComponent->SetMobility( EComponentMobility::Movable );
-			HoverPointLightComponent->SetAttenuationRadius( VREd::LaserPointerLightRadius->GetFloat() );
-			HoverPointLightComponent->bUseInverseSquaredFalloff = false;
-			HoverPointLightComponent->SetCastShadows( false );
+			HoverPointLightComponent->SetIsReplicated( true );
 		}
 	}
 
@@ -287,13 +325,14 @@ void UVREditorMotionControllerInteractor::SetupComponent( AActor* OwningActor )
 
 		LaserSplineComponent = NewObject<USplineComponent>(OwningActor);
 		OwningActor->AddOwnedComponent(LaserSplineComponent);
+		LaserSplineComponent->SetMobility( EComponentMobility::Movable );
 		LaserSplineComponent->SetupAttachment(MotionControllerComponent);
 		LaserSplineComponent->RegisterComponent();
 		LaserSplineComponent->SetVisibility(false);
-
+		LaserSplineComponent->SetIsReplicated(true);
 		for (int32 i = 0; i < NumLaserSplinePoints; i++)
 		{
-			USplineMeshComponent* SplineSegment = NewObject<USplineMeshComponent>(OwningActor);
+			ULaserSplineMeshComponent* SplineSegment = NewObject<ULaserSplineMeshComponent>(OwningActor);
 			OwningActor->AddOwnedComponent(SplineSegment);
 			SplineSegment->SetMobility(EComponentMobility::Movable);
 			SplineSegment->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -318,11 +357,9 @@ void UVREditorMotionControllerInteractor::SetupComponent( AActor* OwningActor )
 			SplineSegment->bTickInEditor = true;
 			SplineSegment->bCastDynamicShadow = false;
 			SplineSegment->CastShadow = false;
-			SplineSegment->SetMaterial(0, LaserPointerMID);
-			SplineSegment->SetMaterial(1, TranslucentLaserPointerMID);
 			SplineSegment->SetVisibility(true);
 			SplineSegment->RegisterComponent();
-
+			SplineSegment->SetIsReplicated(true);
 			LaserSplineMeshComponents.Add(SplineSegment);
 		}
 	}
@@ -340,9 +377,6 @@ void UVREditorMotionControllerInteractor::Shutdown()
 	Super::Shutdown();
 
 	MotionControllerComponent = nullptr;
-	HandMeshComponent = nullptr;
-	LaserPointerMID = nullptr;
-	TranslucentLaserPointerMID = nullptr;
 	HoverMeshComponent = nullptr;
 	HoverPointLightComponent = nullptr;
 	HandMeshComponent = nullptr;
@@ -357,6 +391,7 @@ void UVREditorMotionControllerInteractor::Tick( const float DeltaTime )
 
 		// @todo vreditor: Manually ticking motion controller components
 		MotionControllerComponent->TickComponent( DeltaTime, ELevelTick::LEVELTICK_PauseTick, nullptr );
+		MotionControllerComponent->GetOwner()->ForceNetUpdate();
 
 		// The hands need to stay the same size relative to our tracking space, so we inverse compensate for world to meters scale here
 		// NOTE: We don't need to set the hand mesh location and rotation, as the MotionControllerComponent does that itself
@@ -373,11 +408,20 @@ void UVREditorMotionControllerInteractor::Tick( const float DeltaTime )
 
 	UpdateRadialMenuInput(DeltaTime);
 
+	const bool bTriggerTouched = SelectAndMoveTriggerValue >= ( GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift ? VREd::TriggerTouchThreshold_Rift->GetFloat() : VREd::TriggerTouchThreshold_Vive->GetFloat() );
+	if( bTriggerTouched || IsHoveringOverUI() )
+	{				   
+		LastLaserTriggerTouchRealTime = FSlateApplication::Get().GetCurrentTime();
+	}
+	const bool bTriggerTouchedRecently = 
+		bTriggerTouched || 
+		( ( FSlateApplication::Get().GetCurrentTime() - LastLaserTriggerTouchRealTime ) <= VREd::LaserOnTriggerTouchCooldownTime->GetFloat() );
+
 	{
 		const float WorldScaleFactor = WorldInteraction->GetWorldScaleFactor();
 
 		// Don't bother drawing hands if we're not currently tracking them.
-		if ( bHaveMotionController )
+		if ( bHaveMotionController && VREd::ShowControllers->GetInt() != 0 )
 		{
 			HandMeshComponent->SetVisibility( true );
 		}
@@ -385,11 +429,6 @@ void UVREditorMotionControllerInteractor::Tick( const float DeltaTime )
 		{
 			HandMeshComponent->SetVisibility( false );
 		}
-
-		// Offset the beginning of the laser pointer a bit, so that it doesn't overlap the hand mesh
-		const float LaserPointerStartOffset =
-			WorldScaleFactor *
-			( GetVRMode().GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift ? VREd::OculusLaserPointerStartOffset->GetFloat() : VREd::ViveLaserPointerStartOffset->GetFloat() );
 
 		// The laser pointer needs to stay the same size relative to our tracking space, so we inverse compensate for world to meters scale here
 		float LaserPointerRadius = VREd::LaserPointerRadius->GetFloat() * WorldScaleFactor;
@@ -411,10 +450,14 @@ void UVREditorMotionControllerInteractor::Tick( const float DeltaTime )
 
 		FVector LaserPointerStart, LaserPointerEnd;
 		const bool bHasLaser = GetLaserPointer(/* Out */ LaserPointerStart, /* Out */ LaserPointerEnd, bEvenIfBlocked);
-		if (bForceShowLaser || (bHasLaser && !bDraggingWorld))
+		const bool bTemporarilyHideLasers = WorldInteraction != nullptr && WorldInteraction->ShouldTemporarilyHideLasers();
+
+		if ( !bTemporarilyHideLasers && (bForceShowLaser || (bHasLaser && !bDraggingWorld) ))
 		{
+			const bool bShowLaserOnTriggerTouch = VREd::ShowLaserOnTriggerTouch->GetInt() == 0 ? true : bTriggerTouchedRecently;
+
 			// Only show the laser if we're actually in VR
-			SetLaserVisibility(GetVRMode().IsActuallyUsingVR());
+			SetLaserVisibility(GetVRMode().IsActuallyUsingVR() && bShowLaserOnTriggerTouch && !GetVRMode().IsTeleporting());
 
 			// NOTE: We don't need to set the laser pointer location and rotation, as the MotionControllerComponent will do
 			// that later in the frame.  
@@ -435,18 +478,17 @@ void UVREditorMotionControllerInteractor::Tick( const float DeltaTime )
 
 				// The hover effect needs to stay the same size relative to our tracking space, so we inverse compensate for world to meters scale here
 				HoverMeshComponent->SetRelativeScale3D( FVector( HoverMeshRadius * 2.0f ) * ( 0.25f + 1.0f - this->GetSelectAndMoveTriggerValue() * 0.75f ) );
-				HoverMeshComponent->SetVisibility( true );
+				HoverMeshComponent->SetVisibility( bShowLaserOnTriggerTouch );
 				HoverMeshComponent->SetWorldLocation( GetHoverLocation() );
+				HoverMeshComponent->GetOwner()->ForceNetUpdate();
 
 				// Show the light too, unless it's on top of UI.  It looks too distracting on top of UI.
-				HoverPointLightComponent->SetVisibility( !IsHoveringOverUI() );
-
-				// Update radius for world scaling
-				HoverPointLightComponent->SetAttenuationRadius( VREd::LaserPointerLightRadius->GetFloat() * WorldScaleFactor );
+				HoverPointLightComponent->SetVisibility( !IsHoveringOverUI() && bShowLaserOnTriggerTouch);
 
 				// Pull hover light back a bit from the end of the ray
 				const float PullBackAmount = VREd::LaserPointerLightPullBackDistance->GetFloat() * WorldInteraction->GetWorldScaleFactor();
 				HoverPointLightComponent->SetWorldLocation( GetHoverLocation() - PullBackAmount * DirectionTowardHoverLocation );
+				HoverPointLightComponent->GetOwner()->ForceNetUpdate();
 			}
 			else
 			{
@@ -464,15 +506,24 @@ void UVREditorMotionControllerInteractor::Tick( const float DeltaTime )
 		// Update the curved laser. No matter if we actually show the laser it needs to update, 
 		// so if in the next frame it needs to be visible it won't interpolate from a previous location.
 		{
+			// Offset the beginning of the laser pointer a bit, so that it doesn't overlap the hand mesh
+			const float LaserPointerStartOffset = WorldScaleFactor *
+				(GetVRMode().GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift ? VREd::OculusLaserPointerStartOffset->GetFloat() : VREd::ViveLaserPointerStartOffset->GetFloat());
+
 			// Get the hand transform and forward vector.
 			FTransform InteractorTransform;
 			FVector InteractorForwardVector;
 			GetTransformAndForwardVector( /* Out */ InteractorTransform, /* Out */ InteractorForwardVector);
+			InteractorForwardVector.Normalize();
 
 			// Offset the start point of the laser.
-			LaserPointerStart = InteractorTransform.GetLocation() + (InteractorForwardVector * FVector(LaserPointerStartOffset, 0.0f, 0.0f));
+			LaserPointerStart = InteractorTransform.GetLocation() + (InteractorForwardVector * LaserPointerStartOffset);
 
-			UpdateSplineLaser(LaserPointerStart, LaserPointerEnd, InteractorForwardVector);
+			const FVector LocalLaserPointerStart = MotionControllerComponent->GetComponentToWorld().InverseTransformPosition( LaserPointerStart );
+			const FVector LocalLaserPointerEnd = MotionControllerComponent->GetComponentToWorld().InverseTransformPosition( LaserPointerEnd );
+			const FVector LocalLaserDirection = MotionControllerComponent->GetComponentToWorld().InverseTransformVectorNoScale( InteractorForwardVector ).GetSafeNormal();
+			MotionControllerComponent->UpdateSplineLaserOnClientAndServer( HoverMeshComponent, LaserSplineMeshComponents, LaserSplineComponent, VRMode->GetWorldScaleFactor(), LocalLaserPointerStart, LocalLaserPointerEnd, LocalLaserDirection );
+			MotionControllerComponent->GetOwner()->ForceNetUpdate();
 		}
 
 		bForceShowLaser = false;
@@ -549,7 +600,7 @@ void UVREditorMotionControllerInteractor::Tick( const float DeltaTime )
 			}
 		}
 
-		SetLaserVisuals(ResultColor, CrawlFade, CrawlSpeed);
+		MotionControllerComponent->SetLaserVisualsOnClientAndServer( HoverMeshComponent, LaserSplineMeshComponents, HoverPointLightComponent, WorldInteraction->GetWorldScaleFactor(), ResultColor, CrawlFade, CrawlSpeed);
 	}
 
 	UpdateHelpLabels();
@@ -589,6 +640,12 @@ void UVREditorMotionControllerInteractor::CalculateDragRay( float& InOutDragRayL
 				InOutDragRayLength = 0.0f;
 				InOutDragRayVelocity = 0.0f;
 			}
+
+			// Stop transforming object to laser impact point when trying to slide with touchpad or analog stick.
+			if (InteractorData.DraggingMode == EViewportInteractionDraggingMode::TransformablesAtLaserImpact && !FMath::IsNearlyZero(SlideDelta, VREd::TrackpadStopImpactAtLaserBuffer->GetFloat()))
+			{
+				InteractorData.DraggingMode = EViewportInteractionDraggingMode::TransformablesFreely;
+			}
 		}
 	}
 	else
@@ -621,7 +678,7 @@ void UVREditorMotionControllerInteractor::CalculateDragRay( float& InOutDragRayL
 
 EHMDDeviceType::Type UVREditorMotionControllerInteractor::GetHMDDeviceType() const
 {
-	return GEngine->HMDDevice.IsValid() ? GEngine->HMDDevice->GetHMDDeviceType() : EHMDDeviceType::DT_SteamVR; //@todo: ViewportInteraction, assumption that it's steamvr ??
+	return (GEngine && GEngine->HMDDevice.IsValid()) ? GEngine->HMDDevice->GetHMDDeviceType() : EHMDDeviceType::DT_SteamVR; //@todo: ViewportInteraction, assumption that it's steamvr ??
 }
 
 
@@ -688,32 +745,138 @@ void UVREditorMotionControllerInteractor::PreviewInputKey( FEditorViewportClient
 		bIsPressingTrackpad = Event == IE_Released ? false : true;
 	}
 
-	if( GetControllerType() == EControllerType::Laser )
-	{
-		// Are we holding "up" on the trackpad?
-		const bool bIsHoldingUpOnTrackpad =
-			bIsTrackpadPositionValid[0] && bIsTrackpadPositionValid[1] &&
-			TrackpadPosition.Y >= VREd::MinTrackpadOffsetBeforeRadialMenu->GetFloat() &&
-			( GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift || bIsPressingTrackpad );
+	const bool bIsHoldingLeftOnTrackpad =
+		bIsTrackpadPositionValid[ 0 ] && bIsTrackpadPositionValid[ 1 ] &&
+		TrackpadPosition.X <= -VREd::MinTrackpadOffsetBeforeRadialMenu->GetFloat() &&
+		( GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift || bIsPressingTrackpad );
+	const bool bIsHoldingRightOnTrackpad =
+		bIsTrackpadPositionValid[ 0 ] && bIsTrackpadPositionValid[ 1 ] &&
+		TrackpadPosition.X >= VREd::MinTrackpadOffsetBeforeRadialMenu->GetFloat() &&
+		( GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift || bIsPressingTrackpad );
+	const bool bIsHoldingUpOnTrackpad =
+		bIsTrackpadPositionValid[ 0 ] && bIsTrackpadPositionValid[ 1 ] &&
+		TrackpadPosition.Y >= VREd::MinTrackpadOffsetBeforeRadialMenu->GetFloat() &&
+		( GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift || bIsPressingTrackpad );
+	const bool bIsHoldingDownOnTrackpad =
+		bIsTrackpadPositionValid[ 0 ] && bIsTrackpadPositionValid[ 1 ] &&
+		TrackpadPosition.Y <= -VREd::MinTrackpadOffsetBeforeRadialMenu->GetFloat() &&
+		( GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift || bIsPressingTrackpad );
 
+	if( !bOutWasHandled && Event == IE_Pressed )
+	{
+		if( bIsTriggerFullyPressed &&
+			GetControllerType() == EControllerType::Laser &&
+			Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+		{
+			if( !GIsDemoMode )	// Don't allow calibration mode to be invoked from controller when in the demo. (Dangerous!)  Use keyboard instead.
+			{
+				GetVRMode().SetIsCalibrating( !GetVRMode().bIsCalibrating );
+				bOutWasHandled = true;
+			}
+		}
+		else
+		{
+			if( GetVRMode().bIsCalibrating )
+			{
+				if( bIsHoldingLeftOnTrackpad && 
+					GetControllerType() == EControllerType::Laser &&
+					Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::NegativeYaw );
+					bOutWasHandled = true;
+				}
+				else if( 
+					bIsHoldingRightOnTrackpad &&
+					GetControllerType() == EControllerType::Laser &&
+					Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::PositiveYaw );
+					bOutWasHandled = true;
+				}
+				else if(
+					bIsHoldingUpOnTrackpad &&
+					GetControllerType() == EControllerType::Laser &&
+					Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::MoveForward );
+					bOutWasHandled = true;
+				}
+				else if(
+					bIsHoldingDownOnTrackpad &&
+					GetControllerType() == EControllerType::Laser &&
+					Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::MoveBackward );
+					bOutWasHandled = true;
+				}
+				else if(
+					bIsHoldingLeftOnTrackpad &&
+					GetControllerType() == EControllerType::UI &&
+					Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::MoveLeft );
+					bOutWasHandled = true;
+				}
+				else if(
+					bIsHoldingRightOnTrackpad &&
+					GetControllerType() == EControllerType::UI &&
+					Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::MoveRight );
+					bOutWasHandled = true;
+				}
+				else if(
+					bIsHoldingUpOnTrackpad &&
+					GetControllerType() == EControllerType::UI &&
+					Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::MoveUp );
+					bOutWasHandled = true;
+				}
+				else if(
+					bIsHoldingDownOnTrackpad &&
+					GetControllerType() == EControllerType::UI &&
+					Action.ActionType == VRActionTypes::ConfirmRadialSelection )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::MoveDown );
+					bOutWasHandled = true;
+				}
+				else if(
+					!bIsTouchingTrackpad && 
+					!bIsPressingTrackpad && 
+					GetControllerType() == EControllerType::Laser &&
+					Action.ActionType == VRActionTypes::Modifier )
+				{
+					GetVRMode().DoCalibrationChange( UVREditorMode::ECalibrationChange::SetCalibrationToLaserHand );
+					bOutWasHandled = true;
+				}
+			}
+		}
+	}
+
+	if( !bOutWasHandled && GetControllerType() == EControllerType::Laser )
+	{
 		if( bIsHoldingUpOnTrackpad && Action.ActionType == ViewportWorldActionTypes::SelectAndMove && Event == IE_Pressed )
 		{
 			bOutWasHandled = true;
 
 			// Try to place the object currently selected
-			TArray<UObject*> ObjectsToPlace;
+			TArray<UObject*> SelectedObjects;
 			{
 				FEditorDelegates::LoadSelectedAssetsIfNeeded.Broadcast();
-				GEditor->GetSelectedObjects()->GetSelectedObjects( /* Out */ ObjectsToPlace );
+				GEditor->GetSelectedObjects()->GetSelectedObjects( /* Out */ SelectedObjects );
 			}
 
-			if( ObjectsToPlace.Num() > 0 )
+			if( SelectedObjects.Num() > 0 )
 			{
+				TArray<UObject*> ObjectToPlace;
+				ObjectToPlace.Add(SelectedObjects[0]);
+
 				Action.bIsInputCaptured = true;
 
 				const bool bShouldInterpolateFromDragLocation = false;
 				UActorFactory* FactoryToUse = nullptr;	// Use default factory
-				GetVRMode().GetPlacementSystem()->StartPlacingObjects( ObjectsToPlace, FactoryToUse, this, bShouldInterpolateFromDragLocation );
+				GetVRMode().GetPlacementSystem()->StartPlacingObjects( ObjectToPlace, FactoryToUse, this, bShouldInterpolateFromDragLocation );
 			}
 		}
 	}
@@ -738,9 +901,10 @@ void UVREditorMotionControllerInteractor::HandleInputKey( FEditorViewportClient&
 				FVector PlaceAt = GetHoverLocation();
 				const bool bIsPlacingActors = true;
 				const bool bAllowInterpolationWhenPlacing = true;
+				const bool bShouldUseLaserImpactDrag = true;
 				const bool bStartTransaction = true;
 				const bool bWithGrabberSphere = false;	// Never use the grabber sphere when dragging at laser impact
-				WorldInteraction->StartDragging( this, WorldInteraction->GetTransformGizmoActor()->GetRootComponent(), PlaceAt, bIsPlacingActors, bAllowInterpolationWhenPlacing, bStartTransaction, bWithGrabberSphere );
+				WorldInteraction->StartDragging( this, WorldInteraction->GetTransformGizmoActor()->GetRootComponent(), PlaceAt, bIsPlacingActors, bAllowInterpolationWhenPlacing, bShouldUseLaserImpactDrag, bStartTransaction, bWithGrabberSphere );
 			}
 		}
 		else if( Event == IE_Released )
@@ -753,7 +917,7 @@ void UVREditorMotionControllerInteractor::HandleInputKey( FEditorViewportClient&
 		}
 	}
 
-	ApplyButtonPressColors( Action );
+	MotionControllerComponent->ApplyButtonPressColorsOnClientAndServer( HoverMeshComponent, LaserSplineMeshComponents, Action );
 }
 
 void UVREditorMotionControllerInteractor::HandleInputAxis( FEditorViewportClient& ViewportClient, FViewportActionKeyInput& Action, const FKey Key, const float Delta, const float DeltaTime, bool& bOutWasHandled )
@@ -978,8 +1142,10 @@ void UVREditorMotionControllerInteractor::SetForceLaserColor(const FLinearColor&
 }
 
 /** Changes the color of the buttons on the handmesh */
-void UVREditorMotionControllerInteractor::ApplyButtonPressColors( const FViewportActionKeyInput& Action )
+void UVREditorMotionControllerComponent::ApplyButtonPressColorsOnClientAndServer_Implementation( class UStaticMeshComponent* HoverMeshComponent, const TArray<class ULaserSplineMeshComponent*>& LaserSplineMeshComponents, const FViewportActionKeyInput& Action )
 {
+	LoadAssetsIfNeeded( HoverMeshComponent, LaserSplineMeshComponents );
+
 	const float PressStrength = 10.0f;
 	const FName ActionType = Action.ActionType;
 	const EInputEvent Event = Action.Event;
@@ -1012,22 +1178,25 @@ void UVREditorMotionControllerInteractor::ApplyButtonPressColors( const FViewpor
 		SetMotionControllerButtonPressedVisuals( Event, StaticModifierParameter, PressStrength );
 	}
 
-	if( GetVRMode().GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift && ActionType == VRActionTypes::Modifier2 )
+	if( !bIsSteamVR && ActionType == VRActionTypes::Modifier2 )
 	{
 		static FName StaticModifierParameter( "B5" );
 		SetMotionControllerButtonPressedVisuals( Event, StaticModifierParameter, PressStrength );
 	}
 }
 
-void UVREditorMotionControllerInteractor::SetMotionControllerButtonPressedVisuals( const EInputEvent Event, const FName& ParameterName, const float PressStrength )
+void UVREditorMotionControllerComponent::SetMotionControllerButtonPressedVisuals( const EInputEvent Event, const FName& ParameterName, const float PressStrength )
 {
-	if ( Event == IE_Pressed )
+	if( HandMeshMID != nullptr )
 	{
-		HandMeshMID->SetScalarParameterValue( ParameterName, PressStrength );
-	}
-	else if ( Event == IE_Released )
-	{
-		HandMeshMID->SetScalarParameterValue( ParameterName, 0.0f );
+		if ( Event == IE_Pressed )
+		{
+			HandMeshMID->SetScalarParameterValue( ParameterName, PressStrength );
+		}
+		else if ( Event == IE_Released )
+		{
+			HandMeshMID->SetScalarParameterValue( ParameterName, 0.0f );
+		}
 	}
 }
 
@@ -1291,8 +1460,10 @@ UStaticMeshSocket* UVREditorMotionControllerInteractor::FindMeshSocketForKey( US
 	return nullptr;
 };
 
-void UVREditorMotionControllerInteractor::UpdateSplineLaser(const FVector& InStartLocation, const FVector& InEndLocation, const FVector& InForward)
+void UVREditorMotionControllerComponent::UpdateSplineLaserOnClientAndServer_Implementation( class UStaticMeshComponent* HoverMeshComponent, const TArray<class ULaserSplineMeshComponent*>& LaserSplineMeshComponents, USplineComponent* LaserSplineComponent, const float WorldScaleFactor, const FVector& InStartLocation, const FVector& InEndLocation, const FVector& InForward )
 {
+	LoadAssetsIfNeeded( HoverMeshComponent, LaserSplineMeshComponents );
+
 	if (LaserSplineComponent)
 	{
 		// Clear the segments before updating it
@@ -1303,7 +1474,7 @@ void UVREditorMotionControllerInteractor::UpdateSplineLaser(const FVector& InSta
 		const FVector StraightLaserEndLocation = InStartLocation + (InForward * Distance);
 		const int32 NumLaserSplinePoints = LaserSplineMeshComponents.Num();
 
-		LaserSplineComponent->AddSplinePoint(InStartLocation, ESplineCoordinateSpace::World, false);
+		LaserSplineComponent->AddSplinePoint(InStartLocation, ESplineCoordinateSpace::Local, false);
 		for (int32 Index = 1; Index < NumLaserSplinePoints; Index++)
 		{
 			float Alpha = (float)Index / (float)NumLaserSplinePoints;
@@ -1311,14 +1482,14 @@ void UVREditorMotionControllerInteractor::UpdateSplineLaser(const FVector& InSta
 			const FVector PointOnStraightLaser = FMath::Lerp(InStartLocation, StraightLaserEndLocation, Alpha);
 			const FVector PointOnSmoothLaser = FMath::Lerp(InStartLocation, InEndLocation, Alpha);
 			const FVector PointBetweenLasers = FMath::Lerp(PointOnStraightLaser, PointOnSmoothLaser, Alpha);
-			LaserSplineComponent->AddSplinePoint(PointBetweenLasers, ESplineCoordinateSpace::World, false);
+			LaserSplineComponent->AddSplinePoint(PointBetweenLasers, ESplineCoordinateSpace::Local, false);
 		}
-		LaserSplineComponent->AddSplinePoint(InEndLocation, ESplineCoordinateSpace::World, false);
+		LaserSplineComponent->AddSplinePoint(InEndLocation, ESplineCoordinateSpace::Local, false);
 
 		// Update all the segments of the spline
 		LaserSplineComponent->UpdateSpline();
 		
-		const float LaserPointerRadius = VREd::LaserPointerRadius->GetFloat() * VRMode->GetWorldScaleFactor();
+		const float LaserPointerRadius = VREd::LaserPointerRadius->GetFloat() * WorldScaleFactor;
 		Distance *= 0.0001f;
 		for (int32 Index = 0; Index < NumLaserSplinePoints; Index++)
 		{
@@ -1332,13 +1503,20 @@ void UVREditorMotionControllerInteractor::UpdateSplineLaser(const FVector& InSta
 			const float AlphaIndex = (float)Index / (float)NumLaserSplinePoints;
 			const float AlphaDistance = Distance * AlphaIndex;
 			float Radius = LaserPointerRadius * ((AlphaIndex * AlphaDistance) + 1);
-			FVector2D LaserScale(Radius, Radius); 
+			if( IsNetMode( NM_Client ) )
+			{
+				Radius *= 1.6f;
+			}
+			FVector2D LaserScale(Radius, Radius);
 			SplineMeshComponent->SetStartScale(LaserScale, false);
 			
 			const float NextAlphaIndex = (float)(Index + 1) / (float)NumLaserSplinePoints;
 			const float NextAlphaDistance = Distance * NextAlphaIndex;
 			Radius = LaserPointerRadius * ((NextAlphaIndex * NextAlphaDistance) + 1);
-			LaserScale = FVector2D(Radius, Radius);
+			if( LaserSplineComponent->GetOwnerRole() == ROLE_Authority )	// Only the server needs to scale the laser end pointer with distance, because the client (as a spectator) could be viewing the laser from an arbitrary angle
+			{
+				LaserScale = FVector2D(Radius, Radius);
+			}
 			SplineMeshComponent->SetEndScale(LaserScale, false);
 
 			SplineMeshComponent->SetStartAndEnd(StartLoc, StartTangent, EndLoc, EndTangent, true);
@@ -1354,8 +1532,10 @@ void UVREditorMotionControllerInteractor::SetLaserVisibility(const bool bVisible
 	}
 }
 
-void UVREditorMotionControllerInteractor::SetLaserVisuals( const FLinearColor& NewColor, const float CrawlFade, const float CrawlSpeed )
+void UVREditorMotionControllerComponent::SetLaserVisualsOnClientAndServer_Implementation( class UStaticMeshComponent* HoverMeshComponent, const TArray<class ULaserSplineMeshComponent*>& LaserSplineMeshComponents, UPointLightComponent* HoverPointLightComponent, const float WorldScaleFactor, const FLinearColor& NewColor, const float CrawlFade, const float CrawlSpeed )
 {
+	LoadAssetsIfNeeded( HoverMeshComponent, LaserSplineMeshComponents );
+
 	static FName StaticLaserColorParameterName( "LaserColor" );
 	LaserPointerMID->SetVectorParameterValue( StaticLaserColorParameterName, NewColor );
 	TranslucentLaserPointerMID->SetVectorParameterValue( StaticLaserColorParameterName, NewColor );
@@ -1368,10 +1548,23 @@ void UVREditorMotionControllerInteractor::SetLaserVisuals( const FLinearColor& N
 	LaserPointerMID->SetScalarParameterValue( StaticCrawlSpeedParameterName, CrawlSpeed );
 	TranslucentLaserPointerMID->SetScalarParameterValue( StaticCrawlSpeedParameterName, CrawlSpeed );
 
-	static FName StaticHandTrimColorParameter( "TrimGlowColor" );
-	HandMeshMID->SetVectorParameterValue( StaticHandTrimColorParameter, NewColor );
+	if( HandMeshMID != nullptr )
+	{
+		static FName StaticHandTrimColorParameter( "TrimGlowColor" );
+		HandMeshMID->SetVectorParameterValue( StaticHandTrimColorParameter, NewColor );
+	}
 
 	HoverPointLightComponent->SetLightColor( NewColor );
+	HoverPointLightComponent->SetIntensity( 30.0f );	// @todo: VREditor tweak
+
+	float Radius = VREd::LaserPointerLightRadius->GetFloat();
+	if( IsNetMode( NM_Client ) )
+	{
+		Radius *= 1.6f;
+	}
+	HoverPointLightComponent->SetAttenuationRadius( Radius * WorldScaleFactor );
+	HoverPointLightComponent->bUseInverseSquaredFalloff = false;
+	HoverPointLightComponent->SetCastShadows( false );
 }
 
 void UVREditorMotionControllerInteractor::UpdateRadialMenuInput( const float DeltaTime )
@@ -1493,5 +1686,6 @@ bool UVREditorMotionControllerInteractor::GetIsLaserBlocked() const
 {
 	return Super::GetIsLaserBlocked() || (ControllerType != EControllerType::Laser && ControllerType != EControllerType::AssistingLaser);
 }
+
 
 #undef LOCTEXT_NAMESPACE

@@ -11,6 +11,8 @@
 class UVREditorBaseUserWidget;
 class UVREditorUISystem;
 
+typedef FName VREditorPanelID;
+
 /**
  * Represents an interactive floating UI panel in the VR Editor
  */
@@ -25,10 +27,13 @@ public:
 	AVREditorFloatingUI();
 
 	/** Creates a FVREditorFloatingUI using a Slate widget, and sets up safe defaults */
-	void SetSlateWidget( class UVREditorUISystem& InitOwner, const TSharedRef<SWidget>& InitSlateWidget, const FIntPoint InitResolution, const float InitScale, const EDockedTo InitDockedTo );
+	void SetSlateWidget( class UVREditorUISystem& InitOwner, const VREditorPanelID& InID, const TSharedRef<SWidget>& InitSlateWidget, const FIntPoint InitResolution, const float InitScale, const EDockedTo InitDockedTo );
+	void SetSlateWidget(const TSharedRef<SWidget>& InitSlateWidget);
 
 	/** Creates a FVREditorFloatingUI using a UMG user widget, and sets up safe defaults */
-	void SetUMGWidget( class UVREditorUISystem& InitOwner, class TSubclassOf<class UVREditorBaseUserWidget> InitUserWidgetClass, const FIntPoint InitResolution, const float InitScale, const EDockedTo InitDockedTo );
+	void SetUMGWidget(class UVREditorUISystem& InitOwner, const VREditorPanelID& InID, class TSubclassOf<class UVREditorBaseUserWidget> InitUserWidgetClass, const FIntPoint InitResolution, const float InitScale, const EDockedTo InitDockedTo);
+
+	virtual void TickManually(float DeltaTime) override;
 
 	/** @return Returns true if the UI is visible (or wants to be visible -- it might be transitioning */
 	bool IsUIVisible() const
@@ -37,7 +42,10 @@ public:
 	}
 
 	/** Shows or hides the UI (also enables collision, and performs a transition effect) */
-	void ShowUI( const bool bShow, const bool bAllowFading = true, const float InitFadeDelay = 0.0f );
+	void ShowUI( const bool bShow, const bool bAllowFading = true, const float InitFadeDelay = 0.0f, const bool bInClearWidgetOnHide = false );
+
+	/** Sets the resolution of this floating UI panel and resets the window mesh accordingly. */
+	void SetResolution(const FIntPoint& InResolution);
 
 	/** Returns the widget component for this UI, or nullptr if not spawned right now */
 	class UVREditorWidgetComponent* GetWidgetComponent()
@@ -67,7 +75,11 @@ public:
 	virtual void SetTransform( const FTransform& Transform ) override;
 
 	/** AActor overrides */
+	virtual void BeginDestroy() override;
 	virtual void Destroyed() override;
+
+	void CleanupWidgetReferences();
+
 	virtual bool IsEditorOnly() const final
 	{
 		return true;
@@ -103,6 +115,15 @@ public:
 
 	/** Called to finish setting everything up, after a widget has been assigned */
 	virtual void SetupWidgetComponent();
+
+	/** Gets the ID of this panel. */
+	VREditorPanelID GetID() const;
+
+	/** Gets the current slate widget. */
+	TSharedPtr<SWidget> GetSlateWidget() const;
+
+	/** Set mesh on window mesh component. */
+	void SetWindowMesh(class UStaticMesh* InWindowMesh);
 
 protected:
 
@@ -157,5 +178,11 @@ private:
 
 	/** The starting scale of this UI */
 	float InitialScale;
-};
 
+	/** The ID of this floating UI. */
+	VREditorPanelID UISystemID;
+
+	/** Null out the widget when hidden. */
+	bool bClearWidgetOnHide;
+
+};

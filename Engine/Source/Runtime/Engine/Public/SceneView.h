@@ -1427,6 +1427,8 @@ public:
 	{
 		return MonoParameters.bEnabled && MonoParameters.Mode != EMonoscopicFarFieldMode::Off;
 	}
+
+	bool AllowTranslucencyAfterDOF() const;
 };
 
 /**

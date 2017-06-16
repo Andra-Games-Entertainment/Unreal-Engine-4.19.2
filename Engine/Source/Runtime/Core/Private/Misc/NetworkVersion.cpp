@@ -5,6 +5,7 @@
 #include "Misc/EngineVersion.h"
 #include "Runtime/Launch/Resources/Version.h"
 #include "Misc/NetworkGuid.h"
+#include "Misc/CommandLine.h"
 
 DEFINE_LOG_CATEGORY( LogNetVersion );
 
@@ -66,6 +67,20 @@ uint32 FNetworkVersion::GetLocalNetworkVersion( bool AllowOverrideDelegate /*=tr
 		return CachedNetworkChecksum;
 	}
 
+	{
+		uint32 CommandLineNetworkChecksum = 0;
+		if( FParse::Value( FCommandLine::Get(), TEXT( "NETWORKCHECKSUM=" ), /* Out */ CommandLineNetworkChecksum ) )
+		{
+			CachedNetworkChecksum = CommandLineNetworkChecksum;
+
+			UE_LOG( LogNetVersion, Log, TEXT( "Checksum from command-line: %u" ), CachedNetworkChecksum );
+
+			bHasCachedNetworkChecksum = true;
+
+			return CachedNetworkChecksum;
+		}
+	}
+
 	if ( AllowOverrideDelegate && GetLocalNetworkVersionOverride.IsBound() )
 	{
 		CachedNetworkChecksum = GetLocalNetworkVersionOverride.Execute();
@@ -76,6 +91,7 @@ uint32 FNetworkVersion::GetLocalNetworkVersion( bool AllowOverrideDelegate /*=tr
 
 		return CachedNetworkChecksum;
 	}
+
 
 	FString VersionString = FString::Printf(TEXT("%s %s, NetCL: %d, EngineNetVer: %d, GameNetVer: %d"),
 		FApp::GetGameName(),

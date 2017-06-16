@@ -208,11 +208,12 @@ struct FDynamicReadBuffer : public FReadBuffer
  * Convert the ESimpleRenderTargetMode into usable values 
  * @todo: Can we easily put this into a .cpp somewhere?
  */
-inline void DecodeRenderTargetMode(ESimpleRenderTargetMode Mode, ERenderTargetLoadAction& ColorLoadAction, ERenderTargetStoreAction& ColorStoreAction, ERenderTargetLoadAction& DepthLoadAction, ERenderTargetStoreAction& DepthStoreAction, FExclusiveDepthStencil DepthStencilUsage)
+inline void DecodeRenderTargetMode(ESimpleRenderTargetMode Mode, ERenderTargetLoadAction& ColorLoadAction, ERenderTargetStoreAction& ColorStoreAction, ERenderTargetLoadAction& DepthLoadAction, ERenderTargetStoreAction& DepthStoreAction, ERenderTargetLoadAction& StencilLoadAction, ERenderTargetStoreAction& StencilStoreAction, FExclusiveDepthStencil DepthStencilUsage)
 {
 	// set defaults
 	ColorStoreAction = ERenderTargetStoreAction::EStore;
-	DepthStoreAction = ERenderTargetStoreAction::EStore;	
+	DepthStoreAction = ERenderTargetStoreAction::EStore;
+	StencilStoreAction = ERenderTargetStoreAction::EStore;
 
 	switch (Mode)
 	{
@@ -256,11 +257,29 @@ inline void DecodeRenderTargetMode(ESimpleRenderTargetMode Mode, ERenderTargetLo
 	default:
 		UE_LOG(LogRHI, Fatal, TEXT("Using a ESimpleRenderTargetMode that wasn't decoded in DecodeRenderTargetMode [value = %d]"), (int32)Mode);
 	}
-
+	
+	StencilLoadAction = DepthLoadAction;
+	
+	if (!DepthStencilUsage.IsUsingDepth())
+	{
+		DepthLoadAction = ERenderTargetLoadAction::ENoAction;
+	}
+	
 	//if we aren't writing to depth, there's no reason to store it back out again.  Should save some bandwidth on mobile platforms.
 	if (!DepthStencilUsage.IsDepthWrite())
 	{
 		DepthStoreAction = ERenderTargetStoreAction::ENoAction;
+	}
+	
+	if (!DepthStencilUsage.IsUsingStencil())
+	{
+		StencilLoadAction = ERenderTargetLoadAction::ENoAction;
+	}
+	
+	//if we aren't writing to stencil, there's no reason to store it back out again.  Should save some bandwidth on mobile platforms.
+	if (!DepthStencilUsage.IsStencilWrite())
+	{
+		StencilStoreAction = ERenderTargetStoreAction::ENoAction;
 	}
 }
 
@@ -319,9 +338,9 @@ inline void SetRenderTarget(FRHICommandList& RHICmdList, FTextureRHIParamRef New
 /** Helper for the common case of using a single color and depth render target. */
 inline void SetRenderTarget(FRHICommandList& RHICmdList, FTextureRHIParamRef NewRenderTarget, FTextureRHIParamRef NewDepthStencilTarget, ESimpleRenderTargetMode Mode, FExclusiveDepthStencil DepthStencilAccess = FExclusiveDepthStencil::DepthWrite_StencilWrite, bool bWritableBarrier = false)
 {
-	ERenderTargetLoadAction ColorLoadAction, DepthLoadAction;
-	ERenderTargetStoreAction ColorStoreAction, DepthStoreAction;	
-	DecodeRenderTargetMode(Mode, ColorLoadAction, ColorStoreAction, DepthLoadAction, DepthStoreAction, DepthStencilAccess);
+	ERenderTargetLoadAction ColorLoadAction, DepthLoadAction, StencilLoadAction;
+	ERenderTargetStoreAction ColorStoreAction, DepthStoreAction, StencilStoreAction;
+	DecodeRenderTargetMode(Mode, ColorLoadAction, ColorStoreAction, DepthLoadAction, DepthStoreAction, StencilLoadAction, StencilStoreAction, DepthStencilAccess);
 
 	//make these rendertargets safely writable
 	if (bWritableBarrier)
@@ -331,7 +350,7 @@ inline void SetRenderTarget(FRHICommandList& RHICmdList, FTextureRHIParamRef New
 
 	// now make the FRHISetRenderTargetsInfo that encapsulates all of the info
 	FRHIRenderTargetView ColorView(NewRenderTarget, 0, -1, ColorLoadAction, ColorStoreAction);
-	FRHISetRenderTargetsInfo Info(1, &ColorView, FRHIDepthRenderTargetView(NewDepthStencilTarget, DepthLoadAction, DepthStoreAction, DepthStencilAccess));	
+	FRHISetRenderTargetsInfo Info(1, &ColorView, FRHIDepthRenderTargetView(NewDepthStencilTarget, DepthLoadAction, DepthStoreAction, StencilLoadAction, StencilStoreAction, DepthStencilAccess));
 	RHICmdList.SetRenderTargetsAndClear(Info);
 }
 
@@ -402,9 +421,9 @@ inline void SetRenderTargets(
 	bool bWritableBarrier = false
 	)
 {
-	ERenderTargetLoadAction ColorLoadAction, DepthLoadAction;
-	ERenderTargetStoreAction ColorStoreAction, DepthStoreAction;	
-	DecodeRenderTargetMode(Mode, ColorLoadAction, ColorStoreAction, DepthLoadAction, DepthStoreAction, DepthStencilAccess);
+	ERenderTargetLoadAction ColorLoadAction, DepthLoadAction, StencilLoadAction;
+	ERenderTargetStoreAction ColorStoreAction, DepthStoreAction, StencilStoreAction;
+	DecodeRenderTargetMode(Mode, ColorLoadAction, ColorStoreAction, DepthLoadAction, DepthStoreAction, StencilLoadAction, StencilStoreAction, DepthStencilAccess);
 
 	FRHIRenderTargetView RTVs[MaxSimultaneousRenderTargets];
 		
@@ -419,7 +438,7 @@ inline void SetRenderTargets(
 		TransitionSetRenderTargetsHelper(RHICmdList, NewNumSimultaneousRenderTargets, NewRenderTargetsRHI, NewDepthStencilTargetRHI, DepthStencilAccess);
 	}
 
-	FRHIDepthRenderTargetView DepthRTV(NewDepthStencilTargetRHI, DepthLoadAction, DepthStoreAction, DepthStencilAccess);
+	FRHIDepthRenderTargetView DepthRTV(NewDepthStencilTargetRHI, DepthLoadAction, DepthStoreAction, StencilLoadAction, StencilStoreAction, DepthStencilAccess);
 	RHICmdList.SetRenderTargets(NewNumSimultaneousRenderTargets, RTVs, &DepthRTV, 0, nullptr);
 }
 

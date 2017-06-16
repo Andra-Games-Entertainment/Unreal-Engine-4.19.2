@@ -200,6 +200,13 @@ static const char * const GLSLExpressionTable[ir_opcode_count][4] =
 	/*@}*/
 
 	/**
+	* \name Saturate.
+	*/
+	/*@{*/
+	{ "ERROR_NO_SATURATE_FUNCS(", ")", "", "" }, // ir_unop_saturate,
+	/*@}*/
+
+	/**
 	* \name Normalize.
 	*/
 	/*@{*/

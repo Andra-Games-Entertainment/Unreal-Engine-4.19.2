@@ -111,6 +111,8 @@ static TAutoConsoleVariable<int32> CVarBasePassWriteDepthEvenWithFullPrepass(
 	TEXT("0 to allow a readonly base pass, which skips an MSAA depth resolve, and allows masked materials to get EarlyZ (writing to depth while doing clip() disables EarlyZ) (default)\n")
 	TEXT("1 to force depth writes in the base pass.  Useful for debugging when the prepass and base pass don't match what they render."));
 
+extern int GUseTranslucentLightingVolumes;
+
 DECLARE_CYCLE_STAT(TEXT("PostInitViews FlushDel"), STAT_PostInitViews_FlushDel, STATGROUP_InitViews);
 DECLARE_CYCLE_STAT(TEXT("InitViews Intentional Stall"), STAT_InitViews_Intentional_Stall, STATGROUP_InitViews);
 
@@ -243,7 +245,6 @@ void FDeferredShadingSceneRenderer::ClearGBufferAtMaxZ(FRHICommandList& RHICmdLi
 	const bool bClearBlack = Views[0].Family->EngineShowFlags.ShaderComplexity || Views[0].Family->EngineShowFlags.StationaryLightOverlap;
 	const float ClearAlpha = GetSceneColorClearAlpha();
 	const FLinearColor ClearColor = bClearBlack ? FLinearColor(0, 0, 0, ClearAlpha) : FLinearColor(Views[0].BackgroundColor.R, Views[0].BackgroundColor.G, Views[0].BackgroundColor.B, ClearAlpha);
-	// Same clear color from RHIClearMRT
 	FLinearColor ClearColors[MaxSimultaneousRenderTargets] = 
 		{ClearColor, FLinearColor(0.5f,0.5f,0.5f,0), FLinearColor(0,0,0,1), FLinearColor(0,0,0,0), FLinearColor(0,1,1,1), FLinearColor(1,1,1,1), FLinearColor::Transparent, FLinearColor::Transparent};
 
@@ -870,7 +871,7 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 			SceneContext.AllocateDeferredShadingPathRenderTargets(RHICmdList);
 		}
 		
-		if (GbEnableAsyncComputeTranslucencyLightingVolumeClear && GSupportsEfficientAsyncCompute)
+		if (GUseTranslucentLightingVolumes && GbEnableAsyncComputeTranslucencyLightingVolumeClear && GSupportsEfficientAsyncCompute)
 		{
 			ClearTranslucentVolumeLightingAsyncCompute(RHICmdList);
 		}
@@ -1059,7 +1060,7 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		RenderDFAOAsIndirectShadowing(RHICmdList, VelocityRT, DynamicBentNormalAO);
 
 		// Clear the translucent lighting volumes before we accumulate
-		if ((GbEnableAsyncComputeTranslucencyLightingVolumeClear && GSupportsEfficientAsyncCompute) == false)
+		if (GUseTranslucentLightingVolumes && ((GbEnableAsyncComputeTranslucencyLightingVolumeClear && GSupportsEfficientAsyncCompute) == false))
 		{
 			ClearTranslucentVolumeLighting(RHICmdList);
 		}
@@ -1183,7 +1184,19 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		SCOPE_CYCLE_COUNTER(STAT_TranslucencyDrawTime);
 
 		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_Translucency));
-		RenderTranslucency(RHICmdList);
+
+		// For now there is only one resolve for all translucency passes. This can be changed by enabling the resolve in RenderTranslucency()
+		ConditionalResolveSceneColorForTranslucentMaterials(RHICmdList);
+		if (ViewFamily.AllowTranslucencyAfterDOF())
+		{
+			RenderTranslucency(RHICmdList, ETranslucencyPass::TPT_StandardTranslucency);
+			// Translucency after DOF is rendered now, but stored in the separate translucency RT for later use.
+			RenderTranslucency(RHICmdList, ETranslucencyPass::TPT_TranslucencyAfterDOF);
+		}
+		else // Otherwise render translucent primitives in a single bucket.
+		{
+			RenderTranslucency(RHICmdList, ETranslucencyPass::TPT_AllTranslucency);
+		}
 		ServiceLocalQueue();
 
 		static const auto DisableDistortionCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.DisableDistortion"));
@@ -1198,6 +1211,7 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 			RenderDistortion(RHICmdList);
 			ServiceLocalQueue();
 		}
+
 		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_AfterTranslucency));
 	}
 
@@ -1265,7 +1279,7 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		}
 
 		// End of frame, we don't need it anymore
-		FSceneRenderTargets::Get(RHICmdList).FreeSeparateTranslucencyDepth();
+		FSceneRenderTargets::Get(RHICmdList).FreeDownsampledTranslucencyDepth();
 
 		// we rendered to it during the frame, seems we haven't made use of it, because it should be released
 		check(!FSceneRenderTargets::Get(RHICmdList).SeparateTranslucencyRT);

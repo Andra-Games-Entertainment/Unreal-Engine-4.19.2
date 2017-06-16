@@ -391,7 +391,7 @@ FSceneRenderer* CreateSceneRendererForSceneCapture(
 		Scene,
 		SceneCaptureComponent->ShowFlags)
 		.SetResolveScene(!bCaptureSceneColor)
-		.SetRealtimeUpdate(bIsPlanarReflection));
+		.SetRealtimeUpdate(bIsPlanarReflection || SceneCaptureComponent->bCaptureEveryFrame));
 
 	for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ++ViewIndex)
 	{

@@ -765,7 +765,7 @@ void CullDistanceFieldObjectsForLight(
 			VertexShader->SetParameters(RHICmdList, View, FVector2D(LightTileDimensions.X, LightTileDimensions.Y), WorldToShadowValue, ShadowBoundingRadius);
 			PixelShader->SetParameters(RHICmdList, View, TileIntersectionResources.Get());
 
-			RHICmdList.SetStreamSource(0, StencilingGeometry::GLowPolyStencilSphereVertexBuffer.VertexBufferRHI, sizeof(FVector4), 0);
+			RHICmdList.SetStreamSource(0, StencilingGeometry::GLowPolyStencilSphereVertexBuffer.VertexBufferRHI, 0);
 
 			RHICmdList.DrawIndexedPrimitiveIndirect(
 				PT_TriangleList,

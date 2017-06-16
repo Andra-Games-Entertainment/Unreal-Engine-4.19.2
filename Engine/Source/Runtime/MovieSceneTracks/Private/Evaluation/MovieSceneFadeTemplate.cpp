@@ -9,6 +9,10 @@
 #include "GameFramework/PlayerController.h"
 #include "IMovieScenePlayer.h"
 #include "MovieSceneEvaluation.h"
+#include "IVREditorModule.h"
+#include "VREditorMode.h"
+#include "SLevelViewport.h"
+#include "LevelEditorViewport.h"
 
 DECLARE_CYCLE_STAT(TEXT("Fade Track Token Execute"), MovieSceneEval_FadeTrack_TokenExecute, STATGROUP_MovieSceneEval);
 
@@ -24,32 +28,55 @@ struct FFadeTrackToken
 	FLinearColor FadeColor;
 	bool bFadeAudio;
 
-	void Apply(IMovieScenePlayer& Player)
+	void Apply( IMovieScenePlayer& Player, bool bIsRestoring )
 	{
 		// Set editor preview/fade
 		EMovieSceneViewportParams ViewportParams;
-		ViewportParams.SetWhichViewportParam = (EMovieSceneViewportParams::SetViewportParam)(EMovieSceneViewportParams::SVP_FadeAmount | EMovieSceneViewportParams::SVP_FadeColor);
+		ViewportParams.SetWhichViewportParam = ( EMovieSceneViewportParams::SetViewportParam )( EMovieSceneViewportParams::SVP_FadeAmount | EMovieSceneViewportParams::SVP_FadeColor );
 		ViewportParams.FadeAmount = FadeValue;
 		ViewportParams.FadeColor = FadeColor;
 
 		TMap<FViewportClient*, EMovieSceneViewportParams> ViewportParamsMap;
-		Player.GetViewportSettings(ViewportParamsMap);
-		for (auto ViewportParamsPair : ViewportParamsMap)
+		Player.GetViewportSettings( ViewportParamsMap );
+		for( auto ViewportParamsPair : ViewportParamsMap )
 		{
-			ViewportParamsMap[ViewportParamsPair.Key] = ViewportParams;	
+			ViewportParamsMap[ ViewportParamsPair.Key ] = ViewportParams;
 		}
-		Player.SetViewportSettings(ViewportParamsMap);
+		Player.SetViewportSettings( ViewportParamsMap );
 
 		// Set runtime fade
 		UObject* Context = Player.GetPlaybackContext();
 		UWorld* World = Context ? Context->GetWorld() : nullptr;
-		if (World && (World->WorldType == EWorldType::Game || World->WorldType == EWorldType::PIE))
+		if( World && ( World->WorldType == EWorldType::Game || World->WorldType == EWorldType::PIE ) )
 		{
 			APlayerController* PlayerController = World->GetGameInstance()->GetFirstLocalPlayerController();
-			if (PlayerController != nullptr && PlayerController->PlayerCameraManager && !PlayerController->PlayerCameraManager->IsPendingKill())
+			if( PlayerController != nullptr && PlayerController->PlayerCameraManager && !PlayerController->PlayerCameraManager->IsPendingKill() )
 			{
-				PlayerController->PlayerCameraManager->SetManualCameraFade(FadeValue, FadeColor, bFadeAudio);
+				PlayerController->PlayerCameraManager->SetManualCameraFade( FadeValue, FadeColor, bFadeAudio );
 			}
+		}
+
+		// HACKS for fading while in simulate
+		if( IVREditorModule::IsAvailable() && IVREditorModule::Get().IsVREditorModeActive() )
+		{
+			UVREditorMode* VREditor = IVREditorModule::Get().GetVRMode();
+			SLevelViewport& LevelViewport = VREditor->GetLevelViewportPossessedForVR();
+
+			class SLevelViewportAccess : public SLevelViewport
+			{
+			public:
+				FEditorViewportClient& GetVC()
+				{
+					return *Client;
+				}
+			};
+	
+			SLevelViewportAccess& LevelViewportAccess = static_cast<SLevelViewportAccess&>( LevelViewport );
+
+			FLevelEditorViewportClient& ViewportClient = static_cast<FLevelEditorViewportClient&>( LevelViewportAccess.GetVC() );
+			ViewportClient.FadeAmount = FadeValue;
+			ViewportClient.FadeColor = FadeColor.ToFColor(/*bSRGB=*/ true );
+			ViewportClient.bEnableFading = !bIsRestoring;
 		}
 	}
 };
@@ -62,7 +89,7 @@ struct FFadePreAnimatedGlobalToken : FFadeTrackToken, IMovieScenePreAnimatedGlob
 
 	virtual void RestoreState(IMovieScenePlayer& Player) override
 	{
-		Apply(Player);
+		Apply(Player, true);
 	}
 };
 
@@ -116,7 +143,7 @@ struct FFadeExecutionToken : IMovieSceneExecutionToken, FFadeTrackToken
 
 		Player.SavePreAnimatedState(GetAnimTypeID(), FFadePreAnimatedGlobalTokenProducer(Player));
 
-		Apply(Player);
+		Apply(Player, false);
 	}
 };
 

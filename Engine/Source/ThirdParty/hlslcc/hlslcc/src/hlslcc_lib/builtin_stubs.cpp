@@ -420,6 +420,54 @@ void make_intrinsic_sincos(exec_list *ir, _mesa_glsl_parse_state *state)
 	ir->push_tail(func);
 }
 
+void MakeIntrinsicSincos(exec_list *ir, _mesa_glsl_parse_state *state)
+{
+	void* ctx = state;
+	ir_function* func = new(ctx)ir_function("sincos");
+	
+	for (unsigned Type = GLSL_TYPE_HALF; Type <= GLSL_TYPE_FLOAT; ++Type)
+	{
+		for (unsigned c = 1; c <= 4; ++c)
+		{
+			const glsl_type* genType = glsl_type::get_instance(Type, c, 1);
+			ir_function_signature* sig = new(ctx)ir_function_signature(genType);
+			{
+				sig->is_builtin = true;
+				
+				ir_variable* arg0 = make_var(ctx, genType, 0, ir_var_in);
+				ir_variable* arg1 = make_var(ctx, genType, 1, ir_var_out);
+				sig->parameters.push_tail(arg0);
+				sig->parameters.push_tail(arg1);
+				func->add_signature(sig);
+			}
+
+			ir_function_signature* sig2 = new(ctx)ir_function_signature(glsl_type::void_type);
+			{
+				sig2->is_builtin = true;
+				sig2->is_defined = true;
+				
+				ir_variable* arg0 = make_var(ctx, genType, 0, ir_var_in);
+				ir_variable* arg1 = make_var(ctx, genType, 1, ir_var_out);
+				ir_variable* arg2 = make_var(ctx, genType, 2, ir_var_out);
+				sig2->parameters.push_tail(arg0);
+				sig2->parameters.push_tail(arg1);
+				sig2->parameters.push_tail(arg2);
+				
+				ir_dereference_variable* sin_val = new(ctx)ir_dereference_variable(arg1);
+				exec_list actual_parameter;
+				actual_parameter.push_tail(new(ctx)ir_dereference_variable(arg0));
+				actual_parameter.push_tail(new(ctx)ir_dereference_variable(arg2));
+				ir_call* sincos_call = new(ctx)ir_call(sig, sin_val, &actual_parameter);
+				sig2->body.push_tail(sincos_call);
+				
+				func->add_signature(sig2);
+			}
+		}
+	}
+	state->symbols->add_global_function(func);
+	ir->push_tail(func);
+}
+
 void make_intrinsic_radians(exec_list *ir, _mesa_glsl_parse_state *state)
 {
 	void* ctx = state;
@@ -533,16 +581,16 @@ void make_intrinsic_degrees(exec_list *ir, _mesa_glsl_parse_state *state)
 	ir->push_tail(func);
 }
 
-void make_intrinsic_saturate(exec_list *ir, _mesa_glsl_parse_state *state)
+void MakeIntrinsicSaturate(exec_list *ir, _mesa_glsl_parse_state *state, int max_type)
 {
 	void* ctx = state;
 	ir_function* func = new(ctx)ir_function("saturate");
-
-	for (int base_type = GLSL_TYPE_UINT; base_type <= GLSL_TYPE_FLOAT; ++base_type)
+	
+	for (int base_type = GLSL_TYPE_UINT; base_type <= max_type; ++base_type)
 	{
 		ir_constant_data zero_data = {0};
 		ir_constant_data one_data;
-
+		
 		if (base_type == GLSL_TYPE_FLOAT || base_type == GLSL_TYPE_HALF)
 		{
 			for (unsigned i = 0; i < 16; ++i)
@@ -557,26 +605,26 @@ void make_intrinsic_saturate(exec_list *ir, _mesa_glsl_parse_state *state)
 				one_data.u[i] = 1;
 			}
 		}
-
+		
 		for (unsigned vec_size = 1; vec_size <= 4; ++vec_size)
 		{
 			const glsl_type* genType = glsl_type::get_instance(base_type, vec_size, 1);
 			ir_function_signature* sig = new(ctx)ir_function_signature(genType);
 			sig->is_builtin = true;
 			sig->is_defined = true;
-
+			
 			ir_variable* arg = make_var(ctx, genType, 0, ir_var_in);
 			sig->parameters.push_tail(arg);
-
+			
 			ir_expression* expr = new(ctx)ir_expression(ir_ternop_clamp, genType,
-				new(ctx)ir_dereference_variable(arg),
-				new(ctx)ir_constant(genType, &zero_data),
-				new(ctx)ir_constant(genType, &one_data),
-				NULL);
+														new(ctx)ir_dereference_variable(arg),
+														new(ctx)ir_constant(genType, &zero_data),
+														new(ctx)ir_constant(genType, &one_data),
+														NULL);
 			sig->body.push_tail(new(ctx)ir_return(expr));
-
+			
 			func->add_signature(sig);
-
+			
 			if (vec_size >= 2 && (base_type == GLSL_TYPE_FLOAT || base_type == GLSL_TYPE_HALF))
 			{
 				make_intrinsic_matrix_wrappers(state, sig, 1);
@@ -1362,7 +1410,15 @@ void _mesa_glsl_initialize_functions(exec_list *ir, _mesa_glsl_parse_state *stat
 	make_intrinsic_genType(ir, state, "cosh", ir_unop_cosh, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_MATRIX, 1);
 	make_intrinsic_genType(ir, state, "tanh", ir_unop_tanh, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_MATRIX, 1);
 	make_intrinsic_genType(ir, state, "atan2", ir_binop_atan2, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_MATRIX, 2);
-	make_intrinsic_sincos(ir, state);
+	
+	if (!state->LanguageSpec->SupportsSinCosIntrinsic())
+	{
+		make_intrinsic_sincos(ir, state);
+	}
+	else
+	{
+		MakeIntrinsicSincos(ir, state);
+	}
 
 	// 8.2 Exponential Functions.
 	make_intrinsic_genType(ir, state, "pow", ir_binop_pow, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_MATRIX, 2);
@@ -1393,7 +1449,15 @@ void _mesa_glsl_initialize_functions(exec_list *ir, _mesa_glsl_parse_state *stat
 	make_intrinsic_genType(ir, state, "min", ir_binop_min, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_INT | IR_INTRINSIC_UINT | IR_INTRINSIC_MATRIX, 2);
 	make_intrinsic_genType(ir, state, "max", ir_binop_max, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_INT | IR_INTRINSIC_UINT | IR_INTRINSIC_MATRIX, 2);
 	make_intrinsic_genType(ir, state, "clamp", ir_ternop_clamp, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_INT | IR_INTRINSIC_UINT | IR_INTRINSIC_MATRIX, 3);
-	make_intrinsic_saturate(ir, state);
+	
+	int saturate_max_type = GLSL_TYPE_FLOAT;
+	if (state->LanguageSpec->SupportsSaturateIntrinsic())
+	{
+		make_intrinsic_genType(ir, state, "saturate", ir_unop_saturate, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_MATRIX, 1, 1, 4);
+		saturate_max_type = GLSL_TYPE_INT;
+	}
+	MakeIntrinsicSaturate(ir, state, saturate_max_type);
+	
 	make_intrinsic_genType(ir, state, "lerp", ir_ternop_lerp, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_MATRIX, 3);
 	make_intrinsic_genType(ir, state, "step", ir_binop_step, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_MATRIX, 2);
 	make_intrinsic_genType(ir, state, "smoothstep", ir_ternop_smoothstep, IR_INTRINSIC_ALL_FLOATING | IR_INTRINSIC_MATRIX, 3);

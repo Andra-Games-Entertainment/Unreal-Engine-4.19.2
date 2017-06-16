@@ -4,7 +4,7 @@
 
 #include "MetalRHIPrivate.h"
 #include "MetalCommandEncoder.h"
-#include "MetalRenderPipelineDesc.h"
+#include "MetalPipeline.h"
 
 class FShaderCacheState;
 
@@ -35,20 +35,14 @@ public:
 	void SetScissorRect(bool const bEnable, MTLScissorRect const& Rect);
 	void SetBlendFactor(FLinearColor const& InBlendFactor);
 	void SetStencilRef(uint32 const InStencilRef);
-	void SetBlendState(FMetalBlendState* InBlendState);
-	void SetDepthStencilState(FMetalDepthStencilState* InDepthStencilState);
-	void SetRasterizerState(FMetalRasterizerState* InRasterizerState);
-	void SetBoundShaderState(FMetalBoundShaderState* BoundShaderState);
 	void SetComputeShader(FMetalComputeShader* InComputeShader);
 	bool SetRenderTargetsInfo(FRHISetRenderTargetsInfo const& InRenderTargets, id<MTLBuffer> const QueryBuffer, bool const bReset);
 	void InvalidateRenderTargets(void);
 	void SetRenderTargetsActive(bool const bActive);
 	void SetViewport(const MTLViewport& InViewport);
-	void SetVertexStream(uint32 const Index, id<MTLBuffer> Buffer, NSData* Bytes, uint32 const Stride, uint32 const Offset, uint32 const Length);
-#if PLATFORM_MAC
-	void SetPrimitiveTopology(MTLPrimitiveTopologyClass PrimitiveType);
-#endif
-	void SetPipelineState(FMetalShaderPipeline* State);
+	void SetViewports(const MTLViewport InViewport[], uint32 Count);
+	void SetVertexStream(uint32 const Index, id<MTLBuffer> Buffer, NSData* Bytes, uint32 const Offset, uint32 const Length);
+	void SetGraphicsPipelineState(FMetalGraphicsPipelineState* State);
 	void SetIndexType(EMetalIndexType IndexType);
 	void BindUniformBuffer(EShaderFrequency const Freq, uint32 const BufferIndex, FUniformBufferRHIParamRef BufferRHI);
 	void SetDirtyUniformBuffers(EShaderFrequency const Freq, uint32 const Dirty);
@@ -109,42 +103,45 @@ public:
 	bool PrepareToRestart(void);
 	
 	FMetalShaderParameterCache& GetShaderParameters(uint32 const Stage) { return ShaderParameters[Stage]; }
-	FMetalRenderPipelineDesc const& GetRenderPipelineDesc() const { return PipelineDesc; }
 	FLinearColor const& GetBlendFactor() const { return BlendFactor; }
 	uint32 GetStencilRef() const { return StencilRef; }
-	FMetalBlendState* GetBlendState() const { return BlendState; }
 	FMetalDepthStencilState* GetDepthStencilState() const { return DepthStencilState; }
 	FMetalRasterizerState* GetRasterizerState() const { return RasterizerState; }
-	FMetalBoundShaderState* GetBoundShaderState() const { return BoundShaderState; }
+	FMetalGraphicsPipelineState* GetGraphicsPSO() const { return GraphicsPSO; }
 	FMetalComputeShader* GetComputeShader() const { return ComputeShader; }
 	CGSize GetFrameBufferSize() const { return FrameBufferSize; }
 	FRHISetRenderTargetsInfo const& GetRenderTargetsInfo() const { return RenderTargetsInfo; }
 	int32 GetNumRenderTargets() { return bHasValidColorTarget ? RenderTargetsInfo.NumColorRenderTargets : -1; }
 	bool GetHasValidRenderTarget() const { return bHasValidRenderTarget; }
 	bool GetHasValidColorTarget() const { return bHasValidColorTarget; }
-	const MTLViewport& GetViewport() const { return Viewport; }
+	const MTLViewport& GetViewport(uint32 const Index) const { check(Index < ML_MaxViewports); return Viewport[Index]; }
 	uint32 GetVertexBufferSize(uint32 const Index);
-	uint32 GetVertexStride(uint32 const Index) { check(Index < MaxVertexElementCount); return VertexBuffers[Index].Offset; }
 	uint32 GetRenderTargetArraySize() const { return RenderTargetArraySize; }
 	TArray<TRefCountPtr<FRHIUniformBuffer>>& GetBoundUniformBuffers(EShaderFrequency const Freq) { return BoundUniformBuffers[Freq]; }
 	uint32 GetDirtyUniformBuffers(EShaderFrequency const Freq) const { return DirtyUniformBuffers[Freq]; }
 	id<MTLBuffer> GetVisibilityResultsBuffer() const { return VisibilityResults; }
 	bool GetScissorRectEnabled() const { return bScissorRectEnabled; }
-	bool NeedsToSetRenderTarget(const FRHISetRenderTargetsInfo& RenderTargetsInfo) const;
+	bool NeedsToSetRenderTarget(const FRHISetRenderTargetsInfo& RenderTargetsInfo);
 	bool HasValidDepthStencilSurface() const { return IsValidRef(DepthStencilSurface); }
-	EMetalIndexType GetIndexType() const { return PipelineDesc.IndexType; }
-	FMetalShaderPipeline* GetPipelineState() const { return PipelineState; }
+	EMetalIndexType GetIndexType() const { return IndexType; }
+	FMetalShaderPipeline* GetPipelineState() const { return GraphicsPSO->GetPipeline(GetIndexType()); }
     bool GetUsingTessellation() const { return bUsingTessellation; }
     bool CanRestartRenderPass() const { return bCanRestartRenderPass; }
 	MTLRenderPassDescriptor* GetRenderPassDescriptor(void) const { return RenderPassDesc; }
+	uint32 GetSampleCount(void) const { return SampleCount; }
+	bool IsAtomicUAV(EShaderFrequency ShaderStage, uint32 BindIndex);
 	
 	FTexture2DRHIRef CreateFallbackDepthStencilSurface(uint32 Width, uint32 Height);
+	bool GetFallbackDepthStencilBound(void) const { return bFallbackDepthStencilBound; }
 	
 	void SetShaderCacheStateObject(FShaderCacheState* CacheState)	{ShaderCacheContextState = CacheState;}
 	FShaderCacheState* GetShaderCacheStateObject() const			{return ShaderCacheContextState;}
 	
 private:
 	void ConditionalUpdateBackBuffer(FMetalSurface& Surface);
+	
+	void SetDepthStencilState(FMetalDepthStencilState* InDepthStencilState);
+	void SetRasterizerState(FMetalRasterizerState* InRasterizerState);
 	
 private:
 	FORCEINLINE void SetResource(uint32 ShaderStage, uint32 BindIndex, FRHITexture* RESTRICT TextureRHI, float CurrentTime);
@@ -160,6 +157,9 @@ private:
 	
 	template <class ShaderType>
 	void SetResourcesFromTables(ShaderType Shader, uint32 ShaderStage);
+	
+	void SetViewport(uint32 Index, const MTLViewport& InViewport);
+	void SetScissorRect(uint32 Index, bool const bEnable, MTLScissorRect const& Rect);
 
 private:
 #pragma mark - Private Type Declarations -
@@ -205,7 +205,8 @@ private:
 private:
 	FMetalShaderParameterCache ShaderParameters[CrossCompiler::NUM_SHADER_STAGES];
 
-	FMetalRenderPipelineDesc PipelineDesc;
+	EMetalIndexType IndexType;
+	uint32 SampleCount;
 
 	TArray< TRefCountPtr<FRHIUniformBuffer> > BoundUniformBuffers[SF_NumFrequencies];
 	
@@ -228,22 +229,22 @@ private:
 	MTLVisibilityResultMode VisibilityMode;
 	NSUInteger VisibilityOffset;
 	
-	TRefCountPtr<FMetalBlendState> BlendState;
 	TRefCountPtr<FMetalDepthStencilState> DepthStencilState;
 	TRefCountPtr<FMetalRasterizerState> RasterizerState;
-	TRefCountPtr<FMetalBoundShaderState> BoundShaderState;
+	TRefCountPtr<FMetalGraphicsPipelineState> GraphicsPSO;
 	TRefCountPtr<FMetalComputeShader> ComputeShader;
 	uint32 StencilRef;
-	
-	FMetalShaderPipeline* PipelineState;
 	
 	FLinearColor BlendFactor;
 	CGSize FrameBufferSize;
 	
 	uint32 RenderTargetArraySize;
 
-	MTLViewport Viewport;
-	MTLScissorRect Scissor;
+	MTLViewport Viewport[ML_MaxViewports];
+	MTLScissorRect Scissor[ML_MaxViewports];
+	
+	uint32 ActiveViewports;
+	uint32 ActiveScissors;
 	
 	FRHISetRenderTargetsInfo RenderTargetsInfo;
 	FTextureRHIRef DepthStencilSurface;
@@ -258,6 +259,7 @@ private:
     bool bUsingTessellation;
     bool bCanRestartRenderPass;
     bool bImmediate;
+	bool bFallbackDepthStencilBound;
 	
 	FShaderCacheState* ShaderCacheContextState;
 };

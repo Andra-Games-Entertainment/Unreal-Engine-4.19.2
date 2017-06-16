@@ -3335,14 +3335,14 @@ EVisibility SLevelViewport::GetCurrentLevelTextVisibility() const
 	{
 		ContentVisibility = EVisibility::SelfHitTestInvisible;
 	}
-	return (&GetLevelViewportClient() == GCurrentLevelEditingViewportClient) ? ContentVisibility : EVisibility::Collapsed;
+	return (&GetLevelViewportClient() == GCurrentLevelEditingViewportClient && !GEngine->IsStereoscopic3D( ActiveViewport.Get() ) ) ? ContentVisibility : EVisibility::Collapsed;
 }
 
 EVisibility SLevelViewport::GetCurrentFeatureLevelPreviewTextVisibility() const
 {
 	if (GetWorld())
 	{
-		return (GetWorld()->FeatureLevel != GMaxRHIFeatureLevel) ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed;
+		return (GetWorld()->FeatureLevel != GMaxRHIFeatureLevel && !GEngine->IsStereoscopic3D( ActiveViewport.Get() ) ) ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed;
 	}
 	else
 	{
@@ -3354,7 +3354,7 @@ EVisibility SLevelViewport::GetViewportControlsVisibility() const
 {
 	// Do not show the controls if this viewport has a play in editor session
 	// or is not the current viewport
-	return (&GetLevelViewportClient() == GCurrentLevelEditingViewportClient && !IsPlayInEditorViewportActive()) ? OnGetViewportContentVisibility() : EVisibility::Collapsed;
+	return (&GetLevelViewportClient() == GCurrentLevelEditingViewportClient && !IsPlayInEditorViewportActive() && !GEngine->IsStereoscopic3D( ActiveViewport.Get() ) ) ? OnGetViewportContentVisibility() : EVisibility::Collapsed;
 }
 
 void SLevelViewport::OnSetViewportConfiguration(FName ConfigurationName)

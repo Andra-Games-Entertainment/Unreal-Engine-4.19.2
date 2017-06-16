@@ -128,6 +128,10 @@ ActorFactory.cpp:
 #include "LevelSequenceActor.h"
 #include "Factories/ActorFactoryMovieScene.h"
 
+#include "LevelEditorViewport.h"
+#include "Editor/EditorEngine.h"
+#include "Editor.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogActorFactory, Log, All);
 
 #define LOCTEXT_NAMESPACE "ActorFactory"
@@ -301,6 +305,7 @@ AActor* UActorFactory::SpawnActor( UObject* Asset, ULevel* InLevel, const FTrans
 		SpawnInfo.OverrideLevel = InLevel;
 		SpawnInfo.ObjectFlags = InObjectFlags;
 		SpawnInfo.Name = Name;
+		SpawnInfo.bTemporaryEditorActor = GEditor->bIsSimulatingInEditor ? FLevelEditorViewportClient::IsDroppingPreviewActor(): true;
 		return InLevel->OwningWorld->SpawnActor( DefaultActor->GetClass(), &Transform, SpawnInfo );
 	}
 

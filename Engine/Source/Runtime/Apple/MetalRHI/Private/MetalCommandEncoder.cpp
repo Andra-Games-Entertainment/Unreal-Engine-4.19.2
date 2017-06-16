@@ -18,11 +18,34 @@ const uint32 EncoderRingBufferSize = 1024 * 1024;
 extern int32 GMetalBufferScribble;
 #endif
 
+#pragma mark - Block-allocated ring-buffer capture wrapper -
+@interface FMetalRingBufferCapture : FApplePlatformObject
+{
+	@public
+	TSharedPtr<FMetalRingBuffer, ESPMode::ThreadSafe> Buffer;
+}
+-(instancetype)initWithRingBuffer:(TSharedPtr<FMetalRingBuffer, ESPMode::ThreadSafe>)InBuffer;
+@end
+
+@implementation FMetalRingBufferCapture
+APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMetalRingBufferCapture)
+-(instancetype)initWithRingBuffer:(TSharedPtr<FMetalRingBuffer, ESPMode::ThreadSafe>)InBuffer TSAN_SAFE
+{
+	self = [super init];
+	if (self)
+	{
+		Buffer = InBuffer;
+	}
+	return self;
+}
+@end
+
 #pragma mark - Public C++ Boilerplate -
 
 FMetalCommandEncoder::FMetalCommandEncoder(FMetalCommandList& CmdList)
 : CommandList(CmdList)
 , bSupportsMetalFeaturesSetBytes(CmdList.GetCommandQueue().SupportsFeature(EMetalFeaturesSetBytes))
+, RingBuffer(CommandList.GetCommandQueue().GetDevice(), CmdList.GetCommandQueue().GetCompatibleResourceOptions(MTLResourceHazardTrackingModeUntracked), EncoderRingBufferSize, BufferOffsetAlignment)
 , RenderPassDesc(nil)
 , CommandBuffer(nil)
 , RenderCommandEncoder(nil)
@@ -35,8 +58,6 @@ FMetalCommandEncoder::FMetalCommandEncoder(FMetalCommandList& CmdList)
 	FMemory::Memzero(ShaderBuffers);
 
 	MTLResourceOptions ResOptions = CmdList.GetCommandQueue().GetCompatibleResourceOptions(MTLResourceHazardTrackingModeUntracked);
-	
-	RingBuffer = MakeShareable(new FRingBuffer(CommandList.GetCommandQueue().GetDevice(), ResOptions, EncoderRingBufferSize, BufferOffsetAlignment));
 	
 	for (uint32 i = 0; i < MaxMetalRenderTargets; i++)
 	{
@@ -131,9 +152,10 @@ void FMetalCommandEncoder::CommitCommandBuffer(uint32 const Flags)
 	bool const bWait = (Flags & EMetalSubmitFlagsWaitOnCommandBuffer);
 	if (!(Flags & EMetalSubmitFlagsBreakCommandBuffer))
 	{
-		uint32 RingBufferOffset = RingBuffer->GetOffset();
-		uint32 StartOffset = RingBuffer->LastWritten;
+		uint32 RingBufferOffset = RingBuffer.GetOffset();
+		uint32 StartOffset = RingBuffer.LastWritten;
 		
+		id<MTLBuffer> CurrentRingBuffer = RingBuffer.Buffer->Buffer;
 		uint32 BytesWritten = 0;
 		if (StartOffset <= RingBufferOffset)
 		{
@@ -141,38 +163,35 @@ void FMetalCommandEncoder::CommitCommandBuffer(uint32 const Flags)
 		}
 		else
 		{
-			uint32 TrailLen = RingBuffer->Buffer.length - StartOffset;
+			uint32 TrailLen = CurrentRingBuffer.length - StartOffset;
 			BytesWritten = TrailLen + RingBufferOffset;
 		}
 		
-		RingBuffer->FrameSize[GFrameNumberRenderThread % ARRAY_COUNT(RingBuffer->FrameSize)] += Align(BytesWritten, BufferOffsetAlignment);
+		RingBuffer.FrameSize[GFrameNumberRenderThread % ARRAY_COUNT(RingBuffer.FrameSize)] += Align(BytesWritten, BufferOffsetAlignment);
 		
-		RingBuffer->LastWritten = RingBufferOffset;
-		id<MTLBuffer> CurrentRingBuffer = RingBuffer->Buffer;
-		TWeakPtr<FRingBuffer, ESPMode::ThreadSafe>* WeakRingBufferRef = new TWeakPtr<FRingBuffer, ESPMode::ThreadSafe>(RingBuffer.ToSharedRef());
+		RingBuffer.LastWritten = RingBufferOffset;
+        FMetalRingBufferCapture* WeakRingBufferRef = [[FMetalRingBufferCapture alloc] initWithRingBuffer: RingBuffer.Buffer];
+        FPlatformMisc::MemoryBarrier();
 		AddCompletionHandler(^(id <MTLCommandBuffer> Buffer)
 		{
-			TSharedPtr<FRingBuffer, ESPMode::ThreadSafe> CmdBufferRingBuffer = WeakRingBufferRef->Pin();
-			if(CmdBufferRingBuffer.IsValid() && CmdBufferRingBuffer->Buffer == CurrentRingBuffer)
-			{
+			TSharedPtr<FMetalRingBuffer, ESPMode::ThreadSafe>& CmdBufferRingBuffer = WeakRingBufferRef->Buffer;
 #if METAL_DEBUG_OPTIONS
-				if (GMetalBufferScribble && StartOffset != RingBufferOffset)
-				{
-					 if (StartOffset < RingBufferOffset)
-					 {
-						FMemory::Memset(((uint8*)CmdBufferRingBuffer->Buffer.contents) + StartOffset, 0xCD, RingBufferOffset - StartOffset);
-					 }
-					 else
-					 {
-						uint32 TrailLen = CmdBufferRingBuffer->Buffer.length - StartOffset;
-						FMemory::Memset(((uint8*)CmdBufferRingBuffer->Buffer.contents) + StartOffset, 0xCD, TrailLen);
-						FMemory::Memset(((uint8*)CmdBufferRingBuffer->Buffer.contents), 0xCD, RingBufferOffset);
-					 }
-				}
-#endif
-				CmdBufferRingBuffer->SetLastRead(RingBufferOffset);
+			if (GMetalBufferScribble && StartOffset != RingBufferOffset)
+			{
+				 if (StartOffset < RingBufferOffset)
+				 {
+					FMemory::Memset(((uint8*)CmdBufferRingBuffer->Buffer.contents) + StartOffset, 0xCD, RingBufferOffset - StartOffset);
+				 }
+				 else
+				 {
+					uint32 TrailLen = CmdBufferRingBuffer->Buffer.length - StartOffset;
+					FMemory::Memset(((uint8*)CmdBufferRingBuffer->Buffer.contents) + StartOffset, 0xCD, TrailLen);
+					FMemory::Memset(((uint8*)CmdBufferRingBuffer->Buffer.contents), 0xCD, RingBufferOffset);
+				 }
 			}
-			delete WeakRingBufferRef;
+#endif
+			CmdBufferRingBuffer->SetLastRead(RingBufferOffset);
+			[WeakRingBufferRef release];
 		});
 	}
 	
@@ -352,18 +371,24 @@ id<MTLFence> FMetalCommandEncoder::EndEncoding(void)
 				
 				for (uint32 i = 0; i < MaxMetalRenderTargets; i++)
 				{
-					if (ColorStoreActions[i] != MTLStoreActionUnknown && RenderPassDesc.colorAttachments[i].storeAction == MTLStoreActionUnknown)
+					if (RenderPassDesc.colorAttachments[i].texture && RenderPassDesc.colorAttachments[i].storeAction == MTLStoreActionUnknown)
 					{
-						[RenderCommandEncoder setColorStoreAction:ColorStoreActions[i] atIndex:i];
+						MTLStoreAction Action = ColorStoreActions[i];
+						check(Action != MTLStoreActionUnknown);
+						[RenderCommandEncoder setColorStoreAction : Action atIndex : i];
 					}
 				}
-				if (DepthStoreAction != MTLStoreActionUnknown && RenderPassDesc.depthAttachment.storeAction == MTLStoreActionUnknown)
+				if (RenderPassDesc.depthAttachment.texture && RenderPassDesc.depthAttachment.storeAction == MTLStoreActionUnknown)
 				{
-					[RenderCommandEncoder setDepthStoreAction:DepthStoreAction];
+					MTLStoreAction Action = DepthStoreAction;
+					check(Action != MTLStoreActionUnknown);
+					[RenderCommandEncoder setDepthStoreAction : Action];
 				}
-				if (StencilStoreAction != MTLStoreActionUnknown && RenderPassDesc.stencilAttachment.storeAction == MTLStoreActionUnknown)
+				if (RenderPassDesc.stencilAttachment.texture && RenderPassDesc.stencilAttachment.storeAction == MTLStoreActionUnknown)
 				{
-					[RenderCommandEncoder setStencilStoreAction:StencilStoreAction];
+					MTLStoreAction Action = StencilStoreAction;
+					check(Action != MTLStoreActionUnknown);
+					[RenderCommandEncoder setStencilStoreAction : Action];
 				}
 			}
 			
@@ -599,11 +624,18 @@ void FMetalCommandEncoder::SetRenderPipelineState(FMetalShaderPipeline* Pipeline
 	}
 }
 
-void FMetalCommandEncoder::SetViewport(MTLViewport const& InViewport)
+void FMetalCommandEncoder::SetViewport(MTLViewport const Viewport[], uint32 NumActive)
 {
-    check (RenderCommandEncoder);
+	check(RenderCommandEncoder);
+	check(NumActive >= 1 && NumActive < ML_MaxViewports);
+	if (NumActive == 1)
 	{
-		[RenderCommandEncoder setViewport:InViewport];
+		[RenderCommandEncoder setViewport:Viewport[0]];
+	}
+	else
+	{
+		check(FMetalCommandQueue::SupportsFeature(EMetalFeaturesMultipleViewports));
+		[((id<IMetalRenderCommandEncoder>)RenderCommandEncoder) setViewports:Viewport count:NumActive];
 	}
 }
 
@@ -631,11 +663,18 @@ void FMetalCommandEncoder::SetDepthBias(float const InDepthBias, float const InS
 	}
 }
 
-void FMetalCommandEncoder::SetScissorRect(MTLScissorRect const& Rect)
+void FMetalCommandEncoder::SetScissorRect(MTLScissorRect const Rect[], uint32 NumActive)
 {
     check(RenderCommandEncoder);
+	check(NumActive >= 1 && NumActive < ML_MaxViewports);
+	if (NumActive == 1)
 	{
-		[RenderCommandEncoder setScissorRect:Rect];
+		[RenderCommandEncoder setScissorRect:Rect[0]];
+	}
+	else
+	{
+		check(FMetalCommandQueue::SupportsFeature(EMetalFeaturesMultipleViewports));
+		[((id<IMetalRenderCommandEncoder>)RenderCommandEncoder) setScissorRects:Rect count:NumActive];
 	}
 }
 
@@ -751,8 +790,8 @@ void FMetalCommandEncoder::SetShaderBytes(MTLFunctionType const FunctionType, ui
 	{
 		ShaderBuffers[FunctionType].Bound |= (1 << Index);
 
-		uint32 Offset = RingBuffer->Allocate(Length, BufferOffsetAlignment);
-		id<MTLBuffer> Buffer = RingBuffer->Buffer;
+		uint32 Offset = RingBuffer.Allocate(Length, BufferOffsetAlignment);
+		id<MTLBuffer> Buffer = RingBuffer.Buffer->Buffer;
 		
 		ShaderBuffers[FunctionType].Buffers[Index] = Buffer;
 		ShaderBuffers[FunctionType].Bytes[Index] = nil;
@@ -868,9 +907,9 @@ void FMetalCommandEncoder::SetComputePipelineState(FMetalShaderPipeline* State)
 
 #pragma mark - Public Ring-Buffer Accessor -
 	
-TSharedRef<FRingBuffer, ESPMode::ThreadSafe> FMetalCommandEncoder::GetRingBuffer(void) const
+FRingBuffer& FMetalCommandEncoder::GetRingBuffer(void)
 {
-	return RingBuffer.ToSharedRef();
+	return RingBuffer;
 }
 
 #pragma mark - Private Functions -
@@ -885,8 +924,8 @@ void FMetalCommandEncoder::SetShaderBufferInternal(MTLFunctionType Function, uin
 		uint8 const* Bytes = (((uint8 const*)ShaderBuffers[Function].Bytes[Index].bytes) + ShaderBuffers[Function].Offsets[Index]);
 		uint32 Len = ShaderBuffers[Function].Bytes[Index].length - ShaderBuffers[Function].Offsets[Index];
 		
-		Offset = RingBuffer->Allocate(Len, BufferOffsetAlignment);
-		Buffer = RingBuffer->Buffer;
+		Offset = RingBuffer.Allocate(Len, BufferOffsetAlignment);
+		Buffer = RingBuffer.Buffer->Buffer;
 		
 		FMemory::Memcpy(((uint8*)[Buffer contents]) + Offset, Bytes, Len);
 	}

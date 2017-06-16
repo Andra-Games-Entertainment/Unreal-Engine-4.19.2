@@ -725,11 +725,6 @@ void FVulkanCommandListContext::RHISetViewport(uint32 MinX, uint32 MinY, float M
 	PendingGfxState->SetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 }
 
-void FVulkanCommandListContext::RHISetStereoViewport(uint32 LeftMinX, uint32 RightMinX, uint32 MinY, float MinZ, uint32 LeftMaxX, uint32 RightMaxX, uint32 MaxY, float MaxZ)
-{
-	VULKAN_SIGNAL_UNIMPLEMENTED();
-}
-
 void FVulkanCommandListContext::RHISetMultipleViewports(uint32 Count, const FViewportBounds* Data)
 {
 	VULKAN_SIGNAL_UNIMPLEMENTED();

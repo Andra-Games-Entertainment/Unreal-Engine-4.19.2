@@ -50,11 +50,21 @@ AVREditorAvatarActor::AVREditorAvatarActor( const FObjectInitializer& ObjectInit
 	{
 		return;
 	}
+	// Replication settings.
+	bReplicates = true;
+	bAlwaysRelevant = true;
+	bNetLoadOnClient = true;
+	bReplicateMovement = true;
 
+	SetActorTickEnabled(true);
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.SetTickFunctionEnable(true);
+	PrimaryActorTick.bStartWithTickEnabled = true;
 	{
 		USceneComponent* SceneRootComponent = CreateDefaultSubobject<USceneComponent>( TEXT( "RootComponent" ) );
 		AddOwnedComponent( SceneRootComponent );
 		SetRootComponent( SceneRootComponent );
+		SceneRootComponent->SetIsReplicated(true);
 	}
 
 	// Setup the asset container.
@@ -75,6 +85,7 @@ AVREditorAvatarActor::AVREditorAvatarActor( const FObjectInitializer& ObjectInit
 		HeadMeshComponent->SetMobility( EComponentMobility::Movable );
 		HeadMeshComponent->SetCollisionEnabled( ECollisionEnabled::NoCollision );
 		HeadMeshComponent->bSelectable = false;
+		HeadMeshComponent->SetIsReplicated(true);
 	}
 
 	// World movement grid mesh

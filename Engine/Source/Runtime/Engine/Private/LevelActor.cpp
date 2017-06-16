@@ -454,6 +454,10 @@ AActor* UWorld::SpawnActor( UClass* Class, FTransform const* UserTransformPtr, c
 	// tell the actor what method to use, in case it was overridden
 	Actor->SpawnCollisionHandlingMethod = CollisionHandlingMethod;
 
+#if WITH_EDITOR
+	Actor->bIsEditorPreviewActor = SpawnParameters.bTemporaryEditorActor;
+#endif //WITH_EDITOR
+
 	Actor->PostSpawnInitialize(UserTransform, SpawnParameters.Owner, SpawnParameters.Instigator, SpawnParameters.IsRemoteOwned(), SpawnParameters.bNoFail, SpawnParameters.bDeferConstruction);
 
 	if (Actor->IsPendingKill() && !SpawnParameters.bNoFail)
@@ -476,7 +480,6 @@ AActor* UWorld::SpawnActor( UClass* Class, FTransform const* UserTransformPtr, c
 
 	return Actor;
 }
-
 
 ABrush* UWorld::SpawnBrush()
 {

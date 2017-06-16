@@ -292,7 +292,7 @@ public:
 	// TODO: Move binding/layout functionality to the shader (who owns what)?
 	FVulkanBoundShaderState& GetBoundShaderState();
 
-	void SetStreamSource(uint32 StreamIndex, FVulkanBuffer* VertexBuffer, uint32 Stride, uint32 Offset)
+	void SetStreamSource(uint32 StreamIndex, FVulkanBuffer* VertexBuffer, uint32 Offset)
 	{
 		PendingStreams[StreamIndex].Stream = VertexBuffer;
 		PendingStreams[StreamIndex].Stream2  = nullptr;
@@ -304,7 +304,7 @@ public:
 		}
 	}
 
-	void SetStreamSource(uint32 StreamIndex, FVulkanResourceMultiBuffer* VertexBuffer, uint32 Stride, uint32 Offset)
+	void SetStreamSource(uint32 StreamIndex, FVulkanResourceMultiBuffer* VertexBuffer, uint32 Offset)
 	{
 		PendingStreams[StreamIndex].Stream = nullptr;
 		PendingStreams[StreamIndex].Stream2 = VertexBuffer;
@@ -316,7 +316,7 @@ public:
 		}
 	}
 
-	void SetStreamSource(uint32 StreamIndex, VkBuffer InBuffer, uint32 Stride, uint32 Offset)
+	void SetStreamSource(uint32 StreamIndex, VkBuffer InBuffer, uint32 Offset)
 	{
 		PendingStreams[StreamIndex].Stream = nullptr;
 		PendingStreams[StreamIndex].Stream2 = nullptr;

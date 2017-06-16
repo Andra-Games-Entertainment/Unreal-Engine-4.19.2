@@ -118,7 +118,7 @@ public:
 
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
 
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 
 		float ExposureScale = FRCPassPostProcessEyeAdaptation::ComputeExposureScaleValue(Context.View);
 
@@ -355,20 +355,21 @@ public:
 		BloomThreshold.Bind(Initializer.ParameterMap, TEXT("BloomThreshold"));
 	}
 
-	void SetPS(const FRenderingCompositePassContext& Context)
+	template <typename TRHICmdList>
+	void SetPS(TRHICmdList& RHICmdList, const FRenderingCompositePassContext& Context)
 	{
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 
-		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
+		FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
 
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
 
 		float ExposureScale = FRCPassPostProcessEyeAdaptation::ComputeExposureScaleValue(Context.View);
 
 		FVector4 BloomThresholdValue(Settings.BloomThreshold, 0, 0, ExposureScale);
-		SetShaderValue(Context.RHICmdList, ShaderRHI, BloomThreshold, BloomThresholdValue);
+		SetShaderValue(RHICmdList, ShaderRHI, BloomThreshold, BloomThresholdValue);
 	}
 
 	// FShader interface.
@@ -403,7 +404,7 @@ void FRCPassPostProcessBloomSetupSmallES2::SetShader(const FRenderingCompositePa
 	SetGraphicsPipelineState(Context.RHICmdList, GraphicsPSOInit);
 
 	VertexShader->SetVS(Context);
-	PixelShader->SetPS(Context);
+	PixelShader->SetPS(Context.RHICmdList, Context);
 }
 
 void FRCPassPostProcessBloomSetupSmallES2::Process(FRenderingCompositePassContext& Context)
@@ -528,12 +529,13 @@ public:
 		PostprocessParameter.Bind(Initializer.ParameterMap);
 	}
 
-	void SetPS(const FRenderingCompositePassContext& Context)
+	template <typename TRHICmdList>
+	void SetPS(TRHICmdList& RHICmdList, const FRenderingCompositePassContext& Context)
 	{
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
-		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
+		PostprocessParameter.SetPS(RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -635,7 +637,7 @@ void FRCPassPostProcessBloomDownES2::Process(FRenderingCompositePassContext& Con
 	SetGraphicsPipelineState(Context.RHICmdList, GraphicsPSOInit);
 
 	VertexShader->SetVS(Context, Scale);
-	PixelShader->SetPS(Context);
+	PixelShader->SetPS(Context.RHICmdList, Context);
 
 	FIntPoint SrcDstSize = PrePostSourceViewportSize/2;
 
@@ -708,14 +710,15 @@ public:
 		TintB.Bind(Initializer.ParameterMap, TEXT("BloomTintB"));
 	}
 
-	void SetPS(const FRenderingCompositePassContext& Context, FVector4& InTintA, FVector4& InTintB)
+	template <typename TRHICmdList>
+	void SetPS(TRHICmdList& RHICmdList, const FRenderingCompositePassContext& Context, FVector4& InTintA, FVector4& InTintB)
 	{
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
-		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
-		SetShaderValue(Context.RHICmdList, ShaderRHI, TintA, InTintA);
-		SetShaderValue(Context.RHICmdList, ShaderRHI, TintB, InTintB);
+		FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
+		PostprocessParameter.SetPS(RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		SetShaderValue(RHICmdList, ShaderRHI, TintA, InTintA);
+		SetShaderValue(RHICmdList, ShaderRHI, TintB, InTintB);
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -820,7 +823,7 @@ void FRCPassPostProcessBloomUpES2::Process(FRenderingCompositePassContext& Conte
 	VertexShader->SetVS(Context, FVector2D(ScaleAB.X, ScaleAB.Y));
 	FVector4 TintAScaled = TintA * (1.0f/8.0f);
 	FVector4 TintBScaled = TintB * (1.0f/8.0f);
-	PixelShader->SetPS(Context, TintAScaled, TintBScaled);
+	PixelShader->SetPS(Context.RHICmdList, Context, TintAScaled, TintBScaled);
 
 	FIntPoint SrcDstSize = PrePostSourceViewportSize;
 
@@ -909,7 +912,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
 
 		FVector4 SunColorApertureDiv2;
 		SunColorApertureDiv2.X = Context.View.LightShaftColorMask.R;
@@ -1188,7 +1191,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -1387,7 +1390,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -1575,7 +1578,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 
 		FVector4 SunColorVignetteIntensityParam;
 		SunColorVignetteIntensityParam.X = Context.View.LightShaftColorApply.R;
@@ -1816,7 +1819,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
 
 		FVector4 SunColorVignetteIntensityParam;
 		SunColorVignetteIntensityParam.X = Context.View.LightShaftColorApply.R;
@@ -2062,7 +2065,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Point,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -2285,7 +2288,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Point,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -2446,7 +2449,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -2620,7 +2623,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -2808,7 +2811,7 @@ public:
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		const FPostProcessSettings& Settings = Context.View.FinalPostProcessSettings;
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
-		PostprocessParameter.SetPS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
+		PostprocessParameter.SetPS(Context.RHICmdList, ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
 
 		// Compute the blend factor which decides the trade off between ghosting in motion and flicker when not moving.
 		// This works by computing the screen space motion vector of distant point at the center of the screen.

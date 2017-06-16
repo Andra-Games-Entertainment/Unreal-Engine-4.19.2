@@ -502,7 +502,7 @@ void FDeferredShadingSceneRenderer::RenderLocalLightsForVolumetricFog(
 					}
 				}
 
-				RHICmdList.SetStreamSource(0, GVolumeRasterizeVertexBuffer.VertexBufferRHI, sizeof(FScreenVertex), 0);
+				RHICmdList.SetStreamSource(0, GVolumeRasterizeVertexBuffer.VertexBufferRHI, 0);
 				const int32 NumInstances = VolumeZBounds.Y - VolumeZBounds.X;
 				// Render a quad per slice affected by the given bounds
 				RHICmdList.DrawPrimitive(PT_TriangleStrip, 0, 2, NumInstances);

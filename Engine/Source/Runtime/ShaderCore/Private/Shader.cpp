@@ -1794,16 +1794,23 @@ void ShaderMapAppendKeyString(EShaderPlatform Platform, FString& KeyString)
 		KeyString += (CVar && CVar->GetInt() == 0) ? TEXT("_NoFastMath") : TEXT("");
 	}
 	
-	if (IsMetalPlatform(Platform))
 	{
-		static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.ZeroInitialise"));
-		KeyString += (CVar && CVar->GetInt() != 0) ? TEXT("_ZeroInit") : TEXT("");
-	}
-	
-	if (IsMetalPlatform(Platform))
-	{
-		static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.BoundsChecking"));
-		KeyString += (CVar && CVar->GetInt() != 0) ? TEXT("_BoundsChecking") : TEXT("");
+		static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.FlowControlMode"));
+		if (CVar)
+		{
+			switch(CVar->GetInt())
+			{
+				case 2:
+					KeyString += TEXT("_AvoidFlow");
+					break;
+				case 1:
+					KeyString += TEXT("_PreferFlow");
+					break;
+				case 0:
+				default:
+					break;
+			}
+		}
 	}
 
 	if (IsD3DPlatform(Platform, false))
@@ -1851,8 +1858,45 @@ void ShaderMapAppendKeyString(EShaderPlatform Platform, FString& KeyString)
     // Encode the Metal standard into the shader compile options so that they recompile if the settings change.
     if (IsMetalPlatform(Platform))
     {
+		{
+			static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.ZeroInitialise"));
+			KeyString += (CVar && CVar->GetInt() != 0) ? TEXT("_ZeroInit") : TEXT("");
+		}
+		{
+			static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.BoundsChecking"));
+			KeyString += (CVar && CVar->GetInt() != 0) ? TEXT("_BoundsChecking") : TEXT("");
+		}
+		{
+			static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Metal.TypedBuffers"));
+			KeyString += (CVar && CVar->GetInt() != 0) ? FString::Printf(TEXT("MTLTB%d"), CVar->GetInt()) : TEXT("");
+		}
+		
         uint32 ShaderVersion = RHIGetShaderLanguageVersion(Platform);
         KeyString += FString::Printf(TEXT("_MTLSTD%u_"), ShaderVersion);
+		
+		bool bAllowFastIntrinsics = false;
+		bool bEnableMathOptimisations = true;
+		if (IsPCPlatform(Platform))
+		{
+			GConfig->GetBool(TEXT("/Script/MacTargetPlatform.MacTargetSettings"), TEXT("UseFastIntrinsics"), bAllowFastIntrinsics, GEngineIni);
+			GConfig->GetBool(TEXT("/Script/MacTargetPlatform.MacTargetSettings"), TEXT("EnableMathOptimisations"), bEnableMathOptimisations, GEngineIni);
+		}
+		else
+		{
+			GConfig->GetBool(TEXT("/Script/IOSRuntimeSettings.IOSRuntimeSettings"), TEXT("UseFastIntrinsics"), bAllowFastIntrinsics, GEngineIni);
+			GConfig->GetBool(TEXT("/Script/IOSRuntimeSettings.IOSRuntimeSettings"), TEXT("EnableMathOptimisations"), bEnableMathOptimisations, GEngineIni);
+		}
+		
+		if (bAllowFastIntrinsics)
+		{
+			KeyString += TEXT("_MTLSL_FastIntrin");
+		}
+		
+		// Same as console-variable above, but that's global and this is per-platform, per-project
+		if (!bEnableMathOptimisations)
+		{
+			KeyString += TEXT("_NoFastMath");
+		}
     }
 
 	{

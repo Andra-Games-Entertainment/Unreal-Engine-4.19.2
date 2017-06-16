@@ -726,6 +726,19 @@ bool UGameEngine::NetworkRemapPath(UNetDriver* Driver, FString& Str, bool bReadi
 		}
 	}
 
+
+	if( bReading && GIsDemoMode && !GIsServer )
+	{
+		// Hack to allow client to resolve network paths from a remote editor running as a PIE listen server
+		const FString Stripped = UWorld::StripPIEPrefixFromPackageName( Str, UWorld::BuildPIEPackagePrefix( 0 ) );
+		if( !Stripped.Equals( Str, ESearchCase::IgnoreCase ) )
+		{
+			Str = Stripped;
+			return true;
+		}
+	}
+
+
 	// If the game has created multiple worlds, some of them may have prefixed package names,
 	// so we need to remap the world package and streaming levels for replay playback to work correctly.
 	FWorldContext& Context = GetWorldContextFromWorldChecked(World);

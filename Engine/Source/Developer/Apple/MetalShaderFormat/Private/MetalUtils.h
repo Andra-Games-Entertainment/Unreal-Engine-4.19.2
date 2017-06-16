@@ -68,6 +68,22 @@ struct FBuffers
 	// Information about textures & samplers; we need to have unique samplerstate indices, as one they can be used independent of each other
 	TArray<FCustomStdString> UniqueSamplerStates;
 
+	void AddBuffer(ir_variable* Var)
+	{
+		check(Var);
+		check(Var->mode == ir_var_uniform || Var->mode == ir_var_out || Var->mode == ir_var_in || Var->mode == ir_var_shared);
+		
+		Buffers.Add(Var);
+	}
+	
+	void AddTexture(ir_variable* Var)
+	{
+		check(Var);
+		check(Var->mode == ir_var_uniform || Var->mode == ir_var_out || Var->mode == ir_var_in || Var->mode == ir_var_shared);
+		
+		Textures.Add(Var);
+	}
+	
 	int32 GetUniqueSamplerStateIndex(const FCustomStdString& Name, bool bAddIfNotFound, bool& bOutAdded)
 	{
 		int32 Found = INDEX_NONE;
@@ -225,7 +241,12 @@ struct FBuffers
                     _mesa_glsl_warning(state, "Image texture '%s' at index '%d' cannot be bound as part of the render-target array.",
                                        ITextures.front()->name, i);
                 }
-                
+				if (AllTextures.Num() <= i)
+				{
+					int32 Count = i + 1 - AllTextures.Num();
+					AllTextures.AddZeroed(Count);
+					//AllTextures(Index + 1, nullptr);
+				}
                 AllTextures[i] = ITextures.front();
                 ITextures.erase(ITextures.begin());
                 
@@ -243,7 +264,7 @@ struct FBuffers
         }
 
 		Buffers = AllBuffers;
-        Textures = AllTextures;
+		Textures = AllTextures;
 	}
 };
 

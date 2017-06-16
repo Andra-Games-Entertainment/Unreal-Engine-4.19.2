@@ -1060,7 +1060,7 @@ public:
 	virtual float GetTranslucentSelfShadowSecondDensityScale() const { return 1.0f; }
 	virtual float GetTranslucentSelfShadowSecondOpacity() const { return 1.0f; }
 	virtual float GetTranslucentBackscatteringExponent() const { return 1.0f; }
-	virtual bool IsSeparateTranslucencyEnabled() const { return false; }
+	virtual bool IsTranslucencyAfterDOFEnabled() const { return false; }
 	virtual bool IsMobileSeparateTranslucencyEnabled() const { return false; }
 	virtual FLinearColor GetTranslucentMultipleScatteringExtinction() const { return FLinearColor::White; }
 	virtual float GetTranslucentShadowStartOffset() const { return 0.0f; }
@@ -1710,7 +1710,7 @@ public:
 	ENGINE_API virtual float GetTranslucentSelfShadowSecondDensityScale() const override;
 	ENGINE_API virtual float GetTranslucentSelfShadowSecondOpacity() const override;
 	ENGINE_API virtual float GetTranslucentBackscatteringExponent() const override;
-	ENGINE_API virtual bool IsSeparateTranslucencyEnabled() const override;
+	ENGINE_API virtual bool IsTranslucencyAfterDOFEnabled() const override;
 	ENGINE_API virtual bool IsMobileSeparateTranslucencyEnabled() const override;
 	ENGINE_API virtual FLinearColor GetTranslucentMultipleScatteringExtinction() const override;
 	ENGINE_API virtual float GetTranslucentShadowStartOffset() const override;

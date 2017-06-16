@@ -364,6 +364,10 @@
 	#define PLATFORM_SUPPORTS_EARLY_MOVIE_PLAYBACK			0
 #endif
 
+#ifndef PLATFORM_WEAKLY_CONSISTENT_MEMORY
+	#define PLATFORM_WEAKLY_CONSISTENT_MEMORY PLATFORM_CPU_ARM_FAMILY
+#endif
+
 // deprecated, do not use
 #define PLATFORM_HAS_THREADSAFE_RHIGetRenderQueryResult	#
 #define PLATFORM_SUPPORTS_RHI_THREAD #
@@ -817,3 +821,6 @@ namespace TypeTests
 	#define TEXT_PASTE(x) L ## x
 	#define TEXT(x) TEXT_PASTE(x)
 #endif
+
+// Include the code analysis header for the current platform now everything else is configured
+#include "HAL/PlatformCodeAnalysis.h"

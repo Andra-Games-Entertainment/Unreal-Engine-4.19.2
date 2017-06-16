@@ -310,6 +310,8 @@ struct _mesa_glsl_parse_state
 	unsigned language_version;
 	enum _mesa_glsl_parser_targets target;
 
+	int maxunrollcount;
+
 	/** Information for geometry shaders, used only if maxvertexcount>0 */
 	unsigned maxvertexcount;
 	unsigned geometryinput;

@@ -73,6 +73,8 @@ USceneComponent::USceneComponent(const FObjectInitializer& ObjectInitializer /*=
 	// default behavior is visible
 	bVisible = true;
 	bAutoActivate = false;
+
+	bAllowReplicatedTransformSmoothing = true;
 }
 
 #if WITH_EDITORONLY_DATA
@@ -2996,11 +2998,40 @@ void USceneComponent::PreNetReceive()
 	bNetUpdateAttachment = false;
 	NetOldAttachSocketName = GetAttachSocketName();
 	NetOldAttachParent = GetAttachParent();
+
+	SavedSmoothRelativeLocation = RelativeLocation;
+	SavedSmoothRelativeRotation = RelativeRotation;
+}
+
+namespace Net
+{
+	extern ENGINE_API FAutoConsoleVariable UseSmoothing;
+	extern ENGINE_API FAutoConsoleVariable SmoothingAlpha;
 }
 
 void USceneComponent::PostNetReceive()
 {
 	Super::PostNetReceive();
+
+	if( bAllowReplicatedTransformSmoothing )
+	{
+		const bool bUseSmoothing = Net::UseSmoothing->GetInt() != 0;
+		if( bUseSmoothing )
+		{
+			if( !bIsSmoothTargetTransformValid )
+			{
+				bIsSmoothTargetTransformValid = true;
+				SavedSmoothRelativeLocation = RelativeLocation;
+				SavedSmoothRelativeRotation = RelativeRotation;
+			}
+
+			SmoothTargetRelativeLocation = RelativeLocation;
+			SmoothTargetRelativeRotation = RelativeRotation;
+
+			RelativeLocation = SavedSmoothRelativeLocation;
+			RelativeRotation = SavedSmoothRelativeRotation;
+		}
+	}
 
 	// If we have no attach parent, attach to parent's root component.
 	if (GetAttachParent() == nullptr)

@@ -6,12 +6,69 @@
 #include "UObject/ObjectMacros.h"
 #include "InputCoreTypes.h"
 #include "HeadMountedDisplayTypes.h"
+#include "MotionControllerComponent.h"
 #include "VREditorInteractor.h"
+#include "Components/SplineComponent.h"
+#include "Components/SplineMeshComponent.h"
 #include "VREditorMotionControllerInteractor.generated.h"
 
 class AActor;
 class UStaticMesh;
 class UStaticMeshSocket;
+
+
+UCLASS()
+class ULaserSplineMeshComponent : public USplineMeshComponent
+{
+	GENERATED_BODY()
+
+public:
+
+	ULaserSplineMeshComponent();
+};
+
+
+UCLASS()
+class UVREditorMotionControllerComponent : public UMotionControllerComponent
+{
+	GENERATED_BODY()
+
+public:
+
+	virtual void GetLifetimeReplicatedProps( TArray< FLifetimeProperty > & OutLifetimeProps ) const override;
+
+	void LoadAssetsIfNeeded( class UStaticMeshComponent* HoverMeshComponent, const TArray<class ULaserSplineMeshComponent*>& LaserSplineMeshComponents );
+
+	UFUNCTION( NetMulticast, Unreliable )
+	void UpdateSplineLaserOnClientAndServer( class UStaticMeshComponent* HoverMeshComponent, const TArray<class ULaserSplineMeshComponent*>& LaserSplineMeshComponents, class USplineComponent* LaserSplineComponent, const float WorldScaleFactor, const FVector& InStartLocation, const FVector& InEndLocation, const FVector& InForward );
+
+	UFUNCTION( NetMulticast, Unreliable )
+	void SetLaserVisualsOnClientAndServer( class UStaticMeshComponent* HoverMeshComponent, const TArray<class ULaserSplineMeshComponent*>& LaserSplineMeshComponents, class UPointLightComponent* HoverPointLightComponent, const float WorldScaleFactor, const FLinearColor& NewColor, const float CrawlFade, const float CrawlSpeed );
+
+	UFUNCTION( NetMulticast, Reliable )
+	void ApplyButtonPressColorsOnClientAndServer( class UStaticMeshComponent* HoverMeshComponent, const TArray<class ULaserSplineMeshComponent*>& LaserSplineMeshComponents, const FViewportActionKeyInput& Action );
+
+	/** Set the visuals for a button on the motion controller */
+	void SetMotionControllerButtonPressedVisuals( const EInputEvent Event, const FName& ParameterName, const float PressStrength );
+
+	/** Steam or no? */
+	UPROPERTY( Replicated )
+	bool bIsSteamVR;
+
+	/** MID for laser pointer material (opaque parts) */
+	UPROPERTY()
+	class UMaterialInstanceDynamic* LaserPointerMID;
+
+	/** MID for laser pointer material (translucent parts) */
+	UPROPERTY()
+	class UMaterialInstanceDynamic* TranslucentLaserPointerMID;
+
+	/** MID for hand mesh */
+	UPROPERTY()
+	class UMaterialInstanceDynamic* HandMeshMID;
+
+};
+
 
 /**
  * Represents the interactor in the world
@@ -22,6 +79,8 @@ class UVREditorMotionControllerInteractor : public UVREditorInteractor
 	GENERATED_UCLASS_BODY()
 
 public:
+
+	friend class UVREditorMotionControllerComponent;
 
 	virtual ~UVREditorMotionControllerInteractor();
 	
@@ -115,12 +174,6 @@ protected:
 
 private:
 
-	/** Changes the color of the buttons on the handmesh */
-	void ApplyButtonPressColors( const FViewportActionKeyInput& Action );
-
-	/** Set the visuals for a button on the motion controller */
-	void SetMotionControllerButtonPressedVisuals( const EInputEvent Event, const FName& ParameterName, const float PressStrength );
-
 	/** Pops up some help text labels for the controller in the specified hand, or hides it, if requested */
 	void ShowHelpForHand( const bool bShowIt );
 
@@ -132,12 +185,9 @@ private:
 
 	/** Updates all the segments of the curved laser */
 	void UpdateSplineLaser(const FVector& InStartLocation, const FVector& InEndLocation, const FVector& InForward);
-	
+
 	/** Sets the visibility on all curved laser segments */
 	void SetLaserVisibility(const bool bVisible);
-
-	/** Sets the visuals of the LaserPointer */
-	void SetLaserVisuals( const FLinearColor& NewColor, const float CrawlFade, const float CrawlSpeed );
 
 	/** Updates the radial menu */
 	void UpdateRadialMenuInput( const float DeltaTime );
@@ -159,7 +209,7 @@ protected:
 	
 	/** Motion controller component which handles late-frame transform updates of all parented sub-components */
 	UPROPERTY()
-	class UMotionControllerComponent* MotionControllerComponent;
+	class UVREditorMotionControllerComponent* MotionControllerComponent;
 
 	//
 	// Graphics
@@ -175,15 +225,7 @@ protected:
 
 	/** Spline meshes for curved laser */
 	UPROPERTY()
-	TArray<class USplineMeshComponent*> LaserSplineMeshComponents;
-
-	/** MID for laser pointer material (opaque parts) */
-	UPROPERTY()
-	class UMaterialInstanceDynamic* LaserPointerMID;
-
-	/** MID for laser pointer material (translucent parts) */
-	UPROPERTY()
-	class UMaterialInstanceDynamic* TranslucentLaserPointerMID;
+	TArray<ULaserSplineMeshComponent*> LaserSplineMeshComponents;
 
 	/** Hover impact indicator mesh */
 	UPROPERTY()
@@ -192,10 +234,6 @@ protected:
 	/** Hover point light */
 	UPROPERTY()
 	class UPointLightComponent* HoverPointLightComponent;
-
-	/** MID for hand mesh */
-	UPROPERTY()
-	class UMaterialInstanceDynamic* HandMeshMID;
 
 	/** Right or left hand */
 	EControllerHand ControllerHandSide;
@@ -257,6 +295,9 @@ private:
 
 	/** The color that will be used for one frame */
 	TOptional<FLinearColor> ForceLaserColor;
+
+	/** Real time (Slate Application) that laser trigger was touched */
+	double LastLaserTriggerTouchRealTime;
 
 	/**Whether a flick action was executed */
 	bool bFlickActionExecuted;

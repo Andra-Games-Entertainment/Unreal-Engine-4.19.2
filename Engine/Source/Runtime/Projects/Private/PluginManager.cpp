@@ -530,6 +530,17 @@ bool FPluginManager::ConfigureEnabledPlugins()
 			const TSharedRef<FPlugin>& Plugin = PluginPair.Value;
 			if (Plugin->bEnabled)
 			{
+				// Plugins can have their own shaders
+				// Add potential plugin shader directory only if the plugin is loaded in PostConfigInit. Not supported otherwise
+				for (const FModuleDescriptor& Module : Plugin->GetDescriptor().Modules)
+				{
+					if (Module.LoadingPhase == ELoadingPhase::PostConfigInit)
+					{
+						FGenericPlatformProcess::AddShaderDir(FPaths::Combine(*Plugin->GetBaseDir(), TEXT("Shaders")));
+						break;
+					}
+				}
+
 				// Add the plugin binaries directory
 				const FString PluginBinariesPath = FPaths::Combine(*FPaths::GetPath(Plugin->FileName), TEXT("Binaries"), FPlatformProcess::GetBinariesSubdirectory());
 				FModuleManager::Get().AddBinariesDirectory(*PluginBinariesPath, Plugin->LoadedFrom == EPluginLoadedFrom::GameProject);

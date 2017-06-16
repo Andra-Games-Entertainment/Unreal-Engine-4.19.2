@@ -73,11 +73,12 @@ public:
 	, Library(nil)
 	, SideTableBinding(-1)
 	, GlslCodeNSString(nil)
+    , SourceLen(0)
+    , SourceCRC(0)
 	{
 	}
 	
-	void Init(const TArray<uint8>& InCode, FMetalCodeHeader& Header);
-	void Init(const TArray<uint8>& InCode, id<MTLLibrary> Library, FMetalCodeHeader& Header);
+	void Init(const TArray<uint8>& InCode, FMetalCodeHeader& Header, id<MTLLibrary> InLibrary = nil);
 
 	/** Destructor */
 	virtual ~TMetalBaseShader();
@@ -112,6 +113,10 @@ public:
 	
 	/** The debuggable text source */
 	NSString* GlslCodeNSString;
+    
+    /** CRC & Len for name disambiguation */
+    uint32 SourceLen;
+    uint32 SourceCRC;
 };
 
 class FMetalVertexShader : public TMetalBaseShader<FRHIVertexShader, SF_Vertex>
@@ -195,54 +200,67 @@ struct FMetalRenderPipelineHash
 	uint64 TargetBits;
 };
 
-/**
- * Combined shader state and vertex definition for rendering geometry.
- * Each unique instance consists of a vertex decl, vertex shader, and pixel shader.
- */
-class FMetalBoundShaderState : public FRHIBoundShaderState
+class DEPRECATED(4.15, "Use GraphicsPipelineState Interface") FMetalBoundShaderState : public FRHIBoundShaderState
+{
+};
+
+enum EMetalIndexType
+{
+	EMetalIndexType_None   = 0,
+	EMetalIndexType_UInt16 = 1,
+	EMetalIndexType_UInt32 = 2,
+	EMetalIndexType_Num	   = 3
+};
+
+class FMetalGraphicsPipelineState : public FRHIGraphicsPipelineState
 {
 public:
-	
-#if METAL_SUPPORTS_PARALLEL_RHI_EXECUTE
-	FCachedBoundShaderStateLink_Threadsafe CacheLink;
-#else
-	FCachedBoundShaderStateLink CacheLink;
-#endif
+	FMetalGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Init);
+	virtual ~FMetalGraphicsPipelineState();
+
+	FMetalShaderPipeline* GetPipeline(EMetalIndexType IndexType)
+	{
+		check(IndexType < EMetalIndexType_Num && PipelineStates[IndexType]);
+		return PipelineStates[IndexType];
+	}
 
 	/** Cached vertex structure */
 	TRefCountPtr<FMetalVertexDeclaration> VertexDeclaration;
-
+	
 	/** Cached shaders */
 	TRefCountPtr<FMetalVertexShader> VertexShader;
 	TRefCountPtr<FMetalPixelShader> PixelShader;
 	TRefCountPtr<FMetalHullShader> HullShader;
 	TRefCountPtr<FMetalDomainShader> DomainShader;
 	TRefCountPtr<FMetalGeometryShader> GeometryShader;
-
-	/** Initialization constructor. */
-	FMetalBoundShaderState(
-		FVertexDeclarationRHIParamRef InVertexDeclarationRHI,
-		FVertexShaderRHIParamRef InVertexShaderRHI,
-		FPixelShaderRHIParamRef InPixelShaderRHI,
-		FHullShaderRHIParamRef InHullShaderRHI,
-		FDomainShaderRHIParamRef InDomainShaderRHI,
-		FGeometryShaderRHIParamRef InGeometryShaderRHI);
-
-	/**
-	 *Destructor
-	 */
-	~FMetalBoundShaderState();
 	
-	/**
-	 * Prepare a pipeline state object for the current state right before drawing
-	 */
-	FMetalShaderPipeline* PrepareToDraw(FMetalHashedVertexDescriptor const& VertexDesc, const struct FMetalRenderPipelineDesc& RenderPipelineDesc);
-
-protected:
-	pthread_rwlock_t PipelineMutex;
-	TMap<FMetalRenderPipelineHash, TMap<FMetalHashedVertexDescriptor, FMetalShaderPipeline*>> PipelineStates;
+	/** Cached state objects */
+	TRefCountPtr<FMetalDepthStencilState> DepthStencilState;
+	TRefCountPtr<FMetalRasterizerState> RasterizerState;
+	
+private:	
+	// Tessellation pipelines have three different variations for the indexing-style.
+	FMetalShaderPipeline* PipelineStates[EMetalIndexType_Num];
 };
 
+class FMetalComputePipelineState : public FRHIComputePipelineState
+{
+public:
+	FMetalComputePipelineState(FMetalComputeShader* InComputeShader)
+	: ComputeShader(InComputeShader)
+	{
+		check(InComputeShader);
+	}
+	virtual ~FMetalComputePipelineState() {}
+
+	FMetalComputeShader* GetComputeShader()
+	{
+		return ComputeShader;
+	}
+
+private:
+	TRefCountPtr<FMetalComputeShader> ComputeShader;
+};
 
 /** Texture/RT wrapper. */
 class FMetalSurface
@@ -325,8 +343,18 @@ public:
 	ERHIResourceType Type;
 	EPixelFormat PixelFormat;
 	uint8 FormatKey;
+	//texture used for store actions and binding to shader params
 	id<MTLTexture> Texture;
+	//if surface is MSAA, texture used to bind for RT
 	id<MTLTexture> MSAATexture;
+
+	//texture used for a resolve target.  Same as texture on iOS.  
+	//Dummy target on Mac where RHISupportsSeparateMSAAAndResolveTextures is true.	In this case we don't always want a resolve texture but we
+	//have to have one until renderpasses are implemented at a high level.
+	// Mac / RHISupportsSeparateMSAAAndResolveTextures == true
+	// iOS A9+ where depth resolve is available
+	// iOS < A9 where depth resolve is unavailable.
+	id<MTLTexture> MSAAResolveTexture;
 	id<MTLTexture> StencilTexture;
 	uint32 SizeX, SizeY, SizeZ;
 	bool bIsCubemap;
@@ -352,13 +380,10 @@ private:
 	
 private:
 	// The movie playback IOSurface/CVTexture wrapper to avoid page-off
-	CFTypeRef CoreVideoImageRef;
+	CFTypeRef ImageSurfaceRef;
 	
 	// Texture view surfaces don't own their resources, only reference
 	bool bTextureView;
-	
-	// next format for the pixel format mapping
-	static uint8 NextKey;
 	
 	// Count of outstanding async. texture uploads
 	static int32 ActiveUploads;
@@ -384,6 +409,11 @@ public:
 	virtual void* GetTextureBaseRHI() override final
 	{
 		return &Surface;
+	}
+	
+	virtual void* GetNativeResource() const override final
+	{
+		return Surface.Texture;
 	}
 };
 
@@ -606,6 +636,11 @@ public:
 	/** Constructor */
 	FMetalIndexBuffer(uint32 InStride, uint32 InSize, uint32 InUsage);
 	~FMetalIndexBuffer();
+	
+	/**
+	 * Allocate the index buffer backing store.
+	 */
+	void Alloc(uint32 InSize);
 
 	/**
 	 * Prepare a CPU accessible buffer for uploading to GPU memory
@@ -619,6 +654,9 @@ public:
 	
 	// balsa buffer memory
 	id<MTLBuffer> Buffer;
+	
+	// The matching linear texture for this index buffer. 
+	id<MTLTexture> LinearTexture;
 
 	// offet into the buffer (for lock usage)
 	uint32 LockOffset;
@@ -639,6 +677,21 @@ public:
 	/** Constructor */
 	FMetalVertexBuffer(uint32 InSize, uint32 InUsage);
 	~FMetalVertexBuffer();
+	
+	/**
+	 * Allocate the index buffer backing store.
+	 */
+	void Alloc(uint32 InSize);
+	
+	/**
+	 * Allocate a linear texture for given format.
+	 */
+	id<MTLTexture> AllocLinearTexture(EPixelFormat Format);
+	
+	/**
+	 * Get a linear texture for given format.
+	 */
+	id<MTLTexture> GetLinearTexture(EPixelFormat Format);
 
 	/**
 	 * Prepare a CPU accessible buffer for uploading to GPU memory
@@ -652,6 +705,9 @@ public:
 	
 	// balsa buffer memory
 	id<MTLBuffer> Buffer;
+	
+	// The map of linear textures for this vertex buffer - may be more than one due to type conversion. 
+	TMap<EPixelFormat, id<MTLTexture>> LinearTextures;
 	
 	/** Buffer for small buffers < 4Kb to avoid heap fragmentation. */
 	NSMutableData* Data;
@@ -758,6 +814,8 @@ public:
 
 	FMetalShaderResourceView();
 	~FMetalShaderResourceView();
+	
+	id<MTLTexture> GetLinearTexture(bool const bUAV);
 };
 
 
@@ -795,7 +853,7 @@ public:
 	 * Commit shader parameters to the currently bound program.
 	 */
 	void CommitPackedGlobals(class FMetalStateCache* Cache, class FMetalCommandEncoder* Encoder, EShaderFrequency Frequency, const FMetalShaderBindings& Bindings);
-	void CommitPackedUniformBuffers(class FMetalStateCache* Cache, TRefCountPtr<FMetalBoundShaderState> BoundShaderState, FMetalComputeShader* ComputeShader, int32 Stage, const TArray< TRefCountPtr<FRHIUniformBuffer> >& UniformBuffers, const TArray<CrossCompiler::FUniformBufferCopyInfo>& UniformBuffersCopyInfo);
+	void CommitPackedUniformBuffers(class FMetalStateCache* Cache, TRefCountPtr<FMetalGraphicsPipelineState> BoundShaderState, FMetalComputeShader* ComputeShader, int32 Stage, const TArray< TRefCountPtr<FRHIUniformBuffer> >& UniformBuffers, const TArray<CrossCompiler::FUniformBufferCopyInfo>& UniformBuffersCopyInfo);
 
 private:
 	/** CPU memory block for storing uniform values. */
@@ -948,11 +1006,6 @@ struct TMetalResourceTraits<FRHIComputeShader>
 	typedef FMetalComputeShader TConcreteType;
 };
 template<>
-struct TMetalResourceTraits<FRHIBoundShaderState>
-{
-	typedef FMetalBoundShaderState TConcreteType;
-};
-template<>
 struct TMetalResourceTraits<FRHITexture3D>
 {
 	typedef FMetalTexture3D TConcreteType;
@@ -1032,4 +1085,14 @@ template<>
 struct TMetalResourceTraits<FRHIComputeFence>
 {
 	typedef FMetalComputeFence TConcreteType;
+};
+template<>
+struct TMetalResourceTraits<FRHIGraphicsPipelineState>
+{
+	typedef FMetalGraphicsPipelineState TConcreteType;
+};
+template<>
+struct TMetalResourceTraits<FRHIComputePipelineState>
+{
+	typedef FMetalComputePipelineState TConcreteType;
 };

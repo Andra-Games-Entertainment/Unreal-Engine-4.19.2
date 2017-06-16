@@ -1043,7 +1043,7 @@ void FDecalRenderTargetManager::SetRenderTargetMode(FDecalRenderingCommon::ERend
 	TargetsToTransitionWritable[CurrentRenderTargetMode] = false;
 
 	// we need to reset the stream source after any call to SetRenderTarget (at least for Metal, which doesn't queue up VB assignments)
-	RHICmdList.SetStreamSource(0, GetUnitCubeVertexBuffer(), sizeof(FVector4), 0);
+	//RHICmdList.SetStreamSource(0, GetUnitCubeVertexBuffer(), 0);
 }
 
 

@@ -117,6 +117,14 @@ public:
 	    gizmo or directly on the objects */
 	void SetTransformables( TArray< TUniquePtr< FViewportTransformable > >&& NewTransformables );
 
+	/** Hides lasers and UI temporarily for this session.  They'll be restored when re-entering VR Editor */
+	void TemporarilyHideLasers();
+
+	bool ShouldTemporarilyHideLasers() const
+	{
+		return bTemporarilyHideLasers;
+	}
+
 	/** When using VR, this sets the viewport client that's been "possessed" by the head mounted display.  Only valid when VR is enabled. */
 	void SetDefaultOptionalViewportClient( const TSharedPtr<class FEditorViewportClient>& InEditorViewportClient );
 	
@@ -204,7 +212,7 @@ public:
 	void StopDragging( class UViewportInteractor* Interactor );
 
 	/** Starts dragging selected objects around.  Called when clicking and dragging on actors/gizmos in the world, or when placing new objects. */
-	void StartDragging( UViewportInteractor* Interactor, UActorComponent* ClickedTransformGizmoComponent, const FVector& HitLocation, const bool bIsPlacingNewObjects, const bool bAllowInterpolationWhenPlacing, const bool bStartTransaction, const bool bWithGrabberSphere );
+	void StartDragging( UViewportInteractor* Interactor, UActorComponent* ClickedTransformGizmoComponent, const FVector& HitLocation, const bool bIsPlacingNewObjects, const bool bAllowInterpolationWhenPlacing, const bool bShouldUseLaserImpactDrag, const bool bStartTransaction, const bool bWithGrabberSphere );
 
 	DECLARE_EVENT_OneParam( UViewportWorldInteraction, FOnWorldScaleChanged, const float /* NewWorldToMetersScale */);
 	virtual FOnWorldScaleChanged& OnWorldScaleChanged() { return OnWorldScaleChangedEvent; };
@@ -382,6 +390,9 @@ private:
 		const USceneComponent* const DraggingTransformGizmoComponent,
 		FVector& GizmoSpaceFirstDragUpdateOffsetAlongAxis,
 		FVector& DragDeltaFromStartOffset,
+		ELockedWorldDragMode& LockedWorldDragMode,
+		float& GizmoScaleSinceDragStarted,
+		float& GizmoRotationRadiansSinceDragStarted,
 		bool& bIsDrivingVelocityOfSimulatedTransformables,
 		FVector& OutUnsnappedDraggedTo);
 
@@ -715,4 +726,8 @@ private:
 
 	/** If we want to skip playing the sound when refreshing the transform gizmo next time */
 	bool bPlayNextRefreshTransformGizmoSound;
+
+	/** Temporarily hide lasers and UI */
+	bool bTemporarilyHideLasers;
+
 };

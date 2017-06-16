@@ -4,6 +4,11 @@
 	ShadowFilteringCommon.usf: Contains functions to filter a shadowmap, shared between forward/deferred shading.
 =========================================================================*/
 
+#pragma once
+
+#include "PixelQuadMessagePassing.usf"
+
+
 struct FPCFSamplerSettings
 {
 	Texture2D		ShadowDepthTexture;
@@ -261,6 +266,7 @@ float Manual1x1PCF(float2 ShadowPosition, FPCFSamplerSettings Settings)
 	float4 Values00 = CalculateOcclusion(Samples, Settings);
 	return PCF1x1(Fraction, Values00);
 }
+
 
 float ManualPCF(float2 ShadowPosition, FPCFSamplerSettings Settings)
 {

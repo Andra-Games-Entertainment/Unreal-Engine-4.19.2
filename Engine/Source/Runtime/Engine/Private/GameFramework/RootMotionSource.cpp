@@ -25,7 +25,7 @@ static TAutoConsoleVariable<float> CVarDebugRootMotionSourcesLifetime(
 
 void RootMotionSourceDebug::PrintOnScreen(const ACharacter& InCharacter, const FString& InString)
 {
-	const FString AdjustedDebugString = FString::Printf(TEXT("[%d] [%s] %s"), GFrameCounter, *InCharacter.GetName(), *InString);
+	const FString AdjustedDebugString = FString::Printf(TEXT("[%llu] [%s] %s"), (uint64)GFrameCounter, *InCharacter.GetName(), *InString);
 
 	const FColor DebugColor = (InCharacter.IsLocallyControlled()) ? FColor::Green : FColor::Red;
 	GEngine->AddOnScreenDebugMessage(INDEX_NONE, 0.f, DebugColor, AdjustedDebugString, false, FVector2D::UnitVector * 1.5f);

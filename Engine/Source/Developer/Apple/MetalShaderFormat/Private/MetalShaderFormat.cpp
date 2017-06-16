@@ -101,9 +101,10 @@ private:
 
 class FMetalShaderFormat : public IShaderFormat
 {
+public:
 	enum
 	{
-		HEADER_VERSION = 37,
+		HEADER_VERSION = 38,
 	};
 	
 	struct FVersion
@@ -112,26 +113,10 @@ class FMetalShaderFormat : public IShaderFormat
 		uint16 Format			: 7;
 		uint16 OfflineCompiled	: 1;
 	};
-public:
+	
 	virtual uint16 GetVersion(FName Format) const override final
 	{
-		static_assert(sizeof(FVersion) == sizeof(uint16), "Out of bits!");
-		union
-		{
-			FVersion Version;
-			uint16 Raw;
-		} Version;
-
-		Version.Version.Format = HEADER_VERSION;
-		Version.Version.HLSLCCMinor = HLSLCC_VersionMinor;
-		Version.Version.OfflineCompiled = METAL_OFFLINE_COMPILE;
-		
-		// Check that we didn't overwrite any bits
-		check(Version.Version.Format == HEADER_VERSION);
-		check(Version.Version.HLSLCCMinor == HLSLCC_VersionMinor);
-		check(Version.Version.OfflineCompiled == METAL_OFFLINE_COMPILE);
-
-		return Version.Raw;
+		return GetMetalFormatVersion(Format);
 	}
 	virtual void GetSupportedFormats(TArray<FName>& OutFormats) const override final
 	{
@@ -161,6 +146,27 @@ public:
         return new FMetalShaderFormatArchive(Format, WorkingDirectory);
     }
 };
+
+uint16 GetMetalFormatVersion(FName Format)
+{
+	static_assert(sizeof(FMetalShaderFormat::FVersion) == sizeof(uint16), "Out of bits!");
+	union
+	{
+		FMetalShaderFormat::FVersion Version;
+		uint16 Raw;
+	} Version;
+	
+	Version.Version.Format = FMetalShaderFormat::HEADER_VERSION;
+	Version.Version.HLSLCCMinor = HLSLCC_VersionMinor;
+	Version.Version.OfflineCompiled = METAL_OFFLINE_COMPILE;
+	
+	// Check that we didn't overwrite any bits
+	check(Version.Version.Format == FMetalShaderFormat::HEADER_VERSION);
+	check(Version.Version.HLSLCCMinor == HLSLCC_VersionMinor);
+	check(Version.Version.OfflineCompiled == METAL_OFFLINE_COMPILE);
+	
+	return Version.Raw;
+}
 
 /**
  * Module for OpenGL shaders

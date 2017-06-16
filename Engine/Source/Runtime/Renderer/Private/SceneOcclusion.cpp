@@ -329,7 +329,7 @@ void FOcclusionQueryBatcher::Flush(FRHICommandListImmediate& RHICmdList)
 			const int32 NumPrimitivesThisBatch = (BatchIndex != (NumBatches-1)) ? MaxBatchedPrimitives : NumBatchedPrimitives;
 				
 			RHICmdList.BeginRenderQuery(BatchOcclusionQuery);
-			RHICmdList.SetStreamSource(0, VertexBufferRHI, sizeof(FVector), VertexBufferOffset);
+			RHICmdList.SetStreamSource(0, VertexBufferRHI, VertexBufferOffset);
 			RHICmdList.DrawIndexedPrimitive(
 				IndexBufferRHI,
 				PT_TriangleList,

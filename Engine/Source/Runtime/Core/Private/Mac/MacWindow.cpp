@@ -158,7 +158,7 @@ void FMacWindow::Initialize( FMacApplication* const Application, const TSharedRe
 				}
 				else
 				{
-					[WindowHandle setCollectionBehavior: NSWindowCollectionBehaviorFullScreenAuxiliary|NSWindowCollectionBehaviorDefault|NSWindowCollectionBehaviorManaged|NSWindowCollectionBehaviorParticipatesInCycle];
+					[WindowHandle setCollectionBehavior: NSWindowCollectionBehaviorDefault|NSWindowCollectionBehaviorManaged|NSWindowCollectionBehaviorParticipatesInCycle];
 
 					if (!FPlatformMisc::IsRunningOnMavericks())
 					{
@@ -347,15 +347,15 @@ void FMacWindow::Restore()
 {
 	MainThreadCall(^{
 		SCOPED_AUTORELEASE_POOL;
-		if( [WindowHandle isZoomed] )
+		if( WindowHandle.miniaturized )
+		{
+			[WindowHandle deminiaturize:nil];
+			WindowHandle->bZoomed = WindowHandle.zoomed;
+		}
+		else if ( WindowHandle.zoomed )
 		{
 			WindowHandle->bZoomed = !WindowHandle->bZoomed;
 			[WindowHandle zoom:nil];
-		}
-		else
-		{
-			WindowHandle->bZoomed = false;
-			[WindowHandle deminiaturize:nil];
 		}
 	}, UE4ResizeEventMode, true);
 }
@@ -406,13 +406,6 @@ void FMacWindow::SetWindowMode( EWindowMode::Type NewWindowMode )
 	{
 		bool WindowIsFullScreen = !bMakeFullscreen;
 		
-		NSWindowCollectionBehavior Behaviour = [WindowHandle collectionBehavior];
-		if(bMakeFullscreen)
-		{
-			Behaviour &= ~(NSWindowCollectionBehaviorFullScreenAuxiliary);
-			Behaviour |= NSWindowCollectionBehaviorFullScreenPrimary;
-		}
-		
 		if(!bIsFullscreen)
 		{
 			PreFullscreenWindowRect.origin = [WindowHandle frame].origin;
@@ -424,7 +417,6 @@ void FMacWindow::SetWindowMode( EWindowMode::Type NewWindowMode )
 		
 		MainThreadCall(^{
 			SCOPED_AUTORELEASE_POOL;
-			[WindowHandle setCollectionBehavior: Behaviour];
 			[WindowHandle toggleFullScreen:nil];
 		}, UE4FullscreenEventMode, true);
 		

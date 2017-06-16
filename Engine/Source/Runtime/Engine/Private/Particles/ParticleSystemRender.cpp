@@ -1010,6 +1010,7 @@ FParticleVertexFactoryBase *FDynamicSpriteEmitterData::CreateVertexFactory()
 	const UParticleModuleRequired* RequiredModule = GetSourceData()->RequiredModule;
 	// this check needs to match the code inside FDynamicSpriteEmitterData::GetDynamicMeshElementsEmitter()
 	VertexFactory->SetNumVertsInInstanceBuffer(RequiredModule->IsBoundingGeometryValid() && RequiredModule->AlphaThreshold ? RequiredModule->GetNumBoundingVertices() : 4);
+	VertexFactory->SetUsesDynamicParameter(bUsesDynamicParameter, bUsesDynamicParameter ? GetDynamicParameterVertexStride(): 0);
 	VertexFactory->InitResource();
 	return VertexFactory;
 }
@@ -1532,7 +1533,7 @@ FParticleVertexFactoryBase *FDynamicMeshEmitterData::CreateVertexFactory()
 	SetupVertexFactory(VertexFactory, StaticMesh->RenderData->LODResources[0]);
 
 	const int32 InstanceVertexStride = GetDynamicVertexStride(ERHIFeatureLevel::Type::SM5);	// featurelevel is ignored
-	const int32 DynamicParameterVertexStride = GetDynamicParameterVertexStride();
+	const int32 DynamicParameterVertexStride = bUsesDynamicParameter ? GetDynamicParameterVertexStride() : 0;
 	VertexFactory->SetStrides(InstanceVertexStride, DynamicParameterVertexStride);
 	VertexFactory->InitResource();
 
@@ -2650,12 +2651,13 @@ public:
 
 
 FParticleVertexFactoryBase *FDynamicBeam2EmitterData::CreateVertexFactory()
-	{
-		FParticleBeamTrailVertexFactory *VertexFactory = new FParticleBeamTrailVertexFactory();
-		VertexFactory->SetParticleFactoryType(PVFT_BeamTrail);
-		VertexFactory->InitResource();
-		return VertexFactory;
-	}
+{
+	FParticleBeamTrailVertexFactory *VertexFactory = new FParticleBeamTrailVertexFactory();
+	VertexFactory->SetParticleFactoryType(PVFT_BeamTrail);
+	VertexFactory->SetUsesDynamicParameter(bUsesDynamicParameter);
+	VertexFactory->InitResource();
+	return VertexFactory;
+}
 
 
 void FDynamicBeam2EmitterData::GetDynamicMeshElementsEmitter(const FParticleSystemSceneProxy* Proxy, const FSceneView* View, const FSceneViewFamily& ViewFamily, int32 ViewIndex, FMeshElementCollector& Collector, FParticleVertexFactoryBase *VertexFactory) const
@@ -5429,9 +5431,10 @@ FParticleVertexFactoryBase* FDynamicTrailsEmitterData::BuildVertexFactory(const 
 FParticleVertexFactoryBase *FDynamicTrailsEmitterData::CreateVertexFactory()
 {
 	FParticleBeamTrailVertexFactory *VertexFactory = new FParticleBeamTrailVertexFactory();
-		VertexFactory->SetParticleFactoryType(PVFT_BeamTrail);
-		VertexFactory->InitResource();
-		return VertexFactory;
+	VertexFactory->SetParticleFactoryType(PVFT_BeamTrail);
+	VertexFactory->SetUsesDynamicParameter(bUsesDynamicParameter);
+	VertexFactory->InitResource();
+	return VertexFactory;
 }
 
 

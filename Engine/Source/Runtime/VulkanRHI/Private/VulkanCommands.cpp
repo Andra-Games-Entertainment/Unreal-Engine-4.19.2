@@ -47,7 +47,16 @@ void FVulkanCommandListContext::RHISetStreamSource(uint32 StreamIndex,FVertexBuf
 	FVulkanVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
 	if (VertexBuffer != NULL)
 	{
-		PendingGfxState->SetStreamSource(StreamIndex, VertexBuffer, Stride, Offset + VertexBuffer->GetOffset());
+		PendingGfxState->SetStreamSource(StreamIndex, VertexBuffer, Offset + VertexBuffer->GetOffset());
+	}
+}
+
+void FVulkanCommandListContext::RHISetStreamSource(uint32 StreamIndex, FVertexBufferRHIParamRef VertexBufferRHI, uint32 Offset)
+{
+	FVulkanVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
+	if (VertexBuffer != NULL)
+	{
+		PendingGfxState->SetStreamSource(StreamIndex, VertexBuffer, Offset + VertexBuffer->GetOffset());
 	}
 }
 
@@ -756,7 +765,7 @@ void FVulkanCommandListContext::RHIEndDrawPrimitiveUP()
 
 	FVulkanBoundShaderState& Shader = PendingGfxState->GetBoundShaderState();
 
-	PendingGfxState->SetStreamSource(0, PendingDrawPrimUPVertexAllocInfo.GetHandle(), PendingVertexDataStride, PendingDrawPrimUPVertexAllocInfo.GetBindOffset());
+	PendingGfxState->SetStreamSource(0, PendingDrawPrimUPVertexAllocInfo.GetHandle(), PendingDrawPrimUPVertexAllocInfo.GetBindOffset());
 	
 	FVulkanCmdBuffer* CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
 	PendingGfxState->PrepareDraw(this, CmdBuffer, UEToVulkanType((EPrimitiveType)PendingPrimitiveType));
@@ -800,7 +809,7 @@ void FVulkanCommandListContext::RHIEndDrawIndexedPrimitiveUP()
 
 	FVulkanBoundShaderState& Shader = PendingGfxState->GetBoundShaderState();
 
-	PendingGfxState->SetStreamSource(0, PendingDrawPrimUPVertexAllocInfo.GetHandle(), PendingVertexDataStride, PendingDrawPrimUPVertexAllocInfo.GetBindOffset());
+	PendingGfxState->SetStreamSource(0, PendingDrawPrimUPVertexAllocInfo.GetHandle(), PendingDrawPrimUPVertexAllocInfo.GetBindOffset());
 
 	FVulkanCmdBuffer* CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
 	VkCommandBuffer Cmd = CmdBuffer->GetHandle();

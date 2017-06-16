@@ -501,12 +501,7 @@ const TArray<TRefCountPtr<FMaterialUniformExpression> >& FMaterial::GetUniformSc
 
 bool FMaterial::RequiresSceneColorCopy_GameThread() const
 {
-	check(IsInGameThread());
-	if (GameThreadShaderMap)
-	{
-		return GameThreadShaderMap->RequiresSceneColorCopy();
-	}
-	return false;
+	return GameThreadShaderMap.GetReference() ? GameThreadShaderMap->RequiresSceneColorCopy() : false; 
 }
 
 bool FMaterial::RequiresSceneColorCopy_RenderThread() const
@@ -899,7 +894,7 @@ bool FMaterialResource::IsCrackFreeDisplacementEnabled() const
 	return Material->bEnableCrackFreeDisplacement;
 }
 
-bool FMaterialResource::IsSeparateTranslucencyEnabled() const 
+bool FMaterialResource::IsTranslucencyAfterDOFEnabled() const 
 { 
 	return Material->bEnableSeparateTranslucency && !IsUIMaterial() && !IsDeferredDecal();
 }

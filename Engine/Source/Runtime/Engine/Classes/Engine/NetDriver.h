@@ -399,6 +399,9 @@ public:
 	// Constructors.
 	ENGINE_API UNetDriver(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
+	ENGINE_API virtual void UpdateSmoothingOnClient( float DeltaSeconds )
+	{
+	}
 
 	//~ Begin UObject Interface.
 	ENGINE_API virtual void PostInitProperties() override;

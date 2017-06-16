@@ -17,6 +17,8 @@ extern int32 GMetalRuntimeDebugLevel;
 @synthesize Inner;
 @synthesize Buffer;
 
+APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMetalDebugBlitCommandEncoder)
+
 -(id)initWithEncoder:(id<MTLBlitCommandEncoder>)Encoder andCommandBuffer:(FMetalDebugCommandBuffer*)SourceBuffer
 {
 	id Self = [super init];
@@ -80,10 +82,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:resource];
@@ -102,10 +108,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:texture];
@@ -125,10 +135,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:sourceTexture];
@@ -149,10 +163,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:sourceBuffer];
@@ -173,10 +191,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:sourceBuffer];
@@ -197,10 +219,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:sourceTexture];
@@ -221,10 +247,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:sourceTexture];
@@ -245,10 +275,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:texture];
@@ -267,10 +301,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:buffer];
@@ -289,10 +327,14 @@ extern int32 GMetalRuntimeDebugLevel;
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer blit:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:sourceBuffer];

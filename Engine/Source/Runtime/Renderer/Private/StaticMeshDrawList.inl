@@ -59,16 +59,17 @@ void TStaticMeshDrawList<DrawingPolicyType>::FElementHandle::Remove(const bool b
 
 	checkSlow(LocalDrawingPolicyLink->SetId == SetId);
 
-	check(LocalDrawingPolicyLink->Elements[ElementIndex].Mesh->MaterialRenderProxy);
-	LocalDrawingPolicyLink->Elements[ElementIndex].Mesh->MaterialRenderProxy->SetUnreferencedInDrawList();
+	check(LocalDrawingPolicyLink->Elements[LocalElementIndex].Mesh->MaterialRenderProxy);
+	LocalDrawingPolicyLink->Elements[LocalElementIndex].Mesh->MaterialRenderProxy->SetUnreferencedInDrawList();
 
 	// Unlink the mesh from this draw list. Not necessary if the mesh is being destroyed
 	if (bUnlinkMesh)
 	{
 		// Expensive (Order N). Spins through whole list
-		LocalDrawingPolicyLink->Elements[ElementIndex].Mesh->UnlinkDrawList(this);
+		LocalDrawingPolicyLink->Elements[LocalElementIndex].Mesh->UnlinkDrawList(this);
 	}
-	LocalDrawingPolicyLink->Elements[ElementIndex].Mesh = NULL;
+	//from this point on the memory the this pointer point to might be gone (e.g. if we unlink ourselves)
+	LocalDrawingPolicyLink->Elements[LocalElementIndex].Mesh = NULL;
 
 	checkSlow(LocalDrawingPolicyLink->Elements.Num() == LocalDrawingPolicyLink->CompactElements.Num());
 

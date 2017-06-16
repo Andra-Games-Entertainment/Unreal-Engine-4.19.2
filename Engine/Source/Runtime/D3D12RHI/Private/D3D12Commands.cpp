@@ -90,6 +90,13 @@ void FD3D12CommandContext::RHISetStreamSource(uint32 StreamIndex, FVertexBufferR
 	StateCache.SetStreamSource(VertexBuffer ? &VertexBuffer->ResourceLocation : nullptr, StreamIndex, Stride, Offset);
 }
 
+void FD3D12CommandContext::RHISetStreamSource(uint32 StreamIndex, FVertexBufferRHIParamRef VertexBufferRHI, uint32 Offset)
+{
+	FD3D12VertexBuffer* VertexBuffer = RetrieveObject<FD3D12VertexBuffer>(VertexBufferRHI);
+ensure(0);
+	//StateCache.SetStreamSource(VertexBuffer ? &VertexBuffer->ResourceLocation : nullptr, StreamIndex, Offset);
+}
+
 // Stream-Out state.
 void FD3D12DynamicRHI::RHISetStreamOutTargets(uint32 NumTargets, const FVertexBufferRHIParamRef* VertexBuffers, const uint32* Offsets)
 {
@@ -396,11 +403,6 @@ void FD3D12CommandContext::RHISetViewport(uint32 MinX, uint32 MinY, float MinZ, 
 		StateCache.SetViewport(Viewport);
 		SetScissorRectIfRequiredWhenSettingViewport(MinX, MinY, MaxX, MaxY);
 	}
-}
-
-void FD3D12CommandContext::RHISetStereoViewport(uint32 LeftMinX, uint32 RightMinX, uint32 MinY, float MinZ, uint32 LeftMaxX, uint32 RightMaxX, uint32 MaxY, float MaxZ)
-{
-	UE_LOG(LogD3D12RHI, Fatal, TEXT("D3D12 RHI does not support set stereo viewport!"));
 }
 
 void FD3D12CommandContext::RHISetScissorRect(bool bEnable, uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY)

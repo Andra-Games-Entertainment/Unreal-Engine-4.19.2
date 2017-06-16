@@ -8,8 +8,9 @@
 
 #include "MetalRenderCommandEncoder.h"
 #include "MetalCommandBuffer.h"
+#include "MetalCommandQueue.h"
 #include "MetalFence.h"
-#include "MetalRenderPipelineDesc.h"
+#include "MetalPipeline.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -18,6 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
 @synthesize Inner;
 @synthesize Buffer;
 @synthesize Pipeline;
+
+APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMetalDebugRenderCommandEncoder)
 
 -(id)initWithEncoder:(id<MTLRenderCommandEncoder>)Encoder andCommandBuffer:(FMetalDebugCommandBuffer*)SourceBuffer
 {
@@ -83,10 +86,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer setPipeline:pipelineState.label];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackState:pipelineState];
@@ -105,12 +112,17 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderBuffers[EMetalShaderVertex].Buffers[index] = nil;
 			ShaderBuffers[EMetalShaderVertex].Bytes[index] = bytes;
 			ShaderBuffers[EMetalShaderVertex].Offsets[index] = length;
 		}
+		case EMetalDebugLevelResetOnBind:
+		case EMetalDebugLevelTrackResources:
 		case EMetalDebugLevelFastValidation:
 		{
 			ResourceMask[EMetalShaderVertex].BufferMask = bytes ? (ResourceMask[EMetalShaderVertex].BufferMask | (1 << index)) : (ResourceMask[EMetalShaderVertex].BufferMask & ~(1 << index));
@@ -130,12 +142,16 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderBuffers[EMetalShaderVertex].Buffers[index] = buffer;
 			ShaderBuffers[EMetalShaderVertex].Bytes[index] = nil;
 			ShaderBuffers[EMetalShaderVertex].Offsets[index] = offset;
 		}
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:buffer];
@@ -158,10 +174,15 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderBuffers[EMetalShaderVertex].Offsets[index] = offset;
 		}
+		case EMetalDebugLevelResetOnBind:
+		case EMetalDebugLevelTrackResources:
 		case EMetalDebugLevelFastValidation:
 		{
 			check(ResourceMask[EMetalShaderVertex].BufferMask & 1 << index);
@@ -182,12 +203,16 @@ NS_ASSUME_NONNULL_BEGIN
 	{
 		switch (Buffer->DebugLevel)
 		{
+			case EMetalDebugLevelConditionalSubmit:
+			case EMetalDebugLevelWaitForComplete:
+			case EMetalDebugLevelLogOperations:
 			case EMetalDebugLevelValidation:
 			{
 				ShaderBuffers[EMetalShaderVertex].Buffers[i + range.location] = buffers[i];
 				ShaderBuffers[EMetalShaderVertex].Bytes[i + range.location] = nil;
 				ShaderBuffers[EMetalShaderVertex].Offsets[i + range.location] = offsets[i];
 			}
+			case EMetalDebugLevelResetOnBind:
 			case EMetalDebugLevelTrackResources:
 			{
 				[Buffer trackResource:buffers[i]];
@@ -211,10 +236,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderTextures[EMetalShaderVertex].Textures[index] = texture;
 		}
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:texture];
@@ -239,10 +268,14 @@ NS_ASSUME_NONNULL_BEGIN
     {
 		switch (Buffer->DebugLevel)
 		{
+			case EMetalDebugLevelConditionalSubmit:
+			case EMetalDebugLevelWaitForComplete:
+			case EMetalDebugLevelLogOperations:
 			case EMetalDebugLevelValidation:
 			{
 				ShaderTextures[EMetalShaderVertex].Textures[i + range.location] = textures[i];
 			}
+			case EMetalDebugLevelResetOnBind:
 			case EMetalDebugLevelTrackResources:
 			{
 				[Buffer trackResource:textures[i]];
@@ -266,10 +299,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderSamplers[EMetalShaderVertex].Samplers[index] = sampler;
 		}
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackState:sampler];
@@ -294,10 +331,14 @@ NS_ASSUME_NONNULL_BEGIN
     {
 		switch (Buffer->DebugLevel)
 		{
+			case EMetalDebugLevelConditionalSubmit:
+			case EMetalDebugLevelWaitForComplete:
+			case EMetalDebugLevelLogOperations:
 			case EMetalDebugLevelValidation:
 			{
 				ShaderSamplers[EMetalShaderVertex].Samplers[i + range.location] = samplers[i];
 			}
+			case EMetalDebugLevelResetOnBind:
 			case EMetalDebugLevelTrackResources:
 			{
 				[Buffer trackState:samplers[i]];
@@ -322,10 +363,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderSamplers[EMetalShaderVertex].Samplers[index] = sampler;
 		}
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackState:sampler];
@@ -350,10 +395,14 @@ NS_ASSUME_NONNULL_BEGIN
     {
 		switch (Buffer->DebugLevel)
 		{
+			case EMetalDebugLevelConditionalSubmit:
+			case EMetalDebugLevelWaitForComplete:
+			case EMetalDebugLevelLogOperations:
 			case EMetalDebugLevelValidation:
 			{
 				ShaderSamplers[EMetalShaderVertex].Samplers[i + range.location] = samplers[i];
 			}
+			case EMetalDebugLevelResetOnBind:
 			case EMetalDebugLevelTrackResources:
 			{
 				[Buffer trackState:samplers[i]];
@@ -415,12 +464,17 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderBuffers[EMetalShaderFragment].Buffers[index] = nil;
 			ShaderBuffers[EMetalShaderFragment].Bytes[index] = bytes;
 			ShaderBuffers[EMetalShaderFragment].Offsets[index] = length;
 		}
+		case EMetalDebugLevelResetOnBind:
+		case EMetalDebugLevelTrackResources:
 		case EMetalDebugLevelFastValidation:
 		{
 			ResourceMask[EMetalShaderFragment].BufferMask = bytes ? (ResourceMask[EMetalShaderFragment].BufferMask | (1 << (index))) : (ResourceMask[EMetalShaderFragment].BufferMask & ~(1 << (index)));
@@ -439,12 +493,16 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderBuffers[EMetalShaderFragment].Buffers[index] = buffer;
 			ShaderBuffers[EMetalShaderFragment].Bytes[index] = nil;
 			ShaderBuffers[EMetalShaderFragment].Offsets[index] = offset;
 		}
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:buffer];
@@ -467,10 +525,15 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderBuffers[EMetalShaderFragment].Offsets[index] = offset;
 		}
+		case EMetalDebugLevelResetOnBind:
+		case EMetalDebugLevelTrackResources:
 		case EMetalDebugLevelFastValidation:
 		{
 			check(ResourceMask[EMetalShaderFragment].BufferMask & (1 << (index)));
@@ -491,12 +554,16 @@ NS_ASSUME_NONNULL_BEGIN
     {
 		switch (Buffer->DebugLevel)
 		{
+			case EMetalDebugLevelConditionalSubmit:
+			case EMetalDebugLevelWaitForComplete:
+			case EMetalDebugLevelLogOperations:
 			case EMetalDebugLevelValidation:
 			{
 				ShaderBuffers[EMetalShaderFragment].Buffers[i + range.location] = buffers[i];
 				ShaderBuffers[EMetalShaderFragment].Bytes[i + range.location] = nil;
 				ShaderBuffers[EMetalShaderFragment].Offsets[i + range.location] = offset[i];
 			}
+			case EMetalDebugLevelResetOnBind:
 			case EMetalDebugLevelTrackResources:
 			{
 				[Buffer trackResource:buffers[i]];
@@ -520,10 +587,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderTextures[EMetalShaderFragment].Textures[index] = texture;
 		}
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:texture];
@@ -548,10 +619,14 @@ NS_ASSUME_NONNULL_BEGIN
     {
 		switch (Buffer->DebugLevel)
 		{
+			case EMetalDebugLevelConditionalSubmit:
+			case EMetalDebugLevelWaitForComplete:
+			case EMetalDebugLevelLogOperations:
 			case EMetalDebugLevelValidation:
 			{
 				ShaderTextures[EMetalShaderFragment].Textures[i + range.location] = textures[i];
 			}
+			case EMetalDebugLevelResetOnBind:
 			case EMetalDebugLevelTrackResources:
 			{
 				[Buffer trackResource:textures[i]];
@@ -576,10 +651,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderSamplers[EMetalShaderFragment].Samplers[index] = sampler;
 		}
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackState:sampler];
@@ -604,10 +683,14 @@ NS_ASSUME_NONNULL_BEGIN
     {
 		switch (Buffer->DebugLevel)
 		{
+			case EMetalDebugLevelConditionalSubmit:
+			case EMetalDebugLevelWaitForComplete:
+			case EMetalDebugLevelLogOperations:
 			case EMetalDebugLevelValidation:
 			{
 				ShaderSamplers[EMetalShaderFragment].Samplers[i + range.location] = samplers[i];
 			}
+			case EMetalDebugLevelResetOnBind:
 			case EMetalDebugLevelTrackResources:
 			{
 				[Buffer trackState:samplers[i]];
@@ -632,10 +715,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			ShaderSamplers[EMetalShaderFragment].Samplers[index] = sampler;
 		}
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackState:sampler];
@@ -660,10 +747,14 @@ NS_ASSUME_NONNULL_BEGIN
     {
 		switch (Buffer->DebugLevel)
 		{
+			case EMetalDebugLevelConditionalSubmit:
+			case EMetalDebugLevelWaitForComplete:
+			case EMetalDebugLevelLogOperations:
 			case EMetalDebugLevelValidation:
 			{
 				ShaderSamplers[EMetalShaderFragment].Samplers[i + range.location] = samplers[i];
 			}
+			case EMetalDebugLevelResetOnBind:
 			case EMetalDebugLevelTrackResources:
 			{
 				[Buffer trackState:samplers[i]];
@@ -733,10 +824,15 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
+		case EMetalDebugLevelTrackResources:
 		case EMetalDebugLevelFastValidation:
 		{
 			[self validate];
@@ -755,10 +851,15 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
+		case EMetalDebugLevelTrackResources:
 		case EMetalDebugLevelFastValidation:
 		{
 			[self validate];
@@ -777,10 +878,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:indexBuffer];
@@ -803,10 +908,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:indexBuffer];
@@ -829,10 +938,15 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
+		case EMetalDebugLevelTrackResources:
 		case EMetalDebugLevelFastValidation:
 		{
 			[self validate];
@@ -851,10 +965,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:indexBuffer];
@@ -877,10 +995,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:indirectBuffer];
@@ -903,10 +1025,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:indexBuffer];
@@ -986,10 +1112,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:patchIndexBuffer];
@@ -1013,10 +1143,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:patchIndexBuffer];
@@ -1041,10 +1175,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:patchIndexBuffer];
@@ -1069,10 +1207,14 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch(Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
 		case EMetalDebugLevelLogOperations:
 		{
 			[Buffer draw:[NSString stringWithFormat:@"%s", __PRETTY_FUNCTION__]];
 		}
+		case EMetalDebugLevelValidation:
+		case EMetalDebugLevelResetOnBind:
 		case EMetalDebugLevelTrackResources:
 		{
 			[Buffer trackResource:patchIndexBuffer];
@@ -1094,6 +1236,24 @@ NS_ASSUME_NONNULL_BEGIN
 }
 #endif
 
+- (void)setViewports:(const MTLViewport [])viewports count:(NSUInteger)count
+{
+	if(FMetalCommandQueue::SupportsFeature(EMetalFeaturesMultipleViewports))
+	{
+		id<IMetalRenderCommandEncoder> Enc = (id<IMetalRenderCommandEncoder>)Inner;
+		[Enc setViewports:viewports count:count];
+	}
+}
+
+- (void)setScissorRects:(const MTLScissorRect [])scissorRects count:(NSUInteger)count
+{
+	if(FMetalCommandQueue::SupportsFeature(EMetalFeaturesMultipleViewports))
+	{
+		id<IMetalRenderCommandEncoder> Enc = (id<IMetalRenderCommandEncoder>)Inner;
+		[Enc setScissorRects:scissorRects count:count];
+	}
+}
+
 -(NSString*) description
 {
 	return [Inner description];
@@ -1110,6 +1270,9 @@ NS_ASSUME_NONNULL_BEGIN
 #if METAL_DEBUG_OPTIONS
 	switch (Buffer->DebugLevel)
 	{
+		case EMetalDebugLevelConditionalSubmit:
+		case EMetalDebugLevelWaitForComplete:
+		case EMetalDebugLevelLogOperations:
 		case EMetalDebugLevelValidation:
 		{
 			check(Pipeline);
@@ -1187,6 +1350,8 @@ NS_ASSUME_NONNULL_BEGIN
 			}
 			break;
 		}
+		case EMetalDebugLevelResetOnBind:
+		case EMetalDebugLevelTrackResources:
 		case EMetalDebugLevelFastValidation:
 		{
 			check(Pipeline);

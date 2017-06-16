@@ -58,7 +58,10 @@ ADefaultPawn::ADefaultPawn(const FObjectInitializer& ObjectInitializer)
 	MeshComponent = CreateOptionalDefaultSubobject<UStaticMeshComponent>(ADefaultPawn::MeshComponentName);
 	if (MeshComponent)
 	{
-		MeshComponent->SetStaticMesh(ConstructorStatics.SphereMesh.Object);
+		if( !GIsDemoMode )
+		{
+			MeshComponent->SetStaticMesh( ConstructorStatics.SphereMesh.Object );
+		}
 		MeshComponent->AlwaysLoadOnClient = true;
 		MeshComponent->AlwaysLoadOnServer = true;
 		MeshComponent->bOwnerNoSee = true;

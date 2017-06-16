@@ -145,6 +145,16 @@ void AActor::PreNetReceive()
 	SavedbHidden = bHidden;
 	SavedOwner = Owner;
 	SavedbRepPhysics = ReplicatedMovement.bRepPhysics;
+
+	if( RootComponent != nullptr )
+	{
+		USceneComponent* SceneComponent = Cast<USceneComponent>( RootComponent );
+		if( SceneComponent != nullptr )
+		{
+			SceneComponent->SavedSmoothRelativeLocation = SceneComponent->RelativeLocation;
+			SceneComponent->SavedSmoothRelativeRotation = SceneComponent->RelativeRotation;
+		}
+	}
 }
 
 void AActor::PostNetReceive()
@@ -217,13 +227,46 @@ void AActor::OnRep_ReplicatedMovement()
 	}
 }
 
+
+namespace Net
+{
+	ENGINE_API FAutoConsoleVariable UseSmoothing( TEXT( "Net.UseSmoothing" ), 1, TEXT( "" ) );
+	ENGINE_API FAutoConsoleVariable SmoothingAlpha( TEXT( "Net.SmoothingAlpha" ), 0.4f, TEXT( "" ) );
+}
+
+
 void AActor::PostNetReceiveLocationAndRotation()
 {
 	FVector NewLocation = FRepMovement::RebaseOntoLocalOrigin(ReplicatedMovement.Location, this);
+	FRotator NewRotation = ReplicatedMovement.Rotation;
 
 	if( RootComponent && RootComponent->IsRegistered() && (NewLocation != GetActorLocation() || ReplicatedMovement.Rotation != GetActorRotation()) )
 	{
-		SetActorLocationAndRotation(NewLocation, ReplicatedMovement.Rotation, /*bSweep=*/ false);
+		USceneComponent* SceneComponent = Cast<USceneComponent>( RootComponent );
+		if( SceneComponent != nullptr )
+		{
+			if( SceneComponent->bAllowReplicatedTransformSmoothing )
+			{
+				const bool bUseSmoothing = Net::UseSmoothing->GetInt() != 0;
+				if( bUseSmoothing )
+				{
+					if( !SceneComponent->bIsSmoothTargetTransformValid )
+					{
+						SceneComponent->bIsSmoothTargetTransformValid = true;
+						SceneComponent->SavedSmoothRelativeLocation = NewLocation;
+						SceneComponent->SavedSmoothRelativeRotation = NewRotation;
+					}
+
+					SceneComponent->SmoothTargetRelativeLocation = NewLocation;
+					SceneComponent->SmoothTargetRelativeRotation = NewRotation;
+
+					NewLocation = SceneComponent->SavedSmoothRelativeLocation;
+					NewRotation = SceneComponent->SavedSmoothRelativeRotation;
+				}
+			}
+		}
+
+		SetActorLocationAndRotation(NewLocation, NewRotation, /*bSweep=*/ false);
 	}
 }
 
@@ -388,6 +431,7 @@ void AActor::GetLifetimeReplicatedProps( TArray< FLifetimeProperty > & OutLifeti
 	DOREPLIFETIME( AActor, bHidden );
 
 	DOREPLIFETIME( AActor, bTearOff );
+	DOREPLIFETIME( AActor, ReplicatedScale );
 	DOREPLIFETIME( AActor, bCanBeDamaged );
 	DOREPLIFETIME_CONDITION( AActor, AttachmentReplication, COND_Custom );
 
@@ -472,4 +516,9 @@ bool AActor::IsSupportedForNetworking() const
 void AActor::OnRep_Owner()
 {
 
+}
+
+void AActor::OnRep_ReplicateScale()
+{
+	SetActorScale3D(ReplicatedScale);
 }

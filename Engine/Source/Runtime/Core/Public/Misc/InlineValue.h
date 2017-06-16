@@ -83,9 +83,16 @@ public:
 	 */
 	void Reset(TInlineValue&& In)
 	{
-		if (In.bIsValid || bIsValid)
+		Reset();
+
+		if (In.bIsValid)
 		{
-			Swap(*this, In);
+			// Steal the object contained within 'In'
+			bIsValid = true;
+			In.bIsValid = false;
+
+			bInline = In.bInline;
+			Data = In.Data;
 		}
 	}
 
@@ -96,9 +103,11 @@ public:
 	{
 		if (bIsValid)
 		{
-			DestructItem(&GetValue());
-			ConditionallyDestroyAllocation();
+			BaseType& Value = GetValue();
+			// Set bIsValid immediately to avoid double-deletion on potential re-entry
 			bIsValid = false;
+			Value.~BaseType();
+			ConditionallyDestroyAllocation();
 		}
 	}
 

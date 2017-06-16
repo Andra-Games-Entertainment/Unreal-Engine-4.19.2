@@ -1234,6 +1234,7 @@ void FSceneViewport::ResizeFrame(uint32 NewWindowSizeX, uint32 NewWindowSizeY, E
 				}
 			}
 
+#if !PLATFORM_MAC
 			IHeadMountedDisplay::MonitorInfo MonitorInfo;
 			if (GEngine->HMDDevice.IsValid() && GEngine->HMDDevice->GetHMDMonitorInfo(MonitorInfo))
 			{
@@ -1244,7 +1245,7 @@ void FSceneViewport::ResizeFrame(uint32 NewWindowSizeX, uint32 NewWindowSizeY, E
 					NewWindowPos = FVector2D(MonitorInfo.DesktopX, MonitorInfo.DesktopY);
 				}
 			}
-
+#endif
 			// Resize window
 			if (NewWindowSize != OldWindowSize || (NewWindowPos.IsSet() && NewWindowPos != OldWindowPos) || NewWindowMode != OldWindowMode)
 			{

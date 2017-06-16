@@ -53,6 +53,19 @@ public:
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Platform, OutEnvironment);
+		if (IsMetalPlatform(Platform)) // @todo Panda: Prefer flow-control to reduce register pressure and increase occupancy
+		{
+        	OutEnvironment.CompilerFlags.Add(CFLAG_PreferFlowControl);
+        	
+        	// @todo Panda: Hack out the shading models we don't need for this content - ideally these would be project settings.        	
+			OutEnvironment.SetDefine(TEXT("SUPPORTS_SHADINGMODELID_SUBSURFACE"), (uint32)0);
+			OutEnvironment.SetDefine(TEXT("SUPPORTS_SHADINGMODELID_PREINTEGRATED_SKIN"), (uint32)0);
+			OutEnvironment.SetDefine(TEXT("SUPPORTS_SHADINGMODELID_CLEAR_COAT"), (uint32)0);
+			OutEnvironment.SetDefine(TEXT("SUPPORTS_SHADINGMODELID_SUBSURFACE_PROFILE"), (uint32)0);
+			OutEnvironment.SetDefine(TEXT("SUPPORTS_SHADINGMODELID_TWOSIDED_FOLIAGE"), (uint32)0);
+			OutEnvironment.SetDefine(TEXT("SUPPORTS_SHADINGMODELID_HAIR"), (uint32)0);
+			OutEnvironment.SetDefine(TEXT("SUPPORTS_SHADINGMODELID_EYE"), (uint32)0);
+        }
 		OutEnvironment.SetDefine(TEXT("USE_IES_PROFILE"), (uint32)bUseIESProfile);
 		OutEnvironment.SetDefine(TEXT("RADIAL_ATTENUATION"), (uint32)bRadialAttenuation);
 		OutEnvironment.SetDefine(TEXT("INVERSE_SQUARED_FALLOFF"), (uint32)bInverseSquaredFalloff);

@@ -83,14 +83,16 @@ void AActor::InitializeDefaults()
 
 	Role = ROLE_Authority;
 	RemoteRole = ROLE_None;
+	ReplicatedScale = GetActorScale3D();
 	bReplicates = false;
 	NetPriority = 1.0f;
-	NetUpdateFrequency = 100.0f;
-	MinNetUpdateFrequency = 2.0f;
+	NetUpdateFrequency = 1000.0f;
+	MinNetUpdateFrequency = 100.0f;
 	bNetLoadOnClient = true;
 #if WITH_EDITORONLY_DATA
 	bEditable = true;
 	bListedInSceneOutliner = true;
+	bIsEditorPreviewActor = false;
 	bHiddenEdLayer = false;
 	bHiddenEdTemporary = false;
 	bHiddenEdLevel = false;
@@ -2963,6 +2965,13 @@ void AActor::PostActorConstruction()
 						bRunBeginPlay = (ParentActor->HasActorBegunPlay() || ParentActor->IsActorBeginningPlay());
 					}
 				}
+
+#if WITH_EDITOR
+				if (bRunBeginPlay && bIsEditorPreviewActor)
+				{
+					bRunBeginPlay = false;
+				}
+#endif
 
 				if (bRunBeginPlay)
 				{

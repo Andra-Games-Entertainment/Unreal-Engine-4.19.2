@@ -231,7 +231,8 @@ static TAutoConsoleVariable<int32> CVarDefaultAntiAliasing(
 	TEXT(" 0: off (no anti-aliasing)\n")
 	TEXT(" 1: FXAA (faster than TemporalAA but much more shimmering for non static cases)\n")
 	TEXT(" 2: TemporalAA (default)\n")
-	TEXT(" 3: MSAA (Forward shading only)"));
+	TEXT(" 3: MSAA (Forward shading only)"),
+    ECVF_RenderThreadSafe);
 
 static TAutoConsoleVariable<float> CVarMotionBlurScale(
 	TEXT("r.MotionBlur.Scale"),
@@ -310,6 +311,16 @@ static TAutoConsoleVariable<float> CVarRoughnessMax(
 	TEXT("1: (default)"),
 	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
+
+static TAutoConsoleVariable<int32> CVarAllowTranslucencyAfterDOF(
+	TEXT("r.SeparateTranslucency"),
+	1,
+	TEXT("Allows to disable the separate translucency feature (all translucency is rendered in separate RT and composited\n")
+	TEXT("after DOF, if not specified otherwise in the material).\n")
+	TEXT(" 0: off (translucency is affected by depth of field)\n")
+	TEXT(" 1: on costs GPU performance and memory but keeps translucency unaffected by Depth of Field. (default)"),
+	ECVF_RenderThreadSafe);
+
 
 /** Global vertex color view mode setting when SHOW_VertexColors show flag is set */
 EVertexColorViewMode::Type GVertexColorViewMode = EVertexColorViewMode::Color;
@@ -718,14 +729,14 @@ FSceneView::FSceneView(const FSceneViewInitOptions& InitOptions)
 
 	// Query instanced stereo and multi-view state
 	static const auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("vr.InstancedStereo"));
-	bIsInstancedStereoEnabled = (ShaderPlatform == EShaderPlatform::SP_PCD3D_SM5 || ShaderPlatform == EShaderPlatform::SP_PS4) ? (CVar ? (CVar->GetValueOnAnyThread() != false) : false) : false;
+	bIsInstancedStereoEnabled = RHISupportsInstancedStereo(ShaderPlatform) ? (CVar ? (CVar->GetValueOnAnyThread() != false) : false) : false;
 
 	static const auto MultiViewCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("vr.MultiView"));
-	bIsMultiViewEnabled = ShaderPlatform == EShaderPlatform::SP_PS4 && (MultiViewCVar && MultiViewCVar->GetValueOnAnyThread() != 0);
+	bIsMultiViewEnabled = RHISupportsMultiView(ShaderPlatform) && (MultiViewCVar && MultiViewCVar->GetValueOnAnyThread() != 0);
 
 #if PLATFORM_ANDROID
 	static const auto MobileMultiViewCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("vr.MobileMultiView"));
-	bIsMobileMultiViewEnabled = StereoPass != eSSP_MONOSCOPIC_EYE && (MobileMultiViewCVar && MobileMultiViewCVar->GetValueOnAnyThread() != 0);
+	bIsMobileMultiViewEnabled = RHISupportsMobileMultiView(ShaderPlatform) && StereoPass != eSSP_MONOSCOPIC_EYE && (MobileMultiViewCVar && MobileMultiViewCVar->GetValueOnAnyThread() != 0);
 
 	// TODO: Test platform support for direct
 	static const auto MobileMultiViewDirectCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("vr.MobileMultiView.Direct"));
@@ -2459,6 +2470,17 @@ const FSceneView& FSceneViewFamily::GetStereoEyeView(const EStereoscopicPass Eye
 		return *Views[1];
 	}
 }
+
+bool FSceneViewFamily::AllowTranslucencyAfterDOF() const
+{
+	return CVarAllowTranslucencyAfterDOF.GetValueOnRenderThread() != 0
+		&& GetFeatureLevel() >= ERHIFeatureLevel::SM4
+		// && EngineShowFlags.PostProcessing
+		&& !UseDebugViewPS()
+		&& EngineShowFlags.SeparateTranslucency;
+		// If not, translucency after DOF will be rendered in standard translucency.
+}
+
 
 FSceneViewFamilyContext::~FSceneViewFamilyContext()
 {

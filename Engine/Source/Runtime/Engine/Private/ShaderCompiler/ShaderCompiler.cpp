@@ -174,6 +174,16 @@ static TAutoConsoleVariable<int32> CVarShaderBoundsChecking(
 	TEXT("Whether to enforce bounds-checking & flush-to-zero/ignore for buffer reads & writes in shaders. Defaults to 1 (enabled). Not all shader languages can omit bounds checking."),
 	ECVF_ReadOnly);
 
+static TAutoConsoleVariable<int32> CVarShaderFlowControl(
+	TEXT("r.Shaders.FlowControlMode"),
+	0,
+	TEXT("Specifies whether the shader compiler should preserve or unroll flow-control in shader code.\n")
+	TEXT("This is primarily a debugging aid and will override any per-shader or per-material settings if not left at the default value (0).\n")
+	TEXT("\t0: Off (Default) - Entirely at the discretion of the platform compiler or the specific shader/material.\n")
+	TEXT("\t1: Prefer - Attempt to preserve flow-control.\n")
+	TEXT("\t2: Avoid - Attempt to unroll and flatten flow-control.\n"),
+	ECVF_ReadOnly);
+
 static TAutoConsoleVariable<int32> CVarD3DRemoveUnusedInterpolators(
 	TEXT("r.D3D.RemoveUnusedInterpolators"),
 	1,
@@ -181,6 +191,17 @@ static TAutoConsoleVariable<int32> CVarD3DRemoveUnusedInterpolators(
 	TEXT(" -1: Do not actually remove, but make the app think it did (for debugging)\n")
 	TEXT(" 0: Disable (default)\n")
 	TEXT(" 1: Enable removing unused"),
+	ECVF_ReadOnly
+	);
+
+static TAutoConsoleVariable<int32> CVarMetalTypedBuffers(
+	TEXT("r.Metal.TypedBuffers"),
+	0,
+	TEXT("Determines whether to use Metal's Linear Texture feature to emulate HLSL Typed Buffers (Buffer/RWBuffer).\n")
+	TEXT("This value must be the same across all shader platforms and thereby determines the minimum OS & GPU required.\n")
+	TEXT(" 0: Compile without support for typed-buffers: C++ & HLSL must have same type. (Default - full compatibility)\n")
+	TEXT(" 1: Compile typed Buffer<>'s like HLSL so C++ & HLSL need not match. Requires macOS 10.12.5+.\n")
+	TEXT(" 2: As 1. plus, compile RWBuffer<>'s like HLSL so C++ & HLSL need not match. Requires macOS 10.12.5+ & AMD/Intel GPU."),
 	ECVF_ReadOnly
 	);
 
@@ -2501,6 +2522,20 @@ static void GenerateInstancedStereoCode(FString& Result)
 	}
 	Result += "\treturn Result;\r\n";
 	Result += "}\r\n";
+	
+	// ResolveView definition for metal, this allows us to change the branch to a conditional move in the cross compiler
+	Result += "#if COMPILER_METAL\r\n";
+	Result += "ViewState ResolveView(uint ViewIndex)\r\n";
+	Result += "{\r\n";
+	Result += "\tViewState Result;\r\n";
+	for (int32 MemberIndex = 0; MemberIndex < StructMembers.Num(); ++MemberIndex)
+	{
+		const FUniformBufferStruct::FMember& Member = StructMembers[MemberIndex];
+		Result += FString::Printf(TEXT("\tResult.%s = (ViewIndex == 0) ? View.%s : InstancedView.%s;\r\n"), Member.GetName(), Member.GetName(), Member.GetName());
+	}
+	Result += "\treturn Result;\r\n";
+	Result += "}\r\n";
+	Result += "#endif\r\n";
 }
 
 /** Enqueues a shader compile job with GShaderCompilingManager. */
@@ -2523,7 +2558,7 @@ void GlobalBeginCompileShader(
 	FShaderCompilerInput& Input = NewJob->Input;
 	Input.Target = Target;
 	Input.ShaderFormat = LegacyShaderPlatformToShaderFormat(EShaderPlatform(Target.Platform));
-	Input.SourceFilename = SourceFilename;
+	Input.SourceFilename = *FindShaderRelativePath(SourceFilename);
 	Input.EntryPointName = FunctionName;
 	Input.bCompilingForShaderPipeline = false;
 	Input.bIncludeUsedOutputs = false;
@@ -2659,11 +2694,11 @@ void GlobalBeginCompileShader(
 
 		const EShaderPlatform ShaderPlatform = static_cast<EShaderPlatform>(Target.Platform);
 		
-		const bool bIsInstancedStereo = bIsInstancedStereoCVar && (ShaderPlatform == EShaderPlatform::SP_PCD3D_SM5 || ShaderPlatform == EShaderPlatform::SP_PS4);
+		const bool bIsInstancedStereo = bIsInstancedStereoCVar && RHISupportsInstancedStereo(ShaderPlatform);
 		Input.Environment.SetDefine(TEXT("INSTANCED_STEREO"), bIsInstancedStereo);
-		Input.Environment.SetDefine(TEXT("MULTI_VIEW"), bIsInstancedStereo && bIsMultiViewCVar && ShaderPlatform == EShaderPlatform::SP_PS4);
+		Input.Environment.SetDefine(TEXT("MULTI_VIEW"), bIsInstancedStereo && bIsMultiViewCVar && RHISupportsMultiView(ShaderPlatform));
 
-		const bool bIsAndroidGLES = (ShaderPlatform == EShaderPlatform::SP_OPENGL_ES3_1_ANDROID || ShaderPlatform == EShaderPlatform::SP_OPENGL_ES2_ANDROID);
+		const bool bIsAndroidGLES = RHISupportsMobileMultiView(ShaderPlatform);
 		Input.Environment.SetDefine(TEXT("MOBILE_MULTI_VIEW"), bIsMobileMultiViewCVar && bIsAndroidGLES);
 
 		// Throw a warning if we are silently disabling ISR due to missing platform support.
@@ -2714,6 +2749,25 @@ void GlobalBeginCompileShader(
 			Input.Environment.CompilerFlags.Add(CFLAG_NoFastMath);
 		}
 	}
+	
+	{
+		static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.FlowControlMode"));
+		if (CVar)
+		{
+			switch(CVar->GetInt())
+			{
+				case 2:
+					Input.Environment.CompilerFlags.Add(CFLAG_AvoidFlowControl);
+					break;
+				case 1:
+					Input.Environment.CompilerFlags.Add(CFLAG_PreferFlowControl);
+					break;
+				case 0:
+				default:
+					break;
+			}
+		}
+	}
 
 	if (IsD3DPlatform((EShaderPlatform)Target.Platform, false))
 	{
@@ -2726,21 +2780,29 @@ void GlobalBeginCompileShader(
 	
 	if (IsMetalPlatform((EShaderPlatform)Target.Platform))
 	{
-		static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.ZeroInitialise"));
-		
-		if (CVar->GetInt() != 0)
 		{
-			Input.Environment.CompilerFlags.Add(CFLAG_ZeroInitialise);
+			static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.ZeroInitialise"));
+			
+			if (CVar->GetInt() != 0)
+			{
+				Input.Environment.CompilerFlags.Add(CFLAG_ZeroInitialise);
+			}
 		}
-	}
-	
-	if (IsMetalPlatform((EShaderPlatform)Target.Platform))
-	{
-		static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.BoundsChecking"));
-		
-		if (CVar->GetInt() != 0)
 		{
-			Input.Environment.CompilerFlags.Add(CFLAG_BoundsChecking);
+			static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shaders.BoundsChecking"));
+			
+			if (CVar->GetInt() != 0)
+			{
+				Input.Environment.CompilerFlags.Add(CFLAG_BoundsChecking);
+			}
+		}
+		{
+			static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Metal.TypedBuffers"));
+			
+			if (CVar->GetInt() != 0)
+			{
+				Input.Environment.SetDefine(TEXT("METAL_TYPED_BUFFER_MODE"), CVar->GetInt());
+			}
 		}
 		
 		// Shaders built for archiving - for Metal that requires compiling the code in a different way so that we can strip it later
@@ -2749,6 +2811,31 @@ void GlobalBeginCompileShader(
 		if (bArchive)
 		{
 			Input.Environment.CompilerFlags.Add(CFLAG_Archive);
+		}
+		
+		{
+			uint32 ShaderVersion = RHIGetShaderLanguageVersion(EShaderPlatform(Target.Platform));
+			Input.Environment.SetDefine(TEXT("MAX_SHADER_LANGUAGE_VERSION"), ShaderVersion);
+			
+			FString AllowFastIntrinsics;
+			bool bEnableMathOptimisations = true;
+			if (IsPCPlatform(EShaderPlatform(Target.Platform)))
+			{
+				GConfig->GetString(TEXT("/Script/MacTargetPlatform.MacTargetSettings"), TEXT("UseFastIntrinsics"), AllowFastIntrinsics, GEngineIni);
+				GConfig->GetBool(TEXT("/Script/MacTargetPlatform.MacTargetSettings"), TEXT("EnableMathOptimisations"), bEnableMathOptimisations, GEngineIni);
+			}
+			else
+			{
+				GConfig->GetString(TEXT("/Script/IOSRuntimeSettings.IOSRuntimeSettings"), TEXT("UseFastIntrinsics"), AllowFastIntrinsics, GEngineIni);
+				GConfig->GetBool(TEXT("/Script/IOSRuntimeSettings.IOSRuntimeSettings"), TEXT("EnableMathOptimisations"), bEnableMathOptimisations, GEngineIni);
+			}
+			Input.Environment.SetDefine(TEXT("METAL_USE_FAST_INTRINSICS"), *AllowFastIntrinsics);
+			
+			// Same as console-variable above, but that's global and this is per-platform, per-project
+			if (!bEnableMathOptimisations)
+			{
+				Input.Environment.CompilerFlags.Add(CFLAG_NoFastMath);
+			}
 		}
 	}
 
@@ -2762,12 +2849,6 @@ void GlobalBeginCompileShader(
 			Input.Environment.SetDefine(TEXT("SHADER_PDB_ROOT"), *ShaderPDBRoot);
 		}
 	}
-    
-    if (IsMetalPlatform(EShaderPlatform(Target.Platform)))
-    {
-		uint32 ShaderVersion = RHIGetShaderLanguageVersion(EShaderPlatform(Target.Platform));
-        Input.Environment.SetDefine(TEXT("MAX_SHADER_LANGUAGE_VERSION"), ShaderVersion);
-    }
 
 	{
 		static const auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.ClearCoatNormal"));

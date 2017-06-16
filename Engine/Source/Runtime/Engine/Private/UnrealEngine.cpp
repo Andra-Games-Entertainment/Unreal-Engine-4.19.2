@@ -7354,7 +7354,7 @@ void UEngine::PerformanceCapture(UWorld* World, const FString& MapName, const FS
 		UConsole* ViewportConsole = (GEngine->GameViewport != nullptr) ? GEngine->GameViewport->ViewportConsole : nullptr;
 		FConsoleOutputDevice StrOut(ViewportConsole);
 
-		StrOut.Logf(TEXT("  frame:%d %s"), GFrameCounter, *ScreenshotName);
+		StrOut.Logf(TEXT("  frame:%llu %s"), (uint64)GFrameCounter, *ScreenshotName);
 	}
 
 	const bool bShowUI = false;
@@ -9392,6 +9392,13 @@ bool UEngine::MakeSureMapNameIsValid(FString& InOutMapName)
 		// If the user starts a multiplayer PIE session with an unsaved map,
 		// DoesPackageExist won't find it, so we have to try to find the package in memory as well.
 		bIsValid = (FindObjectFast<UPackage>(nullptr, FName(*TestMapName)) != nullptr) || FPackageName::DoesPackageExist(TestMapName);
+
+		// If we're not in the editor, then we always want to strip off the PIE prefix.  We might be connected to
+		// a PIE listen server.  In this case, we'll use our version of the map without the PIE prefix.
+		if( bIsValid && !GIsEditor )
+		{
+			InOutMapName = TestMapName;
+		}
 	}
 	else
 	{

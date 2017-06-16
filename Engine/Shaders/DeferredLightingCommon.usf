@@ -503,7 +503,7 @@ float4 GetDynamicLighting(float3 WorldPosition, float3 CameraVector, FGBufferDat
 			SurfaceShadow = AmbientOcclusion;
 		}
 
-#if SUPPORT_CONTACT_SHADOWS
+#if SUPPORT_CONTACT_SHADOWS && SUPPORTS_SHADINGMODELID_HAIR
 		BRANCH
 		if( LightData.ShadowedBits < 2 && GBuffer.ShadingModelID == SHADINGMODELID_HAIR )
 		{
@@ -518,7 +518,7 @@ float4 GetDynamicLighting(float3 WorldPosition, float3 CameraVector, FGBufferDat
 
 		LightAccumulator.EstimatedCost += 0.3f;		// add the cost of getting the shadow terms
 
-		const bool bNeedsSeparateSubsurfaceLightAccumulation = GBuffer.ShadingModelID == SHADINGMODELID_SUBSURFACE_PROFILE;
+		const bool bNeedsSeparateSubsurfaceLightAccumulation = SUPPORTS_SHADINGMODELID_SUBSURFACE_PROFILE && GBuffer.ShadingModelID == SHADINGMODELID_SUBSURFACE_PROFILE;
 		const float3 LightColor = LightData.LightColorAndFalloffExponent.rgb;
 
 		#if NON_DIRECTIONAL_DIRECT_LIGHTING

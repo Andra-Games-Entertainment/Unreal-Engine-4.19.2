@@ -89,7 +89,7 @@ static TAutoConsoleVariable<int32> CVarMultiView(
 	TEXT("vr.MultiView"),
 	0,
 	TEXT("0 to disable multi-view instanced stereo, 1 to enable.\n")
-	TEXT("Currently only supported by the PS4 RHI."),
+	TEXT("Currently only supported by the PS4 & Metal RHIs."),
 	ECVF_ReadOnly | ECVF_RenderThreadSafe);
 
 static TAutoConsoleVariable<int32> CVarMobileMultiView(
@@ -2190,7 +2190,7 @@ static void DisplayInternals(FRHICommandListImmediate& RHICmdList, FSceneView& I
 		CANVAS_LINE(false, TEXT("  FrameNumberRT: %u"), GFrameNumberRenderThread)
 		CANVAS_LINE(false, TEXT("  Scalability CVar Hash: %x (use console command \"Scalability\")"), ComputeScalabilityCVarHash())
 		//not really useful as it is non deterministic and should not be used for rendering features:  CANVAS_LINE(false, TEXT("  FrameNumberRT: %u"), GFrameNumberRenderThread)
-		CANVAS_LINE(false, TEXT("  FrameCounter: %u"), GFrameCounter)
+		CANVAS_LINE(false, TEXT("  FrameCounter: %llu"), (uint64)GFrameCounter)
 		CANVAS_LINE(false, TEXT("  rand()/SRand: %x/%x"), FMath::Rand(), FMath::GetRandSeed())
 		{
 			bool bHighlight = Family->DisplayInternalsData.NumPendingStreamingRequests != 0;
@@ -2262,6 +2262,25 @@ TSharedPtr<ISceneViewExtension, ESPMode::ThreadSafe> GetRendererViewExtension()
 /**
 * Saves a previously rendered scene color target
 */
+
+class FDummySceneColorResolveBuffer : public FVertexBuffer
+{
+public:
+	virtual void InitRHI() override
+	{
+		const int32 NumDummyVerts = 3;
+		const uint32 Size = sizeof(FVector4) * NumDummyVerts;
+		FRHIResourceCreateInfo CreateInfo;
+		void* BufferData = nullptr;
+		VertexBufferRHI = RHICreateAndLockVertexBuffer(Size, BUF_Static, CreateInfo, BufferData);
+		FMemory::Memset(BufferData, 0, Size);		
+		RHIUnlockVertexBuffer(VertexBufferRHI);		
+	}
+};
+
+TGlobalResource<FDummySceneColorResolveBuffer> GResolveDummyVertexBuffer;
+extern int32 GAllowCustomMSAAResolves;
+
 void FSceneRenderer::ResolveSceneColor(FRHICommandList& RHICmdList)
 {
 	SCOPED_DRAW_EVENT(RHICmdList, ResolveSceneColor);
@@ -2271,7 +2290,7 @@ void FSceneRenderer::ResolveSceneColor(FRHICommandList& RHICmdList)
 	uint32 CurrentNumSamples = CurrentSceneColor->GetDesc().NumSamples;
 
 	const EShaderPlatform CurrentShaderPlatform = GShaderPlatformForFeatureLevel[SceneContext.GetCurrentFeatureLevel()];
-	if (CurrentNumSamples <= 1 || !RHISupportsSeparateMSAAAndResolveTextures(CurrentShaderPlatform))
+	if (CurrentNumSamples <= 1 || !RHISupportsSeparateMSAAAndResolveTextures(CurrentShaderPlatform) || !GAllowCustomMSAAResolves)
 	{
 		RHICmdList.CopyToResolveTarget(SceneContext.GetSceneColorSurface(), SceneContext.GetSceneColorTexture(), true, FResolveRect(0, 0, ViewFamily.FamilySizeX, ViewFamily.FamilySizeY));
 	}
@@ -2290,7 +2309,7 @@ void FSceneRenderer::ResolveSceneColor(FRHICommandList& RHICmdList)
 			GraphicsPSOInit.BlendState = TStaticBlendState<>::GetRHI();
 			GraphicsPSOInit.RasterizerState = TStaticRasterizerState<>::GetRHI();
 			GraphicsPSOInit.DepthStencilState = TStaticDepthStencilState<false, CF_Always>::GetRHI();
-			RHICmdList.SetStreamSource(0, NULL, 0, 0);
+			RHICmdList.SetStreamSource(0, GResolveDummyVertexBuffer.VertexBufferRHI, 0);
 
 			// Resolve views individually
 			// In the case of adaptive resolution, the view family will be much larger than the views individually

@@ -517,10 +517,20 @@ bool UNetConnection::ClientHasInitializedLevelFor(const UObject* TestObject) con
 		}
 	}
 
+	if( Level == nullptr )
+	{
+		return true;
+	}
+	FName StrippedLevelName = Level->GetOutermost()->GetFName();
+	if( GIsDemoMode )
+	{
+		StrippedLevelName = ( *UWorld::StripPIEPrefixFromPackageName( Level->GetOutermost()->GetFName().ToString(), UWorld::BuildPIEPackagePrefix( 0 ) ) );
+	}
+
 	UWorld* World = Driver->GetWorld();
 	check(World);
-	return (Level == NULL || (Level->IsPersistentLevel() && World->GetOutermost()->GetFName() == ClientWorldPackageName) ||
-			ClientVisibleLevelNames.Contains(Level->GetOutermost()->GetFName()) );
+	return (Level->IsPersistentLevel() && World->GetOutermost()->GetFName() == ClientWorldPackageName) ||
+			ClientVisibleLevelNames.Contains(StrippedLevelName);
 }
 
 void UNetConnection::ValidateSendBuffer()

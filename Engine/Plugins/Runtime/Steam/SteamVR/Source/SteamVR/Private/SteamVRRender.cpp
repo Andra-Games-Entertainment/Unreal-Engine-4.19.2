@@ -17,9 +17,19 @@
 #include "VulkanContext.h"
 #endif
 
+#if PLATFORM_MAC
+#include <Metal/Metal.h>
+#endif
+
 #if STEAMVR_SUPPORTED_PLATFORMS
 
-static TAutoConsoleVariable<int32> CUsePostPresentHandoff(TEXT("vr.SteamVR.UsePostPresentHandoff"), 0, TEXT("Whether or not to use PostPresentHandoff.  If true, more GPU time will be available, but this relies on no SceneCaptureComponent2D or WidgetComponents being active in the scene.  Otherwise, it will break async reprojection."));
+#if !PLATFORM_MAC
+const int32 PostPresentHandoffDefault = 0;
+#else
+const int32 PostPresentHandoffDefault = 1;
+#endif
+
+static TAutoConsoleVariable<int32> CUsePostPresentHandoff(TEXT("vr.SteamVR.UsePostPresentHandoff"), PostPresentHandoffDefault, TEXT("Whether or not to use PostPresentHandoff.  If true, more GPU time will be available, but this relies on no SceneCaptureComponent2D or WidgetComponents being active in the scene.  Otherwise, it will break async reprojection."));
 
 void FSteamVRHMD::DrawDistortionMesh_RenderThread(struct FRenderingCompositePassContext& Context, const FIntPoint& TextureSize)
 {
@@ -37,8 +47,12 @@ void FSteamVRHMD::RenderTexture_RenderThread(FRHICommandListImmediate& RHICmdLis
 		DrawClearQuad(RHICmdList, GMaxRHIFeatureLevel, FLinearColor(0, 0, 0, 0));
 	}
 
+	static const auto CLeftEyeOverscan = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("vr.SteamVR.LeftEyeOverscan"));
+	const bool bIsOverscan = CLeftEyeOverscan && CLeftEyeOverscan->GetValueOnAnyThread() == 1;
+
 	static const auto CVarMirrorMode = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("vr.MirrorMode"));
-	int WindowMirrorMode = FMath::Clamp(CVarMirrorMode->GetValueOnRenderThread(), 0 ,2);
+	const int32 MaxMode = (bIsOverscan) ? 3 : 2;
+	const int32 WindowMirrorMode = FMath::Clamp(CVarMirrorMode->GetValueOnRenderThread(), 0, MaxMode);
 
 	if (WindowMirrorMode != 0)
 	{
@@ -77,12 +91,27 @@ void FSteamVRHMD::RenderTexture_RenderThread(FRHICommandListImmediate& RHICmdLis
 
 		if (WindowMirrorMode == 1)
 		{
+			FFrameSettings FS;
+			{
+				FScopeLock Lock(&FrameSettingsLock);
+				FS = pBridge->GetFrameSettings(1);
+			}
+
+			// Take the middle 60% of the frame, so that we don't see the hidden area meshes
+			float uSize = (float)FS.EyeViewports[0].Max.X / (float)FS.RenderTargetSize.X;
+ 			const float uMin = 0.2f * uSize;
+ 			uSize *= 0.6f;
+ 			
+ 			float vSize = (float)FS.EyeViewports[0].Max.Y / (float)FS.RenderTargetSize.Y;
+ 			const float vMin = 0.2f * vSize;
+ 			vSize *= 0.6f;
+
 			RendererModule->DrawRectangle(
 				RHICmdList,
 				ViewportWidth / 4, 0,
 				ViewportWidth / 2, ViewportHeight,
-				0.1f, 0.2f,
-				0.3f, 0.6f,
+				uMin, vMin,
+				uSize, vSize,
 				FIntPoint(ViewportWidth, ViewportHeight),
 				FIntPoint(1, 1),
 				*VertexShader,
@@ -96,6 +125,28 @@ void FSteamVRHMD::RenderTexture_RenderThread(FRHICommandListImmediate& RHICmdLis
 				ViewportWidth, ViewportHeight,
 				0.0f, 0.0f,
 				1.0f, 1.0f,
+				FIntPoint(ViewportWidth, ViewportHeight),
+				FIntPoint(1, 1),
+				*VertexShader,
+				EDRF_Default);
+		}
+
+		// For overscan
+		else if (WindowMirrorMode == 3)
+		{
+			float OverscanWidth = 0.5f;
+			if (bIsOverscan)
+			{
+				FScopeLock FrameLock(&OverscanMutex);
+				OverscanWidth = static_cast<float>(RenderOverscanState.LeftEyeWidth) / static_cast<float>(RenderOverscanState.FamilyWidth);
+			}
+
+			RendererModule->DrawRectangle(
+				RHICmdList,
+				0, 0,
+				ViewportWidth, ViewportHeight,
+				0.0f, 0.0f,
+				OverscanWidth, 1.0f,
 				FIntPoint(ViewportWidth, ViewportHeight),
 				FIntPoint(1, 1),
 				*VertexShader,
@@ -136,6 +187,29 @@ void FSteamVRHMD::DrawVisibleAreaMesh_RenderThread(FRHICommandList& RHICmdList, 
 	DrawOcclusionMesh(RHICmdList, StereoPass, VisibleAreaMeshes);
 }
 
+void FSteamVRHMD::BridgeBaseImpl::UpdateFrameSettings(FSteamVRHMD::FFrameSettings& NewSettings)
+{
+	FrameSettingsStack.Add(NewSettings);
+	if (FrameSettingsStack.Num() > 3)
+	{
+		FrameSettingsStack.RemoveAt(0);
+	}
+}
+
+FSteamVRHMD::FFrameSettings FSteamVRHMD::BridgeBaseImpl::GetFrameSettings(int32 NumBufferedFrames/*=0*/)
+{
+	check(FrameSettingsStack.Num() > 0);
+	if (NumBufferedFrames < FrameSettingsStack.Num())
+	{
+		return FrameSettingsStack[NumBufferedFrames];
+	}
+	else
+	{
+		// Until we build a buffer of adequate size, stick with the last submitted
+		return FrameSettingsStack[0];
+	}
+}
+
 #if PLATFORM_WINDOWS
 
 FSteamVRHMD::D3D11Bridge::D3D11Bridge(FSteamVRHMD* plugin):
@@ -157,26 +231,62 @@ void FSteamVRHMD::D3D11Bridge::BeginRendering()
 
 void FSteamVRHMD::D3D11Bridge::FinishRendering()
 {
-	vr::VRTextureBounds_t LeftBounds;
-	LeftBounds.uMin = 0.0f;
-	LeftBounds.uMax = 0.5f;
-	LeftBounds.vMin = 0.0f;
-	LeftBounds.vMax = 1.0f;
+	static const auto CLeftEyeOverscan = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("vr.SteamVR.LeftEyeOverscan"));
+	const bool bIsOverscan = CLeftEyeOverscan && CLeftEyeOverscan->GetValueOnAnyThread() == 1;
+
+	float OverscanWidth = 0.0f;
+	float OverscanHeight = 0.0f;
+	float RightEyeScale = 0.0f;
+	if (bIsOverscan)
+	{
+		FScopeLock FrameLock(&Plugin->OverscanMutex);
+		OverscanWidth = static_cast<float>(Plugin->RenderOverscanState.LeftEyeWidth) / static_cast<float>(Plugin->RenderOverscanState.FamilyWidth);
+		OverscanHeight = 1.0f / Plugin->RenderOverscanState.ModifiedEyeAspectRatio;
+		RightEyeScale = Plugin->RenderOverscanState.RightEyeScale;
+	}
+
+	FFrameSettings FS = GetFrameSettings(1);
 
 	vr::Texture_t Texture;
 	Texture.handle = RenderTargetTexture;
 	Texture.eType = vr::TextureType_DirectX;
 	Texture.eColorSpace = vr::ColorSpace_Auto;
+
+	vr::VRTextureBounds_t LeftBounds;
+	if(!bIsOverscan)
+	{
+		LeftBounds.uMin = 0.0f;
+		LeftBounds.uMax = (float)FS.EyeViewports[0].Max.X / (float)FS.RenderTargetSize.X;
+		LeftBounds.vMin = 0.0f;
+		LeftBounds.vMax = (float)FS.EyeViewports[0].Max.Y / (float)FS.RenderTargetSize.Y;
+	}
+	else
+	{
+		LeftBounds.uMin = 0.0f;
+		LeftBounds.uMax = OverscanWidth;
+		LeftBounds.vMin = 0.0f - OverscanHeight;
+		LeftBounds.vMax = 1.0f + OverscanHeight;
+	}
 	vr::EVRCompositorError Error = Plugin->VRCompositor->Submit(vr::Eye_Left, &Texture, &LeftBounds);
 
 	vr::VRTextureBounds_t RightBounds;
-	RightBounds.uMin = 0.5f;
-	RightBounds.uMax = 1.0f;
-	RightBounds.vMin = 0.0f;
-	RightBounds.vMax = 1.0f;
-
+	if (!bIsOverscan)
+	{
+		RightBounds.uMin = (float)FS.EyeViewports[1].Min.X / (float)FS.RenderTargetSize.X;;
+		RightBounds.uMax = 1.0f;
+		RightBounds.vMin = 0.0f;
+		RightBounds.vMax = (float)FS.EyeViewports[1].Max.Y / (float)FS.RenderTargetSize.Y;
+	}
+	else
+	{
+		RightBounds.uMin = OverscanWidth;
+		RightBounds.uMax = FMath::Lerp(OverscanWidth, 1.0f, RightEyeScale);
+		RightBounds.vMin = 0.0f;
+		RightBounds.vMax = 1.0f * RightEyeScale;
+	}
 	Texture.handle = RenderTargetTexture;
 	Error = Plugin->VRCompositor->Submit(vr::Eye_Right, &Texture, &RightBounds);
+	
 	if (Error != vr::VRCompositorError_None)
 	{
 		UE_LOG(LogHMD, Log, TEXT("Warning:  SteamVR Compositor had an error on present (%d)"), (int32)Error);
@@ -259,18 +369,20 @@ void FSteamVRHMD::VulkanBridge::FinishRendering()
 		FVulkanCmdBuffer* CmdBuffer = ImmediateContext.GetCommandBufferManager()->GetUploadCmdBuffer();
 		VulkanSetImageLayoutSimple(CmdBuffer->GetHandle(), Texture2D->Surface.Image, CurrentLayout ? *CurrentLayout : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
+		FFrameSettings FS = GetFrameSettings();
+
 		vr::VRTextureBounds_t LeftBounds;
 		LeftBounds.uMin = 0.0f;
-		LeftBounds.uMax = 0.5f;
+		LeftBounds.uMax = (float)FS.EyeViewports[0].Max.X / (float)FS.RenderTargetSize.X;
 		LeftBounds.vMin = 0.0f;
-		LeftBounds.vMax = 1.0f;
+		LeftBounds.vMax = (float)FS.EyeViewports[0].Max.Y / (float)FS.RenderTargetSize.Y;
 
 
 		vr::VRTextureBounds_t RightBounds;
-		RightBounds.uMin = 0.5f;
+		RightBounds.uMin = (float)FS.EyeViewports[1].Min.X / (float)FS.RenderTargetSize.X;;
 		RightBounds.uMax = 1.0f;
 		RightBounds.vMin = 0.0f;
-		RightBounds.vMax = 1.0f;
+		RightBounds.vMax = (float)FS.EyeViewports[1].Max.Y / (float)FS.RenderTargetSize.Y;
 
 		vr::VRVulkanTextureData_t vulkanData {};
 		vulkanData.m_pInstance			= vlkRHI->GetInstance();
@@ -354,16 +466,18 @@ void FSteamVRHMD::OpenGLBridge::FinishRendering()
 		return;
 	}
 
+	FFrameSettings FS = GetFrameSettings();
+
 	vr::VRTextureBounds_t LeftBounds;
 	LeftBounds.uMin = 0.0f;
-	LeftBounds.uMax = 0.5f;
-	LeftBounds.vMin = 1.0f;
+	LeftBounds.uMax = (float)FS.EyeViewports[0].Max.X / (float)FS.RenderTargetSize.X;
+	LeftBounds.vMin = (float)FS.EyeViewports[0].Max.Y / (float)FS.RenderTargetSize.Y;
 	LeftBounds.vMax = 0.0f;
 
 	vr::VRTextureBounds_t RightBounds;
-	RightBounds.uMin = 0.5f;
+	RightBounds.uMin = (float)FS.EyeViewports[1].Min.X / (float)FS.RenderTargetSize.X;;
 	RightBounds.uMax = 1.0f;
-	RightBounds.vMin = 1.0f;
+	RightBounds.vMin = (float)FS.EyeViewports[1].Max.Y / (float)FS.RenderTargetSize.Y;
 	RightBounds.vMax = 0.0f;
 
 	vr::Texture_t Texture;
@@ -421,5 +535,150 @@ void FSteamVRHMD::OpenGLBridge::PostPresent()
 #endif
 
 #endif // PLATFORM_WINDOWS
+
+#if PLATFORM_MAC
+
+FSteamVRHMD::MetalBridge::MetalBridge(FSteamVRHMD* plugin):
+	BridgeBaseImpl(plugin)
+{}
+
+void FSteamVRHMD::MetalBridge::BeginRendering()
+{
+	check(IsInRenderingThread());
+
+	static bool Inited = false;
+	if (!Inited)
+	{
+		Inited = true;
+	}
+}
+
+void FSteamVRHMD::MetalBridge::FinishRendering()
+{
+	if(IsOnLastPresentedFrame())
+	{
+		return;
+	}
+	
+	LastPresentedFrameNumber = GetFrameNumber();
+	
+	check(TextureSet.IsValid());
+	
+	static const auto CLeftEyeOverscan = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("vr.SteamVR.LeftEyeOverscan"));
+	const bool bIsOverscan = CLeftEyeOverscan && CLeftEyeOverscan->GetValueOnAnyThread() == 1;
+	float OverscanWidth = 0.0f;
+	float OverscanHeight = 0.0f;
+	float RightEyeScale = 0.0f;
+	if (bIsOverscan)
+	{
+		FScopeLock FrameLock(&Plugin->OverscanMutex);
+		OverscanWidth = static_cast<float>(Plugin->RenderOverscanState.LeftEyeWidth) / static_cast<float>(Plugin->RenderOverscanState.FamilyWidth);
+		OverscanHeight = 1.0f / Plugin->RenderOverscanState.ModifiedEyeAspectRatio;
+		RightEyeScale = Plugin->RenderOverscanState.RightEyeScale;
+	}
+
+	FFrameSettings FS = GetFrameSettings();
+
+	vr::VRTextureBounds_t LeftBounds;
+	if(!bIsOverscan)
+	{
+		LeftBounds.uMin = 0.0f;
+		LeftBounds.uMax = (float)FS.EyeViewports[0].Max.X / (float)FS.RenderTargetSize.X;
+		LeftBounds.vMin = 0.0f;
+		LeftBounds.vMax = (float)FS.EyeViewports[0].Max.Y / (float)FS.RenderTargetSize.Y;
+	}
+	else
+	{
+		LeftBounds.uMin = 0.0f;
+		LeftBounds.uMax = OverscanWidth;
+		LeftBounds.vMin = 0.0f - OverscanHeight;
+		LeftBounds.vMax = 1.0f + OverscanHeight;
+	}
+	
+	id<MTLTexture> TextureHandle = (id<MTLTexture>)TextureSet->GetNativeResource();
+	
+	vr::Texture_t Texture;
+	Texture.handle = (void*)TextureHandle.iosurface;
+	Texture.eType = vr::TextureType_IOSurface;
+	Texture.eColorSpace = vr::ColorSpace_Auto;
+	vr::EVRCompositorError Error = Plugin->VRCompositor->Submit(vr::Eye_Left, &Texture, &LeftBounds);
+
+	vr::VRTextureBounds_t RightBounds;
+	if (!bIsOverscan)
+	{
+		RightBounds.uMin = (float)FS.EyeViewports[1].Min.X / (float)FS.RenderTargetSize.X;
+		RightBounds.uMax = 1.0f;
+		RightBounds.vMin = 0.0f;
+		RightBounds.vMax = (float)FS.EyeViewports[1].Max.Y / (float)FS.RenderTargetSize.Y;
+	}
+	else
+	{
+		RightBounds.uMin = OverscanWidth;
+		RightBounds.uMax = FMath::Lerp(OverscanWidth, 1.0f, RightEyeScale);
+		RightBounds.vMin = 0.0f;
+		RightBounds.vMax = 1.0f * RightEyeScale;
+	}
+
+	Error = Plugin->VRCompositor->Submit(vr::Eye_Right, &Texture, &RightBounds);
+	if (Error != vr::VRCompositorError_None)
+	{
+		UE_LOG(LogHMD, Log, TEXT("Warning:  SteamVR Compositor had an error on present (%d)"), (int32)Error);
+	}
+
+	static_cast<FRHITextureSet2D*>(TextureSet.GetReference())->Advance();
+}
+
+void FSteamVRHMD::MetalBridge::Reset()
+{
+}
+
+void FSteamVRHMD::MetalBridge::UpdateViewport(const FViewport& Viewport, FRHIViewport* InViewportRHI)
+{
+	check(IsInGameThread());
+	check(InViewportRHI);
+	InViewportRHI->SetCustomPresent(this);
+}
+
+void FSteamVRHMD::MetalBridge::OnBackBufferResize()
+{
+}
+
+bool FSteamVRHMD::MetalBridge::Present(int& SyncInterval)
+{
+	// Editor appears to be in rt, game appears to be in rhi?
+	//check(IsInRenderingThread());
+	//check(IsInRHIThread());
+
+	if (Plugin->VRCompositor == nullptr)
+	{
+		return false;
+	}
+
+	FinishRendering();
+
+	return true;
+}
+
+void FSteamVRHMD::MetalBridge::PostPresent()
+{
+	if (CUsePostPresentHandoff.GetValueOnRenderThread() == 1)
+	{
+		Plugin->VRCompositor->PostPresentHandoff();
+	}
+}
+
+IOSurfaceRef FSteamVRHMD::MetalBridge::GetSurface(const uint32 SizeX, const uint32 SizeY)
+{
+	const NSDictionary* SurfaceDefinition = @{
+											(id)kIOSurfaceWidth: @(SizeX),
+											(id)kIOSurfaceHeight: @(SizeY),
+											(id)kIOSurfaceBytesPerElement: @(4), // sizeof(PF_B8G8R8A8)..
+											(id)kIOSurfaceIsGlobal: @YES
+											};
+	
+	return IOSurfaceCreate((CFDictionaryRef)SurfaceDefinition);
+}
+
+#endif // PLATFORM_MAC
 
 #endif // STEAMVR_SUPPORTED_PLATFORMS

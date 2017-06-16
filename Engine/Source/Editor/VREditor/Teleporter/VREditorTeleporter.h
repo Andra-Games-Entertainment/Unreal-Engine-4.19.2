@@ -37,6 +37,9 @@ public:
 	/** Whether we are currently aiming to teleport. */
 	bool IsAiming() const;
 
+	bool IsTeleporting() const;
+
+
 private:
 
 	//~ Begin AActor interface
@@ -105,6 +108,8 @@ private:
 
 	/** The calculated goal location in StartTeleport to move the Roomspace to */
 	FVector TeleportGoalLocation;
+	FString TeleportGoalActorTag;
+	FVector TeleportGoalActorLocation;
 
 	/** Visuals for the feet location of the teleporter with the same direction of the HMD yaw */
 	UPROPERTY()

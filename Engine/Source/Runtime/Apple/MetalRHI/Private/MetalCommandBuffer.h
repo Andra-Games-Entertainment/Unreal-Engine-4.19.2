@@ -52,6 +52,13 @@ struct FMetalDebugCommand
 	MTLRenderPassDescriptor* PassDesc;
 };
 
+@protocol IMetalCommandBufferExtensions
+@property (readonly) CFTimeInterval kernelStartTime;
+@property (readonly) CFTimeInterval kernelEndTime;
+@property (readonly) CFTimeInterval GPUStartTime;
+@property (readonly) CFTimeInterval GPUEndTime;
+@end
+
 /**
  * FMetalDebugCommandBuffer: Wrapper around id<MTLCommandBuffer> that records information about commands.
  * This allows reporting of substantially more information in debug modes which can be especially helpful 

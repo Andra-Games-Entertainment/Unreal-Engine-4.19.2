@@ -460,6 +460,7 @@ ir_visitor_status ir_validate::visit_leave(ir_expression *ir)
 	case ir_unop_normalize:
 	case ir_unop_dFdx:
 	case ir_unop_dFdy:
+	case ir_unop_saturate:
 		validate_expr(ir->operands[0]->type->is_float());
 		ValidateTypes(ir->operands[0]->type, ir->type);
 		break;
@@ -706,6 +707,13 @@ ir_visitor_status ir_validate::visit_leave(ir_expression *ir)
 		validate_expr(ir->operands[0]->type == ir->type);
 		validate_expr(ir->operands[1]->type->base_type == ir->type->base_type);
 		validate_expr(ir->operands[2]->type->base_type == ir->type->base_type);
+		break;
+
+	case ir_ternop_fma:
+		validate_expr(ir->type->is_float());
+		validate_expr(ir->operands[0]->type == ir->type);
+		validate_expr(ir->operands[1]->type == ir->type);
+		validate_expr(ir->operands[2]->type == ir->type);
 		break;
 
 	case ir_quadop_vector:

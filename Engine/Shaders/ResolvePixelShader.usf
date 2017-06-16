@@ -6,19 +6,23 @@
 
 #include "Common.usf"
 
-
 #if FEATURE_LEVEL >= FEATURE_LEVEL_SM5
 
 Texture2DMS<float4> UnresolvedSurface;
+
 
 void MainDepth(
 	float2 InUV : TEXCOORD0,
 	out float OutDepth : SV_DEPTH
 	)
 {
+#ifndef DEPTH_RESOLVE_NUM_SAMPLES
 	float2 SurfaceDimensions;
 	int NumSurfaceSamples;
 	UnresolvedSurface.GetDimensions(SurfaceDimensions.x, SurfaceDimensions.y, NumSurfaceSamples);
+#else
+	int NumSurfaceSamples = DEPTH_RESOLVE_NUM_SAMPLES;
+#endif
 
 	int2 IntUV = trunc(InUV);
 	float ResolvedDepth = UnresolvedSurface.Load(IntUV, 0).r;

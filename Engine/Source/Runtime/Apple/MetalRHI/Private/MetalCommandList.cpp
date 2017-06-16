@@ -179,7 +179,9 @@ void FMetalCommandList::Commit(id<MTLCommandBuffer> Buffer, NSArray<MTLCommandBu
 			[CompletionHandlers release];
 		}
 	}];
-	
+    
+    FMetalGPUProfiler::RecordCommandBuffer(Buffer);
+    
 	if (bImmediate)
 	{
 		if (bWait)

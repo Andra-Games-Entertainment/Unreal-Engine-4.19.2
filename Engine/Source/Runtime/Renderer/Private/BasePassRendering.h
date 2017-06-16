@@ -473,7 +473,8 @@ public:
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, const FMaterial* Material, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		Super::ModifyCompilationEnvironment(Platform, Material, OutEnvironment);
-		OutEnvironment.SetDefine(TEXT("BASEPASS_ATMOSPHERIC_FOG"), bEnableAtmosphericFog);
+		// @todo Rhino: Remove this hack and implement proper atmospheric-fog solution for Metal MRT...
+		OutEnvironment.SetDefine(TEXT("BASEPASS_ATMOSPHERIC_FOG"), (Platform != SP_METAL_MRT && Platform != SP_METAL_MRT_MAC) ? bEnableAtmosphericFog : 0);
 	}
 };
 

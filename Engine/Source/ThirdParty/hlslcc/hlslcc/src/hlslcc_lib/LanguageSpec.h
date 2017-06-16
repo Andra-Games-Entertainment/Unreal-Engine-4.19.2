@@ -11,6 +11,9 @@ struct ILanguageSpec
 	virtual bool SupportsDeterminantIntrinsic() const = 0;
 	virtual bool SupportsTransposeIntrinsic() const = 0;
 	virtual bool SupportsIntegerModulo() const = 0;
+	
+	// Whether the backend can generate a fused-multiply-add instruction
+	virtual bool SupportsFusedMultiplyAdd() const { return false; }
 
 	// half3x3 <-> float3x3
 	virtual bool SupportsMatrixConversions() const = 0;
@@ -30,6 +33,12 @@ struct ILanguageSpec
 	
 	// Some platforms require input variable structs to be split, others require that they aren't
 	virtual bool SplitInputVariableStructs() const { return true; }
+	
+	// Whether the backend can generate a saturate instruction
+	virtual bool SupportsSaturateIntrinsic() const { return false; }
+	
+	// Whether the backend can generate a sincos instruction
+	virtual bool SupportsSinCosIntrinsic() const { return false; }
 };
 
 enum

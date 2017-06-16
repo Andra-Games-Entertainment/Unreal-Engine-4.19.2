@@ -10,187 +10,6 @@ ShaderCacheTypes.h: Shader Cache Types
 #include "RHI.h"
 #include "RHIDefinitions.h"
 
-/**
- * FRWMutex - Read/Write Mutex
- *	- Provides Read/Write (or shared-exclusive) access.  
- *	- As a fallback default for non implemented platforms, using a single FCriticalSection to provide complete single mutual exclusion - no seperate Read/Write access.
- *
- *	TODOs:
- *		- Add Xbox and Windows specific lock structures/calls Ref: https://msdn.microsoft.com/en-us/library/windows/desktop/aa904937(v=vs.85).aspx
- *	Notes:
- *		- pThreads and Win32 API's don't provide a mechanism for upgrading a ownership of a read lock to a write lock - to get round that this system unlocks then acquires a write lock.
- *		- If trying to use system described here (https://en.wikipedia.org/wiki/Readers–writer_lock) to implement a read-write lock:
- *			- The two mutex solution relies on a seperate thread being able to unlock a mutex locked on a different thread (Needs more work than described to implement if this is not the case).
- *			- Doesn't seem to be a generic 'engine' conditional variable for the mutex+conditional solution.
- *		- Currently has an experimental thread_local lock level implementation (set DEVELOPER_TEST_RWLOCK_LEVELS to 1) for potential deadlock detection (see: http://www.drdobbs.com/parallel/use-lock-hierarchies-to-avoid-deadlock/204801163?pgno=4)
- *			- Define the locking order by passing an integer in the Mutex constructor
- *			- To avoid deadlocks lock in increasing sequence order (can miss ones out but can't go lower)
- *			- Asserts if trying to get a same or lower level lock as this could result in deadlock depending on situation/timing etc.
- */
- 
-#define DEVELOPER_TEST_RWLOCK_LEVELS 0
-#define RWLOCK_DEBUG_CHECKS (DO_CHECK && PLATFORM_DESKTOP && !UE_BUILD_SHIPPING && !UE_BUILD_SHIPPING_WITH_EDITOR && DEVELOPER_TEST_RWLOCK_LEVELS)
- 
-class FRWMutex
-{
-	friend class FRWScopeLock;
-	
-public:
-
-	// Default to level zero, we are not allowed to take another at the same level or lower - so no more than one 'default' mutex at once
-	FRWMutex(uint32 Level = 0)
-#if RWLOCK_DEBUG_CHECKS
-	: MutexLevel(Level)
-#endif
-	{
-#if PLATFORM_USE_PTHREADS
-		int Err = pthread_rwlock_init(&Mutex, nullptr);
-		checkf(Err == 0, TEXT("pthread_rwlock_init failed with error: %d"), Err);
-#endif
-	}
-
-	~FRWMutex()
-	{
-#if PLATFORM_USE_PTHREADS
-		int Err = pthread_rwlock_destroy(&Mutex);
-		checkf(Err == 0, TEXT("pthread_rwlock_destroy failed with error: %d"), Err);
-#endif
-	}
-	
-private:
-
-#if RWLOCK_DEBUG_CHECKS
-	void CheckAndAddLockLevel()
-	{
-		if(LockLevels.Num())
-		{
-			uint32 Last = LockLevels.Last();
-			check(MutexLevel > Last && "Trying to lock on an object with the same or lower level, options: [change lock order|change lock level values|disable this]");
-		}
-		
-		LockLevels.Add(MutexLevel);
-	}
-#endif
-	
-	void ReadLock()
-	{
-#if RWLOCK_DEBUG_CHECKS
-		CheckAndAddLockLevel();
-#endif
-	
-#if PLATFORM_USE_PTHREADS
-		int Err = pthread_rwlock_rdlock(&Mutex);
-		checkf(Err == 0, TEXT("pthread_rwlock_rdlock failed with error: %d"), Err);
-#else
-		Mutex.Lock();
-#endif
-	}
-	
-	void WriteLock()
-	{
-#if RWLOCK_DEBUG_CHECKS
-		CheckAndAddLockLevel();
-#endif
-
-#if PLATFORM_USE_PTHREADS
-		int Err = pthread_rwlock_wrlock(&Mutex);
-		checkf(Err == 0, TEXT("pthread_rwlock_wrlock failed with error: %d"), Err);
-#else
-		Mutex.Lock();
-#endif
-	}
-	
-	void Unlock()
-	{
-#if PLATFORM_USE_PTHREADS
-		int Err = pthread_rwlock_unlock(&Mutex);
-		checkf(Err == 0, TEXT("pthread_rwlock_unlock failed with error: %d"), Err);
-#else
-		Mutex.Unlock();
-#endif
-
-#if RWLOCK_DEBUG_CHECKS
-		LockLevels.Pop();
-#endif
-	}
-	
-	void RaiseLockToWrite()
-	{
-#if PLATFORM_USE_PTHREADS
-		int Err = pthread_rwlock_unlock(&Mutex);
-		checkf(Err == 0, TEXT("pthread_rwlock_unlock failed with error: %d"), Err);
-		Err = pthread_rwlock_wrlock(&Mutex);
-		checkf(Err == 0, TEXT("pthread_rwlock_wrlock failed with error: %d"), Err);
-#else
-		//NOP
-#endif		
-	}
-
-private:
-#if PLATFORM_USE_PTHREADS
-	pthread_rwlock_t Mutex;
-#else
-	FCriticalSection Mutex;
-#endif
-
-#if RWLOCK_DEBUG_CHECKS
-	uint32 MutexLevel;
-	static thread_local TArray<uint32> LockLevels;
-#endif
-};
-
-//
-// A scope lifetime controlled Read or Write lock of referenced mutex object
-//
-enum FRWScopeLockType
-{
-	SLT_ReadOnly = 0,
-	SLT_Write,
-};
-
-class FRWScopeLock
-{
-public:
-	FRWScopeLock(FRWMutex& InLockObject,FRWScopeLockType InLockType) 
-	: LockObject(InLockObject)
-	, LockType(InLockType)
-	{
-		if(LockType != SLT_ReadOnly)
-		{
-			LockObject.WriteLock();
-		}
-		else
-		{
-			LockObject.ReadLock();
-		}
-	}
-	
-	void RaiseLockToWrite()
-	{	
-		if(LockType == SLT_ReadOnly)
-		{
-			LockObject.RaiseLockToWrite();
-			LockType = SLT_Write;
-		}
-	}
-
-	~FRWScopeLock()
-	{
-		LockObject.Unlock();
-	}
-
-private:
-
-	FRWScopeLock();
-	FRWScopeLock(const FRWScopeLock&);
-	FRWScopeLock& operator=(const FRWScopeLock&);
-	
-private:
-	FRWMutex& LockObject;
-	FRWScopeLockType LockType;
-};
-
-
 /** Texture type enum for shader cache draw keys */
 enum EShaderCacheTextureType
 {
@@ -202,7 +21,8 @@ enum EShaderCacheTextureType
 	SCTT_Texture1DArray,
 	SCTT_Texture2DArray,
 	SCTT_TextureCubeArray,
-	SCTT_Buffer
+	SCTT_Buffer, 
+	SCTT_TextureExternal2D
 };
 
 /** The minimum texture state required for logging shader draw states */
@@ -376,182 +196,63 @@ struct SHADERCORE_API FShaderCacheKey
 	}
 };
 
-struct SHADERCORE_API FShaderDrawKey
+struct SHADERCORE_API FShaderCacheRasterizerState
 {
-	enum
-	{
-		MaxNumSamplers = 16,
-		MaxNumResources = 128,
-		NullState = ~(0u),
-		InvalidState = ~(1u)
-	};
+	FShaderCacheRasterizerState() { FMemory::Memzero(*this); }
+	FShaderCacheRasterizerState(FRasterizerStateInitializerRHI const& Other) { operator=(Other); }
 	
-	FShaderDrawKey()
-	: DepthStencilTarget(NullState)
-	, Hash(0)
-	, IndexType(0)
+	float DepthBias;
+	float SlopeScaleDepthBias;
+	TEnumAsByte<ERasterizerFillMode> FillMode;
+	TEnumAsByte<ERasterizerCullMode> CullMode;
+	bool bAllowMSAA;
+	bool bEnableLineAA;
+	
+	FShaderCacheRasterizerState& operator=(FRasterizerStateInitializerRHI const& Other)
 	{
-		FMemory::Memzero(&BlendState, sizeof(BlendState));
-		FMemory::Memzero(&RasterizerState, sizeof(RasterizerState));
-		FMemory::Memzero(&DepthStencilState, sizeof(DepthStencilState));
-		FMemory::Memset(RenderTargets, 255, sizeof(RenderTargets));
-		FMemory::Memset(SamplerStates, 255, sizeof(SamplerStates));
-		FMemory::Memset(Resources, 255, sizeof(Resources));
-		check(GetMaxTextureSamplers() <= MaxNumSamplers);
+		DepthBias = Other.DepthBias;
+		SlopeScaleDepthBias = Other.SlopeScaleDepthBias;
+		FillMode = Other.FillMode;
+		CullMode = Other.CullMode;
+		bAllowMSAA = Other.bAllowMSAA;
+		bEnableLineAA = Other.bEnableLineAA;
+		return *this;
 	}
 	
-	struct FShaderRasterizerState
+	operator FRasterizerStateInitializerRHI () const
 	{
-		FShaderRasterizerState() { FMemory::Memzero(*this); }
-		FShaderRasterizerState(FRasterizerStateInitializerRHI const& Other) { operator=(Other); }
-		
-		float DepthBias;
-		float SlopeScaleDepthBias;
-		TEnumAsByte<ERasterizerFillMode> FillMode;
-		TEnumAsByte<ERasterizerCullMode> CullMode;
-		bool bAllowMSAA;
-		bool bEnableLineAA;
-		
-		FShaderRasterizerState& operator=(FRasterizerStateInitializerRHI const& Other)
-		{
-			DepthBias = Other.DepthBias;
-			SlopeScaleDepthBias = Other.SlopeScaleDepthBias;
-			FillMode = Other.FillMode;
-			CullMode = Other.CullMode;
-			bAllowMSAA = Other.bAllowMSAA;
-			bEnableLineAA = Other.bEnableLineAA;
-			return *this;
-		}
-		
-		operator FRasterizerStateInitializerRHI () const
-		{
-			FRasterizerStateInitializerRHI Initializer = {FillMode, CullMode, DepthBias, SlopeScaleDepthBias, bAllowMSAA, bEnableLineAA};
-			return Initializer;
-		}
-		
-		friend FArchive& operator<<(FArchive& Ar,FShaderRasterizerState& RasterizerStateInitializer)
-		{
-			Ar << RasterizerStateInitializer.DepthBias;
-			Ar << RasterizerStateInitializer.SlopeScaleDepthBias;
-			Ar << RasterizerStateInitializer.FillMode;
-			Ar << RasterizerStateInitializer.CullMode;
-			Ar << RasterizerStateInitializer.bAllowMSAA;
-			Ar << RasterizerStateInitializer.bEnableLineAA;
-			return Ar;
-		}
-		
-		friend uint32 GetTypeHash(const FShaderRasterizerState &Key)
-		{
-			uint32 KeyHash = (*((uint32*)&Key.DepthBias) ^ *((uint32*)&Key.SlopeScaleDepthBias));
-			KeyHash ^= (Key.FillMode << 8);
-			KeyHash ^= Key.CullMode;
-			KeyHash ^= Key.bAllowMSAA ? 2 : 0;
-			KeyHash ^= Key.bEnableLineAA ? 1 : 0;
-			return KeyHash;
-		}
-	};
-	
-	static bool bTrackDrawResources;
-	FBlendStateInitializerRHI BlendState;
-	FShaderRasterizerState RasterizerState;
-	FDepthStencilStateInitializerRHI DepthStencilState;
-	uint32 RenderTargets[MaxSimultaneousRenderTargets];
-	uint32 SamplerStates[SF_NumFrequencies][MaxNumSamplers];
-	uint32 Resources[SF_NumFrequencies][MaxNumResources];
-	uint32 DepthStencilTarget;
-	mutable uint32 Hash;
-	uint8 IndexType;
-	
-	friend bool operator ==(const FShaderDrawKey& A,const FShaderDrawKey& B)
-	{
-		bool Compare = A.IndexType == B.IndexType &&
-		A.DepthStencilTarget == B.DepthStencilTarget &&
-		(!FShaderDrawKey::bTrackDrawResources || FMemory::Memcmp(&A.Resources, &B.Resources, sizeof(A.Resources)) == 0) &&
-		(!FShaderDrawKey::bTrackDrawResources || FMemory::Memcmp(&A.SamplerStates, &B.SamplerStates, sizeof(A.SamplerStates)) == 0) &&
-		FMemory::Memcmp(&A.BlendState, &B.BlendState, sizeof(FBlendStateInitializerRHI)) == 0 &&
-		FMemory::Memcmp(&A.RasterizerState, &B.RasterizerState, sizeof(FShaderRasterizerState)) == 0 &&
-		FMemory::Memcmp(&A.DepthStencilState, &B.DepthStencilState, sizeof(FDepthStencilStateInitializerRHI)) == 0 &&
-		FMemory::Memcmp(&A.RenderTargets, &B.RenderTargets, sizeof(A.RenderTargets)) == 0;
-		return Compare;
+		FRasterizerStateInitializerRHI Initializer = {FillMode, CullMode, DepthBias, SlopeScaleDepthBias, bAllowMSAA, bEnableLineAA};
+		return Initializer;
 	}
 	
-	friend uint32 GetTypeHash(const FShaderDrawKey &Key)
+	friend FArchive& operator<<(FArchive& Ar,FShaderCacheRasterizerState& RasterizerStateInitializer)
 	{
-		if(!Key.Hash)
-		{
-			Key.Hash ^= (Key.BlendState.bUseIndependentRenderTargetBlendStates ? (1 << 31) : 0);
-			for( uint32 i = 0; i < MaxSimultaneousRenderTargets; i++ )
-			{
-				Key.Hash ^= (Key.BlendState.RenderTargets[i].ColorBlendOp << 24);
-				Key.Hash ^= (Key.BlendState.RenderTargets[i].ColorSrcBlend << 16);
-				Key.Hash ^= (Key.BlendState.RenderTargets[i].ColorDestBlend << 8);
-				Key.Hash ^= (Key.BlendState.RenderTargets[i].ColorWriteMask << 0);
-				Key.Hash ^= (Key.BlendState.RenderTargets[i].AlphaBlendOp << 24);
-				Key.Hash ^= (Key.BlendState.RenderTargets[i].AlphaSrcBlend << 16);
-				Key.Hash ^= (Key.BlendState.RenderTargets[i].AlphaDestBlend << 8);
-				Key.Hash ^= Key.RenderTargets[i];
-			}
-			
-			if (FShaderDrawKey::bTrackDrawResources)
-			{
-				for( uint32 i = 0; i < SF_NumFrequencies; i++ )
-				{
-					for( uint32 j = 0; j < MaxNumSamplers; j++ )
-					{
-						Key.Hash ^= Key.SamplerStates[i][j];
-					}
-					for( uint32 j = 0; j < MaxNumResources; j++ )
-					{
-						Key.Hash ^= Key.Resources[i][j];
-					}
-				}
-			}
-			
-			Key.Hash ^= (Key.DepthStencilState.bEnableDepthWrite ? (1 << 31) : 0);
-			Key.Hash ^= (Key.DepthStencilState.DepthTest << 24);
-			Key.Hash ^= (Key.DepthStencilState.bEnableFrontFaceStencil ? (1 << 23) : 0);
-			Key.Hash ^= (Key.DepthStencilState.FrontFaceStencilTest << 24);
-			Key.Hash ^= (Key.DepthStencilState.FrontFaceStencilFailStencilOp << 16);
-			Key.Hash ^= (Key.DepthStencilState.FrontFaceDepthFailStencilOp << 8);
-			Key.Hash ^= (Key.DepthStencilState.FrontFacePassStencilOp);
-			Key.Hash ^= (Key.DepthStencilState.bEnableBackFaceStencil ? (1 << 15) : 0);
-			Key.Hash ^= (Key.DepthStencilState.BackFaceStencilTest << 24);
-			Key.Hash ^= (Key.DepthStencilState.BackFaceStencilFailStencilOp << 16);
-			Key.Hash ^= (Key.DepthStencilState.BackFaceDepthFailStencilOp << 8);
-			Key.Hash ^= (Key.DepthStencilState.BackFacePassStencilOp);
-			Key.Hash ^= (Key.DepthStencilState.StencilReadMask << 8);
-			Key.Hash ^= (Key.DepthStencilState.StencilWriteMask);
-			
-			Key.Hash ^= GetTypeHash(Key.DepthStencilTarget);
-			Key.Hash ^= GetTypeHash(Key.IndexType);
-			
-			Key.Hash ^= GetTypeHash(Key.RasterizerState);
-		}
-		return Key.Hash;
+		Ar << RasterizerStateInitializer.DepthBias;
+		Ar << RasterizerStateInitializer.SlopeScaleDepthBias;
+		Ar << RasterizerStateInitializer.FillMode;
+		Ar << RasterizerStateInitializer.CullMode;
+		Ar << RasterizerStateInitializer.bAllowMSAA;
+		Ar << RasterizerStateInitializer.bEnableLineAA;
+		return Ar;
 	}
 	
-	friend FArchive& operator<<( FArchive& Ar, FShaderDrawKey& Info )
+	friend uint32 GetTypeHash(const FShaderCacheRasterizerState &Key)
 	{
-		if (FShaderDrawKey::bTrackDrawResources)
-		{
-			for ( uint32 i = 0; i < SF_NumFrequencies; i++ )
-			{
-				for ( uint32 j = 0; j < MaxNumSamplers; j++ )
-				{
-					Ar << Info.SamplerStates[i][j];
-				}
-				for ( uint32 j = 0; j < MaxNumResources; j++ )
-				{
-					Ar << Info.Resources[i][j];
-				}
-			}
-		}
-		for ( uint32 i = 0; i < MaxSimultaneousRenderTargets; i++ )
-		{
-			Ar << Info.RenderTargets[i];
-		}
-		return Ar << Info.BlendState << Info.RasterizerState << Info.DepthStencilState << Info.DepthStencilTarget << Info.IndexType << Info.Hash;
+		uint32 KeyHash = (*((uint32*)&Key.DepthBias) ^ *((uint32*)&Key.SlopeScaleDepthBias));
+		KeyHash ^= (Key.FillMode << 8);
+		KeyHash ^= Key.CullMode;
+		KeyHash ^= Key.bAllowMSAA ? 2 : 0;
+		KeyHash ^= Key.bEnableLineAA ? 1 : 0;
+		return KeyHash;
 	}
+};
+
+enum EShaderCacheStateValues
+{
+	EShaderCacheMaxNumSamplers = 16,
+	EShaderCacheMaxNumResources = 128,
+	EShaderCacheNullState = ~(0u),
+	EShaderCacheInvalidState = ~(1u)
 };
 
 struct SHADERCORE_API FShaderPipelineKey
@@ -582,6 +283,201 @@ struct SHADERCORE_API FShaderPipelineKey
 	friend FArchive& operator<<( FArchive& Ar, FShaderPipelineKey& Info )
 	{
 		return Ar << Info.VertexShader << Info.PixelShader << Info.GeometryShader << Info.HullShader << Info.DomainShader << Info.Hash;
+	}
+};
+
+struct SHADERCORE_API FShaderCacheGraphicsPipelineState
+{
+	uint32 PrimitiveType;
+	uint32 BoundShaderState;
+	FBlendStateInitializerRHI BlendState;
+	FShaderCacheRasterizerState RasterizerState;
+	FDepthStencilStateInitializerRHI DepthStencilState;
+	uint32 RenderTargets[MaxSimultaneousRenderTargets];
+	uint32 RenderTargetFlags[MaxSimultaneousRenderTargets];
+	uint8 RenderTargetLoad[MaxSimultaneousRenderTargets];
+	uint8 RenderTargetStore[MaxSimultaneousRenderTargets];
+	uint32 DepthStencilTarget;
+	uint32 DepthStencilTargetFlags;
+	uint8 DepthLoad;
+	uint8 DepthStore;
+	uint8 StencilLoad;
+	uint8 StencilStore;
+	uint8 ActiveRenderTargets;
+	uint8 SampleCount;
+	mutable uint32 Hash;
+	
+	// Transient - not included in hash or equality
+	int32 Index;
+	
+	FShaderCacheGraphicsPipelineState()
+	: PrimitiveType(PT_Num)
+	, BoundShaderState(EShaderCacheNullState)
+	, DepthStencilTarget(EShaderCacheNullState)
+	, DepthStencilTargetFlags(0)
+	, DepthLoad((uint8)ERenderTargetLoadAction::ENoAction)
+	, DepthStore((uint8)ERenderTargetStoreAction::ENoAction)
+	, StencilLoad((uint8)ERenderTargetLoadAction::ENoAction)
+	, StencilStore((uint8)ERenderTargetStoreAction::ENoAction)
+	, ActiveRenderTargets(0)
+	, SampleCount(0)
+	, Hash(0)
+	, Index(0)
+	{
+		FMemory::Memzero(&BlendState, sizeof(BlendState));
+		FMemory::Memzero(&RasterizerState, sizeof(RasterizerState));
+		FMemory::Memzero(&DepthStencilState, sizeof(DepthStencilState));
+		FMemory::Memset(RenderTargets, 255, sizeof(RenderTargets));
+		FMemory::Memset(RenderTargetFlags, 0, sizeof(RenderTargetFlags));
+		FMemory::Memset(RenderTargetLoad, 0, sizeof(RenderTargetLoad));
+		FMemory::Memset(RenderTargetStore, 0, sizeof(RenderTargetStore));
+	}
+	
+	friend bool operator ==(const FShaderCacheGraphicsPipelineState& A,const FShaderCacheGraphicsPipelineState& B)
+	{
+		bool Compare = A.PrimitiveType == B.PrimitiveType && A.BoundShaderState == B.BoundShaderState && A.ActiveRenderTargets == B.ActiveRenderTargets &&
+		A.SampleCount == B.SampleCount && A.DepthStencilTarget == B.DepthStencilTarget &&
+		A.DepthStencilTargetFlags == B.DepthStencilTargetFlags && A.DepthLoad == B.DepthLoad &&
+		A.DepthStore == B.DepthStore && A.StencilLoad == B.StencilLoad && A.StencilStore == B.StencilStore &&
+		FMemory::Memcmp(&A.BlendState, &B.BlendState, sizeof(FBlendStateInitializerRHI)) == 0 &&
+		FMemory::Memcmp(&A.RasterizerState, &B.RasterizerState, sizeof(FShaderCacheRasterizerState)) == 0 &&
+		FMemory::Memcmp(&A.DepthStencilState, &B.DepthStencilState, sizeof(FDepthStencilStateInitializerRHI)) == 0 &&
+		FMemory::Memcmp(&A.RenderTargets, &B.RenderTargets, sizeof(A.RenderTargets)) == 0 &&
+		FMemory::Memcmp(&A.RenderTargetFlags, &B.RenderTargetFlags, sizeof(A.RenderTargetFlags)) == 0 &&
+		FMemory::Memcmp(&A.RenderTargetLoad, &B.RenderTargetLoad, sizeof(A.RenderTargetLoad)) == 0 &&
+		FMemory::Memcmp(&A.RenderTargetStore, &B.RenderTargetStore, sizeof(A.RenderTargetStore)) == 0;
+		return Compare;
+	}
+	
+	friend uint32 GetTypeHash(const FShaderCacheGraphicsPipelineState &Key)
+	{
+		if(!Key.Hash)
+		{
+			Key.Hash = GetTypeHash(Key.PrimitiveType);
+			Key.Hash ^= GetTypeHash(Key.BoundShaderState);
+			Key.Hash ^= GetTypeHash(Key.SampleCount);
+			Key.Hash ^= GetTypeHash(Key.ActiveRenderTargets);
+			
+			Key.Hash ^= (Key.BlendState.bUseIndependentRenderTargetBlendStates ? (1 << 31) : 0);
+			for( uint32 i = 0; i < MaxSimultaneousRenderTargets; i++ )
+			{
+				Key.Hash ^= (Key.BlendState.RenderTargets[i].ColorBlendOp << 24);
+				Key.Hash ^= (Key.BlendState.RenderTargets[i].ColorSrcBlend << 16);
+				Key.Hash ^= (Key.BlendState.RenderTargets[i].ColorDestBlend << 8);
+				Key.Hash ^= (Key.BlendState.RenderTargets[i].ColorWriteMask << 0);
+				Key.Hash ^= (Key.BlendState.RenderTargets[i].AlphaBlendOp << 24);
+				Key.Hash ^= (Key.BlendState.RenderTargets[i].AlphaSrcBlend << 16);
+				Key.Hash ^= (Key.BlendState.RenderTargets[i].AlphaDestBlend << 8);
+				Key.Hash ^= Key.RenderTargets[i];
+				Key.Hash ^= Key.RenderTargetFlags[i];
+				Key.Hash ^= Key.RenderTargetLoad[i] << 24;
+				Key.Hash ^= Key.RenderTargetStore[i] << 16;
+			}
+			
+			Key.Hash ^= (Key.DepthStencilState.bEnableDepthWrite ? (1 << 31) : 0);
+			Key.Hash ^= (Key.DepthStencilState.DepthTest << 24);
+			Key.Hash ^= (Key.DepthStencilState.bEnableFrontFaceStencil ? (1 << 23) : 0);
+			Key.Hash ^= (Key.DepthStencilState.FrontFaceStencilTest << 24);
+			Key.Hash ^= (Key.DepthStencilState.FrontFaceStencilFailStencilOp << 16);
+			Key.Hash ^= (Key.DepthStencilState.FrontFaceDepthFailStencilOp << 8);
+			Key.Hash ^= (Key.DepthStencilState.FrontFacePassStencilOp);
+			Key.Hash ^= (Key.DepthStencilState.bEnableBackFaceStencil ? (1 << 15) : 0);
+			Key.Hash ^= (Key.DepthStencilState.BackFaceStencilTest << 24);
+			Key.Hash ^= (Key.DepthStencilState.BackFaceStencilFailStencilOp << 16);
+			Key.Hash ^= (Key.DepthStencilState.BackFaceDepthFailStencilOp << 8);
+			Key.Hash ^= (Key.DepthStencilState.BackFacePassStencilOp);
+			Key.Hash ^= (Key.DepthStencilState.StencilReadMask << 8);
+			Key.Hash ^= (Key.DepthStencilState.StencilWriteMask);
+			
+			Key.Hash ^= GetTypeHash(Key.DepthStencilTarget);
+			Key.Hash ^= GetTypeHash(Key.DepthStencilTargetFlags);
+			Key.Hash ^= GetTypeHash(Key.DepthLoad << 24);
+			Key.Hash ^= GetTypeHash(Key.DepthStore << 16);
+			Key.Hash ^= GetTypeHash(Key.StencilLoad << 8);
+			Key.Hash ^= GetTypeHash(Key.StencilStore);
+			
+			Key.Hash ^= GetTypeHash(Key.RasterizerState);
+		}
+		return Key.Hash;
+	}
+	
+	friend FArchive& operator<<( FArchive& Ar, FShaderCacheGraphicsPipelineState& Info )
+	{
+		Ar << Info.PrimitiveType;
+		Ar << Info.BoundShaderState;
+		Ar << Info.SampleCount;
+		Ar << Info.ActiveRenderTargets;
+		for ( uint32 i = 0; i < MaxSimultaneousRenderTargets; i++ )
+		{
+			Ar << Info.RenderTargets[i];
+			Ar << Info.RenderTargetFlags[i];
+			Ar << Info.RenderTargetLoad[i];
+			Ar << Info.RenderTargetStore[i];
+		}
+		Ar << Info.DepthStencilTarget << Info.DepthStencilTargetFlags << Info.DepthLoad << Info.DepthStore << Info.StencilLoad << Info.StencilStore;
+		return Ar << Info.BlendState << Info.RasterizerState << Info.DepthStencilState << Info.Hash;
+	}
+};
+
+struct SHADERCORE_API FShaderDrawKey
+{
+	FShaderDrawKey()
+	: IndexType(0)
+	, Hash(0)
+	{
+		FMemory::Memset(SamplerStates, 255, sizeof(SamplerStates));
+		FMemory::Memset(Resources, 255, sizeof(Resources));
+		check(GetMaxTextureSamplers() <= EShaderCacheMaxNumSamplers);
+	}
+	
+	uint32 SamplerStates[SF_NumFrequencies][EShaderCacheMaxNumSamplers];
+    uint32 Resources[SF_NumFrequencies][EShaderCacheMaxNumResources];
+    uint8 IndexType;
+	mutable uint32 Hash;
+	
+	friend bool operator ==(const FShaderDrawKey& A,const FShaderDrawKey& B)
+	{
+		bool Compare = A.IndexType == B.IndexType && FMemory::Memcmp(&A.Resources, &B.Resources, sizeof(A.Resources)) == 0 &&
+		FMemory::Memcmp(&A.SamplerStates, &B.SamplerStates, sizeof(A.SamplerStates)) == 0;
+		return Compare;
+	}
+	
+	friend uint32 GetTypeHash(const FShaderDrawKey &Key)
+	{
+		if(!Key.Hash)
+		{
+            Key.Hash = GetTypeHash(Key.IndexType);
+            
+			for( uint32 i = 0; i < SF_NumFrequencies; i++ )
+			{
+				for( uint32 j = 0; j < EShaderCacheMaxNumSamplers; j++ )
+				{
+					Key.Hash ^= Key.SamplerStates[i][j];
+				}
+				for( uint32 j = 0; j < EShaderCacheMaxNumResources; j++ )
+				{
+					Key.Hash ^= Key.Resources[i][j];
+				}
+			}
+		}
+		return Key.Hash;
+	}
+	
+	friend FArchive& operator<<( FArchive& Ar, FShaderDrawKey& Info )
+	{
+        Ar << Info.IndexType;
+		for ( uint32 i = 0; i < SF_NumFrequencies; i++ )
+		{
+			for ( uint32 j = 0; j < EShaderCacheMaxNumSamplers; j++ )
+			{
+				Ar << Info.SamplerStates[i][j];
+			}
+			for ( uint32 j = 0; j < EShaderCacheMaxNumResources; j++ )
+			{
+				Ar << Info.Resources[i][j];
+			}
+		}
+		return Ar;
 	}
 };
 
@@ -716,7 +612,6 @@ public:
 		}
 		else
 		{
-			check(false);
 			return -1;
 		}
 	}
@@ -754,20 +649,20 @@ public:
 
 struct FShaderPreDrawEntry
 {
-	int32 BoundStateIndex;
+	int32 PSOIndex;
 	int32 DrawKeyIndex;
 	bool bPredrawn;
 	
-	FShaderPreDrawEntry() : BoundStateIndex(-1), DrawKeyIndex(-1), bPredrawn(false) {}
+	FShaderPreDrawEntry() : PSOIndex(-1), DrawKeyIndex(-1), bPredrawn(false) {}
 	
 	friend bool operator ==(const FShaderPreDrawEntry& A,const FShaderPreDrawEntry& B)
 	{
-		return (A.BoundStateIndex == B.BoundStateIndex && A.DrawKeyIndex == B.DrawKeyIndex);
+		return (A.PSOIndex == B.PSOIndex && A.DrawKeyIndex == B.DrawKeyIndex);
 	}
 	
 	friend uint32 GetTypeHash(const FShaderPreDrawEntry &Key)
 	{
-		return (Key.BoundStateIndex ^ Key.DrawKeyIndex);
+		return (Key.PSOIndex ^ Key.DrawKeyIndex);
 	}
 	
 	friend FArchive& operator<<( FArchive& Ar, FShaderPreDrawEntry& Info )
@@ -776,7 +671,7 @@ struct FShaderPreDrawEntry
 		{
 			Info.bPredrawn = false;
 		}
-		return Ar << Info.BoundStateIndex << Info.DrawKeyIndex;
+		return Ar << Info.PSOIndex << Info.DrawKeyIndex;
 	}
 };
 
@@ -784,7 +679,7 @@ struct FShaderPlatformCache
 {		
 	friend FArchive& operator<<( FArchive& Ar, FShaderPlatformCache& Info )
 	{
-		return Ar << Info.Shaders << Info.BoundShaderStates << Info.DrawStates << Info.RenderTargets << Info.Resources << Info.SamplerStates << Info.PreDrawEntries << Info.ShaderStateMembership << Info.StreamingDrawStates;
+		return Ar << Info.Shaders << Info.BoundShaderStates << Info.DrawStates << Info.RenderTargets << Info.Resources << Info.SamplerStates << Info.PreDrawEntries << Info.ShaderStateMembership << Info.StreamingDrawStates << Info.PipelineStates;
 	}
 
 	TIndexedSet<FShaderCacheKey> Shaders;
@@ -794,6 +689,7 @@ struct FShaderPlatformCache
 	TIndexedSet<FShaderResourceKey> Resources;
 	TIndexedSet<FSamplerStateInitializerRHI, FSamplerStateInitializerRHIKeyFuncs> SamplerStates;
 	TIndexedSet<FShaderPreDrawEntry> PreDrawEntries;
+	TIndexedSet<FShaderCacheGraphicsPipelineState> PipelineStates;
 	
 	TMap<int32, TSet<int32>> ShaderStateMembership;
 	TMap<uint32, FShaderStreamingCache> StreamingDrawStates;

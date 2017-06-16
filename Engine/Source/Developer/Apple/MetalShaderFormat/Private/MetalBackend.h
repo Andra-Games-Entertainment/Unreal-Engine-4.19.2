@@ -16,17 +16,18 @@ THIRD_PARTY_INCLUDES_END
 
 class FMetalLanguageSpec : public ILanguageSpec
 {
+	uint8 Version;
 public:
+	FMetalLanguageSpec(uint8 InVersion) : Version(InVersion) {}
+	
 	virtual bool SupportsDeterminantIntrinsic() const override
 	{
-		//@todo-rco: Temp workaround for Seed 2 & 3
-		return false;// true;
+		return (Version >= 2);
 	}
 
 	virtual bool SupportsTransposeIntrinsic() const override
 	{
-		//@todo-rco: Temp workaround for Seed 2 & 3
-		return false;// true;
+		return (Version >= 2);
 	}
 	virtual bool SupportsIntegerModulo() const override { return true; }
 
@@ -43,6 +44,12 @@ public:
 	virtual bool NeedsAtomicLoadStore() const override { return true; }
 	
 	virtual bool SplitInputVariableStructs() const { return false; }
+	
+	virtual bool SupportsFusedMultiplyAdd() const { return (Version >= 2); }
+	
+	virtual bool SupportsSaturateIntrinsic() const { return (Version >= 2); }
+
+	virtual bool SupportsSinCosIntrinsic() const { return (Version >= 2); }
 };
 
 struct FBuffers;
@@ -62,10 +69,20 @@ enum EMetalGPUSemantics
 	EMetalGPUSemanticsImmediateDesktop // Desktop shaders for Immediate GPUs
 };
 
+enum EMetalTypeBufferMode
+{
+	EMetalTypeBufferModeNone = 0, // No typed buffers
+	EMetalTypeBufferModeSRV = 1, // Buffer<> SRVs are typed
+	EMetalTypeBufferModeUAV = 2 // Buffer<> SRVs & RWBuffer<> UAVs are typed
+};
+
+// Metal supports 16 across all HW
+static const int32 MaxMetalSamplers = 16;
+
 // Generates Metal compliant code from IR tokens
 struct FMetalCodeBackend : public FCodeBackend
 {
-	FMetalCodeBackend(FMetalTessellationOutputs& Attribs, unsigned int InHlslCompileFlags, EHlslCompileTarget InTarget, uint8 Version, EMetalGPUSemantics bInDesktop, bool bInZeroInitialise, bool bInBoundsChecks);
+	FMetalCodeBackend(FMetalTessellationOutputs& Attribs, unsigned int InHlslCompileFlags, EHlslCompileTarget InTarget, uint8 Version, EMetalGPUSemantics bInDesktop, EMetalTypeBufferMode InTypedMode, uint32 MaxUnrollLoops, bool bInZeroInitialise, bool bInBoundsChecks, bool bInAllFastIntriniscs);
 
 	virtual char* GenerateCode(struct exec_list* ir, struct _mesa_glsl_parse_state* ParseState, EHlslShaderFrequency Frequency) override;
 
@@ -86,11 +103,15 @@ struct FMetalCodeBackend : public FCodeBackend
 
     TMap<ir_variable*, uint32> ImageRW;
     FMetalTessellationOutputs& TessAttribs;
+	uint8 AtomicUAVs;
     
     uint8 Version;
 	EMetalGPUSemantics bIsDesktop;
+	EMetalTypeBufferMode TypedMode;
+	uint32 MaxUnrollLoops;
 	bool bZeroInitialise;
 	bool bBoundsChecks;
+	bool bAllowFastIntriniscs;
 
 	bool bIsTessellationVSHS = false;
 	unsigned int inputcontrolpoints = 0;

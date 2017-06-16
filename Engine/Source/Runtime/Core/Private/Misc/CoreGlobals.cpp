@@ -128,7 +128,7 @@ bool					GIsClient						= false;					/* Whether engine was launched as a client 
 bool					GIsServer						= false;					/* Whether engine was launched as a server, true if GIsClient */
 bool					GIsCriticalError				= false;					/* An appError() has occured */
 bool					GIsGuarded						= false;					/* Whether execution is happening within main()/WinMain()'s try/catch handler */
-bool					GIsRunning						= false;					/* Whether execution is happening within MainLoop() */
+TSAN_ATOMIC(bool)		GIsRunning(false);											/* Whether execution is happening within MainLoop() */
 bool					GIsDuplicatingClassForReinstancing = false;					/* Whether we are currently using SDO on a UClass or CDO for live reinstancing */
 /** This specifies whether the engine was launched as a build machine process								*/
 bool					GIsBuildMachine					= false;
@@ -231,7 +231,7 @@ bool					GEventDrivenLoaderEnabled = false;
 bool					GPakCache_AcceptPrecacheRequests = true;
 
 /** Steadily increasing frame counter.																		*/
-uint64					GFrameCounter					= 0;
+TSAN_ATOMIC(uint64)		GFrameCounter(0);
 uint64					GLastGCFrame					= 0;
 /** Incremented once per frame before the scene is being rendered. In split screen mode this is incremented once for all views (not for each view). */
 uint32					GFrameNumber					= 1;

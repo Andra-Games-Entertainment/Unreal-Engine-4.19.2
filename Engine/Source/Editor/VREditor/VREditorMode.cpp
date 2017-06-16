@@ -3,14 +3,18 @@
 #include "VREditorMode.h"
 #include "Modules/ModuleManager.h"
 #include "Framework/Application/SlateApplication.h"
+#include "UObject/ConstructorHelpers.h"
 #include "SDockTab.h"
 #include "Engine/EngineTypes.h"
 #include "Components/SceneComponent.h"
+#include "Misc/ConfigCacheIni.h"
 #include "GameFramework/Actor.h"
 #include "Engine/World.h"
 #include "Components/SpotLightComponent.h"
 #include "GameFramework/WorldSettings.h"
 #include "DrawDebugHelpers.h"
+#include "Materials/MaterialInterface.h"
+#include "Materials/Material.h"
 #include "VREditorUISystem.h"
 #include "VIBaseTransformGizmo.h"
 #include "ViewportWorldInteraction.h"
@@ -44,13 +48,16 @@
 #include "VREditorActions.h"
 #include "EditorModes.h"
 #include "VRModeSettings.h"
+#include "Engine/StaticMeshActor.h"
+#include "EngineUtils.h"
+#include "Kismet/GameplayStatics.h"
 
 
 #define LOCTEXT_NAMESPACE "VREditorMode"
 
 namespace VREd
 {
-	static FAutoConsoleVariable DefaultVRNearClipPlane(TEXT("VREd.DefaultVRNearClipPlane"), 1.0f, TEXT("The near clip plane to use for VR"));
+	static FAutoConsoleVariable DefaultVRNearClipPlane(TEXT("VREd.DefaultVRNearClipPlane"), 5.0f, TEXT("The near clip plane to use for VR"));
 	static FAutoConsoleVariable SlateDragDistanceOverride( TEXT( "VREd.SlateDragDistanceOverride" ), 40.0f, TEXT( "How many pixels you need to drag before a drag and drop operation starts in VR" ) );
 	static FAutoConsoleVariable DefaultWorldToMeters(TEXT("VREd.DefaultWorldToMeters"), 100.0f, TEXT("Default world to meters scale"));
 
@@ -64,18 +71,24 @@ namespace VREd
 	static FAutoConsoleVariable HeadRotationMaxVelocity( TEXT( "VREd.HeadRotationMaxVelocity" ), 80.0f, TEXT( "For head velocity indicator, the maximum rotation velocity in degrees/s" ) );
 	static FAutoConsoleVariable HeadLocationVelocityOffset( TEXT( "VREd.HeadLocationVelocityOffset" ), TEXT( "X=20, Y=0, Z=5" ), TEXT( "Offset relative to head for location velocity debug indicator" ) );
 	static FAutoConsoleVariable HeadRotationVelocityOffset( TEXT( "VREd.HeadRotationVelocityOffset" ), TEXT( "X=20, Y=0, Z=-5" ), TEXT( "Offset relative to head for rotation velocity debug indicator" ) );
-	static FAutoConsoleVariable SFXMultiplier(TEXT("VREd.SFXMultiplier"), 1.5f, TEXT("Default Sound Effect Volume Multiplier"));
+	static FAutoConsoleVariable SFXMultiplier(TEXT("VREd.SFXMultiplier"), 6.0f, TEXT("Default Sound Effect Volume Multiplier"));
+
+	static FAutoConsoleVariable AllowVRModeFading(TEXT("VREd.AllowVRModeFading"), 1, TEXT("Whether to allow the VR Mode view to fade "));
 }
 
 const FString UVREditorMode::AssetContainerPath = FString("/Engine/VREditor/VREditorAssetContainerData");
 
-UVREditorMode::UVREditorMode() : 
+UVREditorMode::UVREditorMode() :
 	Super(),
 	bWantsToExitMode( false ),
 	bIsFullyInitialized( false ),
 	AppTimeModeEntered( FTimespan::Zero() ),
 	AvatarActor( nullptr ),
-   	FlashlightComponent( nullptr ),
+	CalibrationTransformOffset( FTransform::Identity ),
+	RoomSpacePivotActor( nullptr ),
+	CameraBaseActor( nullptr ),
+	HMDTransformActor( nullptr ),
+	FlashlightComponent( nullptr ),
 	bIsFlashlightOn( false ),
 	MotionControllerID( 0 ),	// @todo vreditor minor: We only support a single controller, and we assume the first controller are the motion controls
 	UISystem( nullptr ),
@@ -85,19 +98,17 @@ UVREditorMode::UVREditorMode() :
 	LeftHandInteractor( nullptr ),
 	RightHandInteractor( nullptr ),
 	bFirstTick( true ),
-	SavedWorldToMetersScaleForPIE(0.0f),
-	bStartedPlayFromVREditor(false),
-	bStartedPlayFromVREditorSimulate(false),
-	AssetContainer(nullptr)
+	SavedWorldToMetersScaleForPIE( 100.f ),
+	bStartedPlayFromVREditor( false ),
+	bStartedPlayFromVREditorSimulate( false ),
+	AssetContainer( nullptr )
 {
 }
 
-
-UVREditorMode::~UVREditorMode()
+void UVREditorMode::DoToggleCalibrationMode()
 {
-	Shutdown();
+	this->SetIsCalibrating( !bIsCalibrating );
 }
-
 
 void UVREditorMode::Init()
 {
@@ -118,7 +129,7 @@ void UVREditorMode::Init()
 	// Setting up colors
 	Colors.SetNumZeroed( (int32)EColors::TotalCount );
 	{	
-		Colors[ (int32)EColors::DefaultColor ] = FLinearColor(0.701f, 0.084f, 0.075f, 1.0f);	
+		Colors[ (int32)EColors::DefaultColor ] = FLinearColor(0.075f, 0.084f, 0.701f, 1.0f);
 		Colors[ (int32)EColors::SelectionColor ] = FLinearColor(1.0f, 0.467f, 0.0f, 1.f);
 		Colors[ (int32)EColors::WorldDraggingColor ] = FLinearColor(0.106, 0.487, 0.106, 1.0f);
 		Colors[ (int32)EColors::UIColor ] = FLinearColor(0.22f, 0.7f, 0.98f, 1.0f);
@@ -191,6 +202,15 @@ void UVREditorMode::Enter()
 	FEditorDelegates::OnPreSwitchBeginPIEAndSIE.AddUObject(this, &UVREditorMode::OnPreSwitchPIEAndSIE);
 	FEditorDelegates::OnSwitchBeginPIEAndSIE.AddUObject(this, &UVREditorMode::OnSwitchPIEAndSIE);
 
+	CalibrateConsoleCommand = IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT( "VREd.Calibrate" ),
+		*LOCTEXT( "CommandText_Calibrate", "Calibrate" ).ToString(),
+		FConsoleCommandDelegate::CreateUObject( this, &UVREditorMode::DoToggleCalibrationMode ) );
+
+	TeleportToTaggedActorCommand = IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT( "VREd.TeleportToTaggedActor" ),
+		*LOCTEXT( "CommandText_TeleportToTaggedActor", "TeleportToTaggedActor" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateUObject( this, &UVREditorMode::TeleportToTaggedActor ) );
 
 	// @todo vreditor: We need to make sure the user can never switch to orthographic mode, or activate settings that
 	// would disrupt the user's ability to view the VR scene.
@@ -250,6 +270,48 @@ void UVREditorMode::Enter()
 
 		WorldInteraction->AddActorToExcludeFromHitTests( AvatarActor );	
 	}
+
+	// @TODO VREDITOR DEMO HACKS
+	{
+		if( RoomSpacePivotActor == nullptr )
+		{
+			RoomSpacePivotActor = SpawnTransientSceneActor<AVRReplicatedActor>( TEXT( "RoomSpacePivot" ) );
+			UStaticMesh* Mesh = LoadObject<UStaticMesh>( nullptr, TEXT("/Engine/EditorMeshes/Axis_Guide") );
+			check( Mesh != nullptr );
+			RoomSpacePivotActor->GetStaticMeshComponent()->SetStaticMesh( Mesh );
+			RoomSpacePivotActor->GetStaticMeshComponent()->SetCollisionEnabled( ECollisionEnabled::NoCollision );
+			RoomSpacePivotActor->GetStaticMeshComponent()->SetCollisionResponseToAllChannels( ECollisionResponse::ECR_Ignore );
+			WorldInteraction->AddActorToExcludeFromHitTests( RoomSpacePivotActor );
+
+			RoomSpacePivotActor->GetRootComponent()->SetVisibility( bIsCalibrating );
+		}
+		if( CameraBaseActor == nullptr )
+		{
+			CameraBaseActor = SpawnTransientSceneActor<ACameraBaseActor>( TEXT( "CameraBase" ) );
+			UStaticMesh* Mesh = LoadObject<UStaticMesh>( nullptr, TEXT( "/Engine/VREditor/ncamCalibPlane" ) );
+			check( Mesh != nullptr );
+			CameraBaseActor->GetStaticMeshComponent()->SetStaticMesh( Mesh );
+			CameraBaseActor->GetStaticMeshComponent()->SetCollisionEnabled( ECollisionEnabled::NoCollision );
+			CameraBaseActor->GetStaticMeshComponent()->SetCollisionResponseToAllChannels( ECollisionResponse::ECR_Ignore );
+			WorldInteraction->AddActorToExcludeFromHitTests( CameraBaseActor );
+
+			CameraBaseActor->GetRootComponent()->SetVisibility( bIsCalibrating );
+		}
+		if (HMDTransformActor == nullptr)
+		{
+			HMDTransformActor = SpawnTransientSceneActor<AHMDTransformActor>( TEXT( "HMDTransform" ) );
+			UStaticMesh* Mesh = LoadObject<UStaticMesh>( nullptr, TEXT( "/Engine/VREditor/Devices/Generic/GenericHMD" ) );
+			check( Mesh != nullptr );
+			HMDTransformActor->GetStaticMeshComponent()->SetStaticMesh( Mesh );
+			HMDTransformActor->GetStaticMeshComponent()->SetCollisionEnabled( ECollisionEnabled::NoCollision );
+			HMDTransformActor->GetStaticMeshComponent()->SetCollisionResponseToAllChannels( ECollisionResponse::ECR_Ignore );
+			WorldInteraction->AddActorToExcludeFromHitTests(HMDTransformActor);
+
+			HMDTransformActor->GetRootComponent()->SetVisibility( bIsCalibrating );
+		}
+	}
+
+
 
 	// If we're actually using VR, go ahead and disable notifications.  We won't be able to see them in VR
 	// currently, and they can introduce performance issues if they pop up on the desktop
@@ -311,6 +373,23 @@ void UVREditorMode::Enter()
 	/** This will make sure this is not ticking after the editor has been closed. */
 	GEditor->OnEditorClose().AddUObject( this, &UVREditorMode::OnEditorClosed );
 
+	// Load calibration offset from disk
+	{
+		const TCHAR* EditorVRModeSettings = TEXT( "EditorVRMode" );
+		FVector CalLocation;
+		FRotator CalRotation;
+		if( GConfig->GetVector( EditorVRModeSettings, TEXT( "CalLocation" ), CalLocation, GEditorSettingsIni ) &&
+			GConfig->GetRotator( EditorVRModeSettings, TEXT( "CalRotation" ), CalRotation, GEditorSettingsIni ) )
+		{
+			CalibrationTransformOffset = FTransform( CalRotation, CalLocation, FVector::OneVector );
+			UE_LOG( LogCore, Log, 
+				TEXT( "PANDA:  LOADED calibration offset:  %s, %s.  Room space head transform is: %s, %s" ), 
+				*CalLocation.ToString(), *CalRotation.ToString(), 
+				*GetRoomSpaceHeadTransform().GetLocation().ToString(), *GetRoomSpaceHeadTransform().GetRotation().Rotator().ToString() );
+		}
+	}
+
+
 	bFirstTick = true;
 	SetActive(true);
 	bStartedPlayFromVREditor = false;
@@ -319,6 +398,15 @@ void UVREditorMode::Enter()
 
 void UVREditorMode::Exit(const bool bShouldDisableStereo)
 {
+	const FVector CalLocation = CalibrationTransformOffset.GetLocation();
+	const FRotator CalRotation = CalibrationTransformOffset.GetRotation().Rotator();
+	UE_LOG( LogCore, Log,
+		TEXT( "PANDA:  EXITING VR.  Calibration offset is:  %s, %s.  Room space head transform is: %s, %s" ),
+		*CalLocation.ToString(), *CalRotation.ToString(),
+		*GetRoomSpaceHeadTransform().GetLocation().ToString(), *GetRoomSpaceHeadTransform().GetRotation().Rotator().ToString() );
+
+	IConsoleManager::Get().UnregisterConsoleObject( CalibrateConsoleCommand );
+
 	{
 		FVREditorActionCallbacks::ChangeEditorModes(FBuiltinEditorModes::EM_Placement);
 
@@ -327,6 +415,16 @@ void UVREditorMode::Exit(const bool bShouldDisableStereo)
 			DestroyTransientActor(AvatarActor);
 			AvatarActor = nullptr;
 			FlashlightComponent = nullptr;
+		}
+
+		//@TODO VREDITOR DEMO HACKS
+		{
+			RoomSpacePivotActor->Destroy();
+			RoomSpacePivotActor = nullptr;
+			HMDTransformActor->Destroy();
+			HMDTransformActor = nullptr;
+			CameraBaseActor->Destroy();
+			CameraBaseActor = nullptr;
 		}
 
 		{
@@ -430,6 +528,11 @@ void UVREditorMode::Exit(const bool bShouldDisableStereo)
 
 	GEditor->OnEditorClose().RemoveAll( this );
 
+	if (GEditor->bIsSimulatingInEditor)
+	{
+		GEditor->RequestEndPlayMap();
+	}
+
 	bWantsToExitMode = false;
 	SetActive(false);
 	bFirstTick = false;
@@ -498,6 +601,33 @@ void UVREditorMode::PostTick( float DeltaTime )
 		// Move our avatar mesh along with the room.  We need our hand components to remain the same coordinate space as the 
 		AvatarActor->SetActorTransform( GetRoomTransform() );
 		AvatarActor->TickManually( DeltaTime );
+
+
+	}
+
+	//@TODO VR EDITOR DEMO HACKS
+	{
+		const FTransform RoomToWorld = GetRoomTransform();
+		RoomSpacePivotActor->SetActorTransform( RoomToWorld );
+		RoomSpacePivotActor->ForceNetUpdate();
+
+		HMDTransformActor->SetActorTransform( GetHeadTransform() );
+		HMDTransformActor->ForceNetUpdate();
+
+		FTransform TargetToRoom = CalibrationTransformOffset;
+		FTransform WorldScaleTransform = FTransform( FRotator::ZeroRotator, FVector::ZeroVector, FVector( GetWorldScaleFactor() ) );
+		FTransform TargetToScaledRoom = TargetToRoom * WorldScaleTransform;
+
+		FTransform RoomToTarget = TargetToScaledRoom.Inverse();
+
+		FTransform WorldToRoom = RoomToWorld.Inverse();
+
+		FTransform WorldToTarget = WorldToRoom * RoomToTarget;
+		FTransform TargetToWorld = WorldToTarget.Inverse();
+        
+
+		CameraBaseActor->SetActorTransform( TargetToWorld );
+		CameraBaseActor->ForceNetUpdate();
 	}
 
 	// Updating the scale and intensity of the flashlight according to the world scale
@@ -507,6 +637,55 @@ void UVREditorMode::PostTick( float DeltaTime )
 		//@todo vreditor tweak
 		float UpdatedFalloffExponent = FMath::Clamp(CurrentFalloffExponent / GetWorldScaleFactor(), 2.0f, 16.0f);
 		FlashlightComponent->SetLightFalloffExponent(UpdatedFalloffExponent);
+	}
+
+	if( bIsCalibrating && IsActuallyUsingVR() )
+	{
+		const FTransform RoomSpaceHeadToWorld = WorldInteraction->GetRoomSpaceHeadTransform();
+		const float WorldScaleFactor = WorldInteraction->GetWorldScaleFactor();
+
+		const float InnerRadius = 2.0f * WorldScaleFactor;
+		const float OuterRadius = 4.0f * WorldScaleFactor;
+
+		const FTransform HeadToWorld = WorldInteraction->GetHeadTransform();
+
+		{
+			const FTransform UIToHeadTransform = FTransform(
+				FRotator::ZeroRotator,
+				FVector( 20.0f, 0.0f, 15.0f ) * WorldScaleFactor );
+			const FTransform UIToWorld = UIToHeadTransform * HeadToWorld;
+			const float Thickness = 0.5f;
+			DrawDebug2DDonut(
+				GetWorld(),
+				UIToWorld.ToMatrixNoScale(),
+				InnerRadius,
+				OuterRadius,
+				64,
+				FColor( 140, 140, 255 ),
+				false,
+				0.0f,
+				SDPG_World,
+				Thickness );
+		}
+
+		if( false )	// Doesn't work in DemoMode because messages are suppressed
+		{
+			GEngine->AddOnScreenDebugMessage(
+				22210,
+				0.0f,
+				FColor( 140, 140, 255 ),
+				*FString::Printf( TEXT( "MR Calibration Mode" ) ), false );
+			GEngine->AddOnScreenDebugMessage(
+				22211,
+				0.0f,
+				FColor( 140, 140, 255 ),
+				*FString::Printf( TEXT( "Offset: %s" ), *CalibrationTransformOffset.GetLocation().ToString() ), false );
+			GEngine->AddOnScreenDebugMessage(
+				22212,
+				0.0f,
+				FColor( 140, 140, 255 ),
+				*FString::Printf( TEXT( "Orient: %s" ), *CalibrationTransformOffset.GetRotation().Rotator().ToString() ), false );
+		}
 	}
 
 	if( WorldInteraction->HaveHeadTransform() && VREd::ShowHeadVelocity->GetInt() != 0 )
@@ -692,7 +871,7 @@ void UVREditorMode::RefreshVREditorSequencer(class ISequencer* InCurrentSequence
 {
 	CurrentSequencer = InCurrentSequencer;
 	// Tell the VR Editor UI system to refresh the Sequencer UI
-	if (bActuallyUsingVR && InCurrentSequencer != nullptr)
+	if (UISystem != nullptr && bActuallyUsingVR)
 	{
 		GetUISystem().UpdateSequencerUI();
 	}
@@ -808,7 +987,6 @@ void UVREditorMode::ToggleSIEAndVREditor()
 	}
 	else if (GEditor->PlayWorld != nullptr && GEditor->bIsSimulatingInEditor)
 	{
-		SavedWorldToMetersScaleForPIE = GetWorld()->GetWorldSettings()->WorldToMeters;
 		GEditor->RequestEndPlayMap();
 	}
 }
@@ -869,12 +1047,6 @@ void UVREditorMode::TransitionWorld(UWorld* NewWorld)
 	Super::TransitionWorld(NewWorld);
 
 	UISystem->TransitionWorld(NewWorld);
-}
-
-void UVREditorMode::LeftSimulateInEditor()
-{
-	GetWorld()->GetWorldSettings()->WorldToMeters = SavedWorldToMetersScaleForPIE;
-	WorldInteraction->SetWorldToMetersScale(SavedWorldToMetersScaleForPIE);
 }
 
 void UVREditorMode::StartViewport(TSharedPtr<SLevelViewport> Viewport)
@@ -995,8 +1167,12 @@ void UVREditorMode::StartViewport(TSharedPtr<SLevelViewport> Viewport)
 		GAreScreenMessagesEnabled = false;
 
 		// Save the world to meters scale
-		const float DefaultWorldToMeters = VREd::DefaultWorldToMeters->GetFloat();
-		SavedEditorState.WorldToMetersScale = DefaultWorldToMeters != 0.0f ? DefaultWorldToMeters : VRViewportClient.GetWorld()->GetWorldSettings()->WorldToMeters;
+		{
+			const float DefaultWorldToMeters = VREd::DefaultWorldToMeters->GetFloat();
+			const float SavedWorldToMeters = DefaultWorldToMeters != 0.0f ? DefaultWorldToMeters : VRViewportClient.GetWorld()->GetWorldSettings()->WorldToMeters;
+			SavedEditorState.WorldToMetersScale = SavedWorldToMeters;
+			SavedWorldToMetersScaleForPIE = SavedWorldToMeters;
+		}
 
 		if (bActuallyUsingVR)
 		{
@@ -1015,7 +1191,11 @@ void UVREditorMode::StartViewport(TSharedPtr<SLevelViewport> Viewport)
 		SavedEditorState.bCinematicPreviewViewport = VRViewportClient.AllowsCinematicPreview();
 		VRViewportClient.SetAllowCinematicPreview(false);
 		// Need to force fading and color scaling off in case we enter VR editing mode with a sequence open
-		VRViewportClient.bEnableFading = false;
+		if (VREd::AllowVRModeFading->GetInt() == 0)
+		{
+			VRViewportClient.bEnableFading = false;
+			VRViewportClient.SetAllowCinematicPreview( true );
+		}
 		VRViewportClient.bEnableColorScaling = false;
 		VRViewportClient.Invalidate(true);
 	}
@@ -1101,7 +1281,6 @@ void UVREditorMode::CloseViewport( const bool bShouldDisableStereo )
 void UVREditorMode::RestoreFromPIE()
 {
 	SetActive(true);
-	bStartedPlayFromVREditor = false;
 	bStartedPlayFromVREditorSimulate = false;
 
 	GetWorld()->GetWorldSettings()->WorldToMeters = SavedWorldToMetersScaleForPIE;
@@ -1210,9 +1389,14 @@ bool UVREditorMode::IsAimingTeleport() const
 	return TeleportActor->IsAiming();
 }
 
+bool UVREditorMode::IsTeleporting() const
+{
+	return TeleportActor->IsTeleporting();
+}
+
 void UVREditorMode::PostPIEStarted( bool bIsSimulatingInEditor )
 {
-	if (!bIsSimulatingInEditor && bStartedPlayFromVREditor)
+	if (!bIsSimulatingInEditor)
 	{
 		GEnableVREditorHacks = false;
 	}
@@ -1221,17 +1405,28 @@ void UVREditorMode::PostPIEStarted( bool bIsSimulatingInEditor )
 
 void UVREditorMode::PrePIEEnded( bool bWasSimulatingInEditor )
 {
-	if (!bWasSimulatingInEditor && bStartedPlayFromVREditor && !bStartedPlayFromVREditorSimulate)
+	if (!bWasSimulatingInEditor && !bStartedPlayFromVREditorSimulate)
 	{
+		GEnableVREditorHacks = true;
+	}
+	else if (bStartedPlayFromVREditorSimulate)
+	{
+		// Pre PIE to SIE. When exiting play with escape, the delegate toggle PIE and SIE won't be called. We know that we started PIE from simulate. However simulate will also be closed.
 		GEnableVREditorHacks = true;
 	}
 }
 
 void UVREditorMode::OnEndPIE(bool bWasSimulatingInEditor)
 {
-	if (bStartedPlayFromVREditor && !bWasSimulatingInEditor && !bStartedPlayFromVREditorSimulate)
+	if (!bWasSimulatingInEditor && !bStartedPlayFromVREditorSimulate)
 	{
 		RestoreFromPIE();
+	}
+	else if (bStartedPlayFromVREditorSimulate)
+	{
+		// Post PIE to SIE
+		RestoreFromPIE();
+		GetOwningCollection()->ShowAllActors(true);
 	}
 }
 
@@ -1270,5 +1465,295 @@ void UVREditorMode::OnSwitchPIEAndSIE(bool bIsSimulatingInEditor)
 		}
 	}
 }
+
+
+void UVREditorMode::SetIsCalibrating( const bool bNewIsCalibrating )
+{
+	if( bNewIsCalibrating != bIsCalibrating )
+	{
+		bIsCalibrating = bNewIsCalibrating;
+
+		PlaySound( bIsCalibrating ? AssetContainer->DockableWindowOpenSound : AssetContainer->DockableWindowCloseSound, AvatarActor->GetActorLocation() );
+
+		// If we're going into calibration mode, then make sure we're at 1.0 scale for this.
+		{
+			WorldInteraction->SetWorldToMetersScale( 100.0f, false );
+			WorldInteraction->SkipInteractiveWorldMovementThisFrame();
+		}
+
+		RoomSpacePivotActor->GetRootComponent()->SetVisibility( bIsCalibrating );
+		CameraBaseActor->GetRootComponent()->SetVisibility( bIsCalibrating );
+		HMDTransformActor->GetRootComponent()->SetVisibility( bIsCalibrating );
+	}
+}
+
+
+void UVREditorMode::DoCalibrationChange( const UVREditorMode::ECalibrationChange Change )
+{
+	UViewportInteractor* LaserInteractor = ( LeftHandInteractor->GetControllerType() == EControllerType::Laser ) ? LeftHandInteractor : RightHandInteractor;
+	UViewportInteractor* UIInteractor = ( LeftHandInteractor->GetControllerType() == EControllerType::UI ) ? LeftHandInteractor : RightHandInteractor;
+
+	if( Change == ECalibrationChange::Reset )
+	{
+		SetCalibrationTransformOffset( FTransform::Identity );
+	}
+	else if( Change == ECalibrationChange::SetCalibrationToLaserHand )
+	{
+		// Remove all roll and pitch
+		FTransform TargetToRoom = LaserInteractor->GetInteractorData().RoomSpaceTransform;
+		const float YawDegreesOffset = 180.0f;	// Flip 180 degrees around, the results match Vive better
+		TargetToRoom.SetRotation( FRotator( 0, TargetToRoom.Rotator().Yaw + YawDegreesOffset, 0 ).Quaternion() );
+
+		SetCalibrationTransformOffset( TargetToRoom );
+	}
+	else if( Change == ECalibrationChange::PositiveYaw || Change == ECalibrationChange::NegativeYaw )
+	{
+		// Increment or decrement yaw a little bit
+		const float OldYawDegrees = CalibrationTransformOffset.GetRotation().Rotator().Yaw;
+		FTransform NewCalibrationOffset = CalibrationTransformOffset;
+		NewCalibrationOffset.SetRotation( FRotator( 0.0f, OldYawDegrees + ( ( Change == ECalibrationChange::NegativeYaw ) ? -0.5f : 0.5f ), 0.0f ).Quaternion() );
+		SetCalibrationTransformOffset( NewCalibrationOffset );
+	}
+	else if(
+		Change == ECalibrationChange::MoveUp ||
+		Change == ECalibrationChange::MoveDown ||
+		Change == ECalibrationChange::MoveLeft ||
+		Change == ECalibrationChange::MoveRight ||
+		Change == ECalibrationChange::MoveForward ||
+		Change == ECalibrationChange::MoveBackward )
+	{
+		const float Amount = 0.5f;
+
+		FVector Delta = FVector::ZeroVector;
+		switch( Change )
+		{
+			case ECalibrationChange::MoveUp:
+				Delta.Z = Amount;
+				break;
+
+			case ECalibrationChange::MoveDown:
+				Delta.Z = -Amount;
+				break;
+
+			case ECalibrationChange::MoveLeft:
+				Delta.Y = -Amount;
+				break;
+
+			case ECalibrationChange::MoveRight:
+				Delta.Y = Amount;
+				break;
+
+			case ECalibrationChange::MoveForward:
+				Delta.X = Amount;
+				break;
+
+			case ECalibrationChange::MoveBackward:
+				Delta.X = -Amount;
+				break;
+			
+			default:
+				check( 0 );
+		}
+		const FTransform InteractorToRoom = LaserInteractor->GetInteractorData().RoomSpaceTransform;
+		FTransform NewCalibrationOffset = CalibrationTransformOffset;
+		NewCalibrationOffset.SetLocation( NewCalibrationOffset.GetLocation() + InteractorToRoom.TransformVectorNoScale( Delta ) );
+		SetCalibrationTransformOffset( NewCalibrationOffset );
+	}
+}
+
+
+bool UVREditorMode::InputKey( FEditorViewportClient* InViewportClient, FViewport* Viewport, FKey Key, EInputEvent Event )
+{
+	bool bWasHandled = false;
+
+	if( Event == IE_Pressed )
+	{
+		if( Key == EKeys::Multiply )
+		{
+			SetIsCalibrating( !bIsCalibrating );
+			bWasHandled = true;
+		}
+
+		if( bIsCalibrating )
+		{
+			if( Key == EKeys::Enter )
+			{
+				DoCalibrationChange( ECalibrationChange::SetCalibrationToLaserHand );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadFive )
+			{
+				DoCalibrationChange( ECalibrationChange::Reset );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadSeven )
+			{
+				DoCalibrationChange( ECalibrationChange::NegativeYaw );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadNine )
+			{
+				DoCalibrationChange( ECalibrationChange::PositiveYaw );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadEight )
+			{
+				DoCalibrationChange( ECalibrationChange::MoveUp );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadTwo )
+			{
+				DoCalibrationChange( ECalibrationChange::MoveDown );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadFour )
+			{
+				DoCalibrationChange( ECalibrationChange::MoveLeft );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadSix )
+			{
+				DoCalibrationChange( ECalibrationChange::MoveRight );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadOne )
+			{
+				DoCalibrationChange( ECalibrationChange::MoveBackward );
+				bWasHandled = true;
+			}
+			else if( Key == EKeys::NumPadThree )
+			{
+				DoCalibrationChange( ECalibrationChange::MoveForward );
+				bWasHandled = true;
+			}
+		}
+	}
+
+	return bWasHandled;
+}
+
+void UVREditorMode::SetCalibrationTransformOffset( const FTransform NewOffset )
+{
+	CalibrationTransformOffset = NewOffset;
+
+	// Save it to disk immediately
+	{
+		const TCHAR* EditorVRModeSettings = TEXT( "EditorVRMode" );
+		const FVector CalLocation = CalibrationTransformOffset.GetLocation();
+		const FRotator CalRotation = CalibrationTransformOffset.GetRotation().Rotator();
+		GConfig->SetVector( EditorVRModeSettings, TEXT( "CalLocation" ), CalLocation, GEditorSettingsIni );
+		GConfig->SetRotator( EditorVRModeSettings, TEXT( "CalRotation" ), CalRotation, GEditorSettingsIni );
+		GConfig->Flush( false, GEditorSettingsIni );
+
+		UE_LOG( LogCore, Log, 
+			TEXT( "PANDA:  SETTING calibration offset to:  %s, %s.  Room space head transform is: %s, %s" ), 
+			*CalLocation.ToString(), *CalRotation.ToString(), 
+			*GetRoomSpaceHeadTransform().GetLocation().ToString(), *GetRoomSpaceHeadTransform().GetRotation().Rotator().ToString() );
+	}
+}
+
+
+AVRReplicatedActor::AVRReplicatedActor()
+{
+	// Don't use smoothing
+	this->StaticMeshComponent->bAllowReplicatedTransformSmoothing = false;
+
+	StaticMeshComponent->Mobility = EComponentMobility::Movable;
+	this->SetReplicateMovement( true );
+	this->SetReplicates( true );
+	this->bAlwaysRelevant = true;
+	this->StaticMeshComponent->SetIsReplicated( true );
+
+	static ConstructorHelpers::FObjectFinder<UMaterial> MaterialFinder( TEXT( "/Engine/EditorMaterials/WidgetMaterial_Z" ) );
+	UMaterial* Material = MaterialFinder.Object;
+	ensure( Material != nullptr );
+	this->StaticMeshComponent->SetMaterial( 0, Material );
+}
+
+void AVRReplicatedActor::BeginPlay()
+{
+	Super::BeginPlay();
+}
+
+
+void ACameraBaseActor::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (IsNetMode(NM_Client) || IsNetMode(NM_Standalone))
+	{
+		AActor* NCamActor = nullptr;
+		for (FActorIterator ActorIt( GetWorld() ); ActorIt; ++ActorIt)
+		{
+			AActor* OtherActor = *ActorIt;
+			if (OtherActor->Tags.Contains(TEXT("NcWorldOrigin")))
+			{
+				NCamActor = OtherActor;
+				break;
+			}
+		}
+
+		if( ensure( NCamActor != nullptr ) )
+		{
+			NCamActor->AttachToActor( this, FAttachmentTransformRules::SnapToTargetNotIncludingScale, NAME_None );
+		}
+	}
+}
+
+
+void AHMDTransformActor::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if( IsNetMode( NM_Client ) || IsNetMode( NM_Standalone ) )
+	{
+		AActor* NCamActor = nullptr;
+		for( FActorIterator ActorIt( GetWorld() ); ActorIt; ++ActorIt )
+		{
+			AActor* OtherActor = *ActorIt;
+			if( OtherActor->Tags.Contains( TEXT( "NcDepthTarget" ) ) )
+			{
+				NCamActor = OtherActor;
+				break;
+			}
+		}
+
+		if( ensure( NCamActor != nullptr ) )
+		{
+			NCamActor->AttachToActor( this, FAttachmentTransformRules::SnapToTargetNotIncludingScale, NAME_None );
+		}
+	}
+}
+
+
+void UVREditorMode::TeleportToTaggedActor( const TArray< FString >& Args )
+{
+	if( Args.Num() > 0 )
+	{
+		const FName ActorTag = FName( *Args[ 0 ] );
+		
+				
+		TArray<AActor*> TaggedActors;
+		UGameplayStatics::GetAllActorsWithTag( GetWorld(), ActorTag, /* Out */ TaggedActors );
+
+		if( ensure( TaggedActors.Num() > 0 ) )
+		{
+			AActor* TaggedActor = TaggedActors[ 0 ];
+
+			// Reset scale
+			WorldInteraction->SetWorldToMetersScale( 100.0f, false );
+			WorldInteraction->SkipInteractiveWorldMovementThisFrame();
+
+			// Teleport.  Take into account calibration offset.
+			{
+				const FTransform TargetToRoom = CalibrationTransformOffset;
+				const FTransform RoomActorToWorld = TaggedActor->GetActorTransform();
+				const FTransform NewRoomToWorld = TargetToRoom.Inverse() * RoomActorToWorld;
+				SetRoomTransform( NewRoomToWorld );
+			}
+		}
+	}
+}
+
 
 #undef LOCTEXT_NAMESPACE

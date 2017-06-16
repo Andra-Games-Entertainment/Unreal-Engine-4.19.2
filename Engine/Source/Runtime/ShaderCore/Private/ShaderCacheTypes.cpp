@@ -8,12 +8,6 @@
 #include "ShaderCache.h"
 #include "Serialization/MemoryWriter.h"
 
-#if RWLOCK_DEBUG_CHECKS
-thread_local TArray<uint32> FRWMutex::LockLevels;
-#endif
-
-bool FShaderDrawKey::bTrackDrawResources = true;
-
 FArchive& operator<<( FArchive& Ar, FShaderCaches& Info )
 {
 	uint32 CacheVersion = Ar.IsLoading() ? ((uint32)~0u) : ((uint32)FShaderCacheCustomVersion::Latest);

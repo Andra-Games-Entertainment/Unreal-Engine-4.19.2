@@ -26,8 +26,19 @@ public class MovieSceneTracks : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[] {
 				"SlateCore",
-                "AnimGraphRuntime"
+                "AnimGraphRuntime",
+				"VREditor",			// HACKS for fading while in simulate
+				"LevelEditor"		// HACKS for fading while in simulate
 			}
 		);
+
+		// HACKS for fading while in simulate
+		CircularlyReferencedDependentModules.AddRange(
+			new string[] 
+			{
+				"LevelEditor",
+				"VREditor"
+			}
+		); 
 	}
 }

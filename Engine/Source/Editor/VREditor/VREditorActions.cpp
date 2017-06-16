@@ -7,7 +7,6 @@
 #include "ViewportWorldInteraction.h"
 #include "VREditorInteractor.h"
 #include "VREditorFloatingUI.h"
-#include "VREditorTransformGizmo.h"
 #include "SLevelViewport.h"
 #include "ImageUtils.h"
 #include "FileHelper.h"
@@ -65,7 +64,7 @@ void FVREditorActionCallbacks::OnTranslationSnapSizeButtonClicked()
 
 }
 
-FText FVREditorActionCallbacks::GetTranslationSnapSizeText() 
+FText FVREditorActionCallbacks::GetTranslationSnapSizeText()
 {
 	return FText::AsNumber(GEditor->GetGridSize());
 
@@ -92,7 +91,7 @@ void FVREditorActionCallbacks::OnRotationSnapSizeButtonClicked()
 
 }
 
-FText FVREditorActionCallbacks::GetRotationSnapSizeText() 
+FText FVREditorActionCallbacks::GetRotationSnapSizeText()
 {
 	return FText::AsNumber(GEditor->GetRotGridSize().Yaw);
 }
@@ -117,10 +116,10 @@ void FVREditorActionCallbacks::OnScaleSnapSizeButtonClicked()
 
 	GEditor->SetScaleGridSize(NewGridSize);
 
-	
+
 }
 
-FText FVREditorActionCallbacks::GetScaleSnapSizeText() 
+FText FVREditorActionCallbacks::GetScaleSnapSizeText()
 {
 	return FText::AsNumber(GEditor->GetScaleGridSize());
 }
@@ -167,7 +166,7 @@ FText FVREditorActionCallbacks::GetGizmoCoordinateSystemText()
 	return FVREditorActionCallbacks::GizmoCoordinateSystemText;
 }
 
-void FVREditorActionCallbacks::UpdateGizmoCoordinateSystemText(UVREditorMode* InVRMode) 
+void FVREditorActionCallbacks::UpdateGizmoCoordinateSystemText(UVREditorMode* InVRMode)
 {
 	const ECoordSystem CurrentCoordSystem = InVRMode->GetWorldInteraction().GetTransformGizmoCoordinateSpace(); //@todo VREditor
 	FVREditorActionCallbacks::GizmoCoordinateSystemText = (CurrentCoordSystem == COORD_World ? LOCTEXT("WorldCoordinateSystem", "World") : LOCTEXT("LocalCoordinateSystem", "Local"));
@@ -187,7 +186,7 @@ FText FVREditorActionCallbacks::GetGizmoModeText()
 	return FVREditorActionCallbacks::GizmoModeText;
 }
 
-void FVREditorActionCallbacks::UpdateGizmoModeText(UVREditorMode* InVRMode) 
+void FVREditorActionCallbacks::UpdateGizmoModeText(UVREditorMode* InVRMode)
 {
 	const EGizmoHandleTypes CurrentGizmoType = InVRMode->GetWorldInteraction().GetCurrentGizmoType();
 	FText GizmoTypeText;
@@ -217,12 +216,12 @@ void FVREditorActionCallbacks::UpdateGizmoModeText(UVREditorMode* InVRMode)
 	FVREditorActionCallbacks::GizmoModeText = GizmoTypeText;
 }
 
-void FVREditorActionCallbacks::OnUIToggleButtonClicked(UVREditorMode* InVRMode, const UVREditorUISystem::EEditorUIPanel PanelToToggle)
+void FVREditorActionCallbacks::OnUIToggleButtonClicked(UVREditorMode* InVRMode, VREditorPanelID PanelToToggle)
 {
 	InVRMode->GetUISystem().TogglePanelVisibility(PanelToToggle);
 }
 
-ECheckBoxState FVREditorActionCallbacks::GetUIToggledState(UVREditorMode* InVRMode, const UVREditorUISystem::EEditorUIPanel PanelToCheck)
+ECheckBoxState FVREditorActionCallbacks::GetUIToggledState(UVREditorMode* InVRMode, VREditorPanelID PanelToCheck)
 {
 	return InVRMode->GetUISystem().IsShowingEditorUIPanel(PanelToCheck) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
@@ -295,13 +294,33 @@ void FVREditorActionCallbacks::OnScreenshotButtonClicked(UVREditorMode* InVRMode
 
 void FVREditorActionCallbacks::OnPlayButtonClicked(UVREditorMode* InVRMode)
 {
-	InVRMode->TogglePIEAndVREditor();
+	// HACK to repurpose PLAY button to hide lasers in DemoMode
+	if( GIsDemoMode )
+	{
+		InVRMode->GetWorldInteraction().TemporarilyHideLasers();
+		InVRMode->GetUISystem().HideRadialMenu( false, true );
+
+		// Kick off demo cinematic
+		GEngine->DeferredCommands.Add( TEXT( "ce cine" ) );
+	}
+	else
+	{
+		InVRMode->TogglePIEAndVREditor();
+	}
 }
 
 bool FVREditorActionCallbacks::CanPlay(UVREditorMode* InVRMode)
 {
-	return FLevelEditorActionCallbacks::DefaultCanExecuteAction() && VREd::AllowPlay->GetInt() == 1 &&
-		(InVRMode->GetHMDDeviceType() != EHMDDeviceType::DT_OculusRift || (InVRMode->GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift && GEditor != nullptr && !GEditor->bIsSimulatingInEditor));
+	// HACK to repurpose PLAY button to hide lasers in DemoMode
+	if( GIsDemoMode )
+	{
+		return true;
+	}
+	else
+	{
+		return FLevelEditorActionCallbacks::DefaultCanExecuteAction() && VREd::AllowPlay->GetInt() == 1 &&
+			(InVRMode->GetHMDDeviceType() != EHMDDeviceType::DT_OculusRift || (InVRMode->GetHMDDeviceType() == EHMDDeviceType::DT_OculusRift && GEditor != nullptr && !GEditor->bIsSimulatingInEditor));
+	}
 }
 
 void FVREditorActionCallbacks::OnSimulateButtonClicked(UVREditorMode* InVRMode)
@@ -311,14 +330,14 @@ void FVREditorActionCallbacks::OnSimulateButtonClicked(UVREditorMode* InVRMode)
 
 FText FVREditorActionCallbacks::GetSimulateText()
 {
-	return GEditor->bIsSimulatingInEditor ? LOCTEXT( "SimulateStopButton", "Stop" ) : LOCTEXT( "SimulateStartButton", "Simulate" );
+	return GEditor->bIsSimulatingInEditor ? LOCTEXT("SimulateStopButton", "Stop") : LOCTEXT("SimulateStartButton", "Simulate");
 }
 
 void FVREditorActionCallbacks::OnSnapActorsToGroundClicked(UVREditorMode* InVRMode)
 {
 	InVRMode->SnapSelectedActorsToGround();
 }
- 
+
 void FVREditorActionCallbacks::SimulateCharacterEntry(const FString InChar)
 {
 
@@ -344,18 +363,18 @@ void FVREditorActionCallbacks::SimulateKeyDown(const FKey Key, const bool bRepea
 {
 	const uint32* KeyCodePtr;
 	const uint32* CharCodePtr;
-	FInputKeyManager::Get().GetCodesFromKey( Key, KeyCodePtr, CharCodePtr );
+	FInputKeyManager::Get().GetCodesFromKey(Key, KeyCodePtr, CharCodePtr);
 
 	uint32 KeyCode = KeyCodePtr ? *KeyCodePtr : 0;
 	uint32 CharCode = CharCodePtr ? *CharCodePtr : 0;
 
-	FKeyEvent KeyEvent( Key, FModifierKeysState::FModifierKeysState(), 0, bRepeat, KeyCode, CharCode );
-	bool DownResult = FSlateApplication::Get().ProcessKeyDownEvent( KeyEvent );
+	FKeyEvent KeyEvent(Key, FModifierKeysState::FModifierKeysState(), 0, bRepeat, KeyCode, CharCode);
+	bool DownResult = FSlateApplication::Get().ProcessKeyDownEvent(KeyEvent);
 
 	if (CharCodePtr)
 	{
-		FCharacterEvent CharacterEvent( CharCode, FModifierKeysState::FModifierKeysState(), 0, bRepeat );
-		FSlateApplication::Get().ProcessKeyCharEvent( CharacterEvent );
+		FCharacterEvent CharacterEvent(CharCode, FModifierKeysState::FModifierKeysState(), 0, bRepeat);
+		FSlateApplication::Get().ProcessKeyCharEvent(CharacterEvent);
 	}
 }
 
@@ -363,13 +382,13 @@ void FVREditorActionCallbacks::SimulateKeyUp(const FKey Key)
 {
 	const uint32* KeyCodePtr;
 	const uint32* CharCodePtr;
-	FInputKeyManager::Get().GetCodesFromKey( Key, KeyCodePtr, CharCodePtr );
+	FInputKeyManager::Get().GetCodesFromKey(Key, KeyCodePtr, CharCodePtr);
 
 	uint32 KeyCode = KeyCodePtr ? *KeyCodePtr : 0;
 	uint32 CharCode = CharCodePtr ? *CharCodePtr : 0;
 
-	FKeyEvent KeyEvent( Key, FModifierKeysState::FModifierKeysState(), 0, false, KeyCode, CharCode );
-	FSlateApplication::Get().ProcessKeyUpEvent( KeyEvent );
+	FKeyEvent KeyEvent(Key, FModifierKeysState::FModifierKeysState(), 0, false, KeyCode, CharCode);
+	FSlateApplication::Get().ProcessKeyUpEvent(KeyEvent);
 }
 
 void FVREditorActionCallbacks::CreateNewSequence(UVREditorMode* InVRMode)
@@ -576,6 +595,11 @@ void FVREditorActionCallbacks::DeselectAll()
 	GEditor->SelectNone(true, true, false);
 	GEditor->GetSelectedActors()->DeselectAll();
 	GEditor->GetSelectedObjects()->DeselectAll();
+}
+
+void FVREditorActionCallbacks::DemoActivate(UVREditorMode* InVRMode)
+{
+	GUnrealEd->Exec(InVRMode->GetWorld(), TEXT("ke * demoactivate"));
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -49,6 +49,8 @@ struct CORE_API FRenderingObjectVersion
 
 		ShaderResourceCodeSharing,
 
+		MotionBlurAndTAASupportInSceneCapture2d,
+
 		// -----<new versions can be added above this line>-------------------------------------------------
 		VersionPlusOne,
 		LatestVersion = VersionPlusOne - 1

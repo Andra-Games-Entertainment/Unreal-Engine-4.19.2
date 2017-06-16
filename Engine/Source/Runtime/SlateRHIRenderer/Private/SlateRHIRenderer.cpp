@@ -463,8 +463,12 @@ void FSlateRHIRenderer::OnWindowDestroyed( const TSharedRef<SWindow>& InWindow )
 	{
 		OnSlateWindowDestroyedDelegate.Broadcast(&(*ViewportInfoPtr)->ViewportRHI);
 
+		// Need to flush rendering commands as the viewport may be in use by the render thread
+		// and the rendering resources must be released on the render thread before the viewport can be deleted
+		FlushRenderingCommands();
+		
 		BeginReleaseResource(*ViewportInfoPtr);
-
+		
 		// Need to flush rendering commands as the viewport may be in use by the render thread
 		// and the rendering resources must be released on the render thread before the viewport can be deleted
 		FlushRenderingCommands();

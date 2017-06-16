@@ -28,7 +28,8 @@ enum EMetalLimits
 {
 	ML_MaxSamplers = 16, /** Maximum number of samplers */
 	ML_MaxBuffers = METAL_MAX_BUFFERS, /** Maximum number of buffers */
-	ML_MaxTextures = METAL_MAX_TEXTURES /** Maximum number of textures - there are more textures available on Mac than iOS */
+	ML_MaxTextures = METAL_MAX_TEXTURES, /** Maximum number of textures - there are more textures available on Mac than iOS */
+	ML_MaxViewports = 16 /** Technically this may be different at runtime, but this is the likely absolute upper-bound */
 };
 
 enum EMetalShaderFrequency

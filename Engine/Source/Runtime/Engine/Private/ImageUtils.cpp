@@ -10,10 +10,44 @@ ImageUtils.cpp: Image utility functions.
 #include "Engine/TextureRenderTarget2D.h"
 #include "CubemapUnwrapUtils.h"
 #include "Logging/MessageLog.h"
+#include "FileHelper.h"
+#include "DDSLoader.h"
+#include "IImageWrapperModule.h"
+#include "HDRLoader.h"
+#include "ModuleManager.h"
+#include "Paths.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogImageUtils, Log, All);
 
 #define LOCTEXT_NAMESPACE "ImageUtils"
+
+static bool GetRawData(UTextureRenderTarget2D* TexRT, TArray<uint8>& RawData)
+{
+	FRenderTarget* RenderTarget = TexRT->GameThread_GetRenderTargetResource();
+	EPixelFormat Format = TexRT->GetFormat();
+
+	int32 ImageBytes = CalculateImageBytes(TexRT->SizeX, TexRT->SizeY, 0, Format);
+	RawData.AddUninitialized(ImageBytes);
+	bool bReadSuccess = false;
+	switch (Format)
+	{
+	case PF_FloatRGBA:
+	{
+		TArray<FFloat16Color> FloatColors;
+		bReadSuccess = RenderTarget->ReadFloat16Pixels(FloatColors);
+		FMemory::Memcpy(RawData.GetData(), FloatColors.GetData(), ImageBytes);
+	}
+	break;
+	case PF_B8G8R8A8:
+		bReadSuccess = RenderTarget->ReadPixelsPtr((FColor*)RawData.GetData());
+		break;
+	}
+	if (bReadSuccess == false)
+	{
+		RawData.Empty();
+	}
+	return bReadSuccess;
+}
 
 /**
  * Resizes the given image using a simple average filter and stores it in the destination array.
@@ -301,6 +335,7 @@ UTexture2D* FImageUtils::CreateCheckerboardTexture(FColor ColorOne, FColor Color
 
 	return CheckerboardTexture;
 }
+
 
 /*------------------------------------------------------------------------------
 HDR file format helper.
@@ -591,31 +626,7 @@ private:
 	* @param RawData - an array to be filled with pixel data.
 	* @return true if RawData has been successfully filled.
 	*/
-	bool GetRawData(UTextureRenderTarget2D* TexRT, TArray<uint8>& RawData)
-	{
-		FRenderTarget* RenderTarget = TexRT->GameThread_GetRenderTargetResource();
-		int32 ImageBytes = CalculateImageBytes(TexRT->SizeX, TexRT->SizeY, 0, Format);
-		RawData.AddUninitialized(ImageBytes);
-		bool bReadSuccess = false;
-		switch (Format)
-		{
-		case PF_FloatRGBA:
-		{
-			TArray<FFloat16Color> FloatColors;
-			bReadSuccess = RenderTarget->ReadFloat16Pixels(FloatColors);
-			FMemory::Memcpy(RawData.GetData(), FloatColors.GetData(), ImageBytes);
-		}
-		break;
-		case PF_B8G8R8A8:
-			bReadSuccess = RenderTarget->ReadPixelsPtr((FColor*)RawData.GetData());
-			break;
-		}
-		if (bReadSuccess == false)
-		{
-			RawData.Empty();
-		}
-		return bReadSuccess;
-	}
+	
 
 	static FColor ToRGBEDithered(const FLinearColor& ColorIN, const FRandomStream& Rand)
 	{
@@ -653,10 +664,180 @@ bool FImageUtils::ExportRenderTarget2DAsHDR(UTextureRenderTarget2D* TexRT, FArch
 	return Exporter.ExportHDR(TexRT, Ar);
 }
 
+bool FImageUtils::ExportRenderTarget2DAsPNG(UTextureRenderTarget2D* TexRT, FArchive& Ar)
+{
+	bool bSuccess = false;
+	if(TexRT->GetFormat() == PF_B8G8R8A8)
+	{
+		check(TexRT != nullptr);
+		FRenderTarget* RenderTarget = TexRT->GameThread_GetRenderTargetResource();
+		FIntPoint Size = RenderTarget->GetSizeXY();
+
+		TArray<uint8> RawData;
+		bSuccess = GetRawData(TexRT, RawData);
+
+		IImageWrapperModule& ImageWrapperModule = FModuleManager::Get().LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+
+		IImageWrapperPtr PNGImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+
+		PNGImageWrapper->SetRaw(RawData.GetData(), RawData.GetAllocatedSize(), Size.X, Size.Y, ERGBFormat::BGRA, 8);
+
+		const TArray<uint8>& PNGData = PNGImageWrapper->GetCompressed(100);
+
+		Ar.Serialize((void*)PNGData.GetData(), PNGData.GetAllocatedSize());
+		bSuccess = true;
+	}
+
+	return bSuccess;
+}
+
+ENGINE_API bool FImageUtils::ExportRenderTarget2DAsEXR(UTextureRenderTarget2D* TexRT, FArchive& Ar)
+{
+	bool bSuccess = false;
+	if(TexRT->GetFormat() == PF_B8G8R8A8 || TexRT->GetFormat() == PF_FloatRGBA)
+	{
+		check(TexRT != nullptr);
+		FRenderTarget* RenderTarget = TexRT->GameThread_GetRenderTargetResource();
+		FIntPoint Size = RenderTarget->GetSizeXY();
+
+		TArray<uint8> RawData;
+		bSuccess = GetRawData(TexRT, RawData);
+
+		int32 BitsPerPixel = TexRT->GetFormat() == PF_B8G8R8A8 ? 8 : (sizeof(FFloat16Color) / 4) * 8;
+		ERGBFormat::Type RGBFormat = TexRT->GetFormat() == PF_B8G8R8A8 ? ERGBFormat::BGRA : ERGBFormat::RGBA;
+
+		IImageWrapperModule& ImageWrapperModule = FModuleManager::Get().LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+
+		IImageWrapperPtr EXRImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::EXR);
+
+		EXRImageWrapper->SetRaw(RawData.GetData(), RawData.GetAllocatedSize(), Size.X, Size.Y, RGBFormat, BitsPerPixel);
+
+		const TArray<uint8>& Data = EXRImageWrapper->GetCompressed(100);
+
+		Ar.Serialize((void*)Data.GetData(), Data.GetAllocatedSize());
+
+		bSuccess = true;
+	}
+
+	return bSuccess;
+}
+
 bool FImageUtils::ExportTexture2DAsHDR(UTexture2D* TexRT, FArchive& Ar)
 {
 	FHDRExportHelper Exporter;
 	return Exporter.ExportHDR(TexRT, Ar);
+}
+
+UTexture2D* FImageUtils::ImportFileAsTexture2D(const FString& Filename)
+{
+	IImageWrapperModule& ImageWrapperModule = FModuleManager::Get().LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+
+	UTexture2D* NewTexture = nullptr;
+	TArray<uint8> Buffer;
+	if (FFileHelper::LoadFileToArray(Buffer, *Filename))
+	{
+		EPixelFormat PixelFormat = PF_Unknown;
+
+		uint8* RawData = nullptr;
+		int32 BitDepth = 0;
+		int32 Width = 0;
+		int32 Height = 0;
+
+		if (FPaths::GetExtension(Filename) == TEXT("HDR"))
+		{
+			FHDRLoadHelper HDRLoadHelper(Buffer.GetData(), Buffer.GetAllocatedSize());
+			if(HDRLoadHelper.IsValid())
+			{
+				TArray<uint8> DDSFile;
+				HDRLoadHelper.ExtractDDSInRGBE(DDSFile);
+				FDDSLoadHelper HDRDDSLoadHelper(DDSFile.GetData(), DDSFile.Num());
+
+				if (HDRDDSLoadHelper.IsValid2DTexture())
+				{
+					PixelFormat = HDRDDSLoadHelper.ComputePixelFormat();
+					Width = HDRDDSLoadHelper.DDSHeader->dwWidth;
+					Height = HDRDDSLoadHelper.DDSHeader->dwHeight;
+
+					NewTexture = UTexture2D::CreateTransient(Width, Height, PixelFormat);
+					if (NewTexture)
+					{
+						uint8* MipData = static_cast<uint8*>(NewTexture->PlatformData->Mips[0].BulkData.Lock(LOCK_READ_WRITE));
+
+						// Bulk data was already allocated for the correct size when we called CreateTransient above
+						FMemory::Memcpy(MipData, HDRDDSLoadHelper.GetDDSDataPointer(), NewTexture->PlatformData->Mips[0].BulkData.GetBulkDataSize());
+
+						NewTexture->PlatformData->Mips[0].BulkData.Unlock();
+					}
+
+				}
+			}
+		}
+		else
+		{
+			EImageFormat::Type Format = ImageWrapperModule.DetectImageFormat(Buffer.GetData(), Buffer.GetAllocatedSize());
+
+			if (Format != EImageFormat::Invalid)
+			{
+				IImageWrapperPtr ImageWrapper = ImageWrapperModule.CreateImageWrapper(Format);
+
+				if (ImageWrapper->SetCompressed((void*)Buffer.GetData(), Buffer.GetAllocatedSize()))
+				{
+					PixelFormat = PF_Unknown;
+
+					ERGBFormat::Type RGBFormat = ERGBFormat::Invalid;
+		
+					BitDepth = ImageWrapper->GetBitDepth();
+
+					Width = ImageWrapper->GetWidth();
+					Height = ImageWrapper->GetHeight();
+
+					if (BitDepth == 16)
+					{
+						PixelFormat = PF_FloatRGBA;
+						RGBFormat = ERGBFormat::BGRA;
+					}
+					else if (BitDepth == 8)
+					{
+						PixelFormat = PF_B8G8R8A8;
+						RGBFormat = ERGBFormat::BGRA;
+					}
+					else
+					{
+						UE_LOG(LogImageUtils, Warning, TEXT("Error creating texture. %s is not a valid bit depth (%d)"), BitDepth);
+					}
+
+					const TArray<uint8>* UncompressedData = nullptr;
+					ImageWrapper->GetRaw(RGBFormat, BitDepth, UncompressedData);
+
+					NewTexture = UTexture2D::CreateTransient(Width, Height, PixelFormat);
+					if (NewTexture)
+					{
+						uint8* MipData = static_cast<uint8*>(NewTexture->PlatformData->Mips[0].BulkData.Lock(LOCK_READ_WRITE));
+
+						// Bulk data was already allocated for the correct size when we called CreateTransient above
+						FMemory::Memcpy(MipData, UncompressedData->GetData(), NewTexture->PlatformData->Mips[0].BulkData.GetBulkDataSize());
+
+						NewTexture->PlatformData->Mips[0].BulkData.Unlock();
+					}
+				}
+			}
+		}
+
+		if(!NewTexture)
+		{
+			UE_LOG(LogImageUtils, Warning, TEXT("Error creating texture. %s is not a supported file format"), *Filename)
+		}	
+		else
+		{
+			NewTexture->UpdateResource();
+		}
+	}
+	else
+	{
+		UE_LOG(LogImageUtils, Warning, TEXT("Error creating texture. %s could not be found"), *Filename)
+	}
+
+	return NewTexture;
 }
 
 bool FImageUtils::ExportRenderTargetCubeAsHDR(UTextureRenderTargetCube* TexRT, FArchive& Ar)

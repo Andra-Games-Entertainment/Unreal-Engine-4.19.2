@@ -169,6 +169,9 @@ private:
 	/** Called when PIE or Simulate ends */
 	void OnEndPIE( bool bWasSimulatingInEditor );
 
+	/** Called when switching between play and simulate */
+	void SwitchPIEAndSIE(bool bIsSimulatingInEditor);
+
 	/** World context */
 	FWorldContext* WorldContext;
 

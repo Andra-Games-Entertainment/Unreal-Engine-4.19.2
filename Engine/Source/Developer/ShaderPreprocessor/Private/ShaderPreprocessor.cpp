@@ -18,7 +18,7 @@ static void AddMcppDefines(FString& OutOptions, const TMap<FString,FString>& Def
 {
 	for (TMap<FString,FString>::TConstIterator It(Definitions); It; ++It)
 	{
-		OutOptions += FString::Printf(TEXT(" -D%s=%s"), *(It.Key()), *(It.Value()));
+		OutOptions += FString::Printf(TEXT(" \"-D%s=%s\""), *(It.Key()), *(It.Value()));
 	}
 }
 
@@ -32,13 +32,8 @@ public:
 	explicit FMcppFileLoader(const FShaderCompilerInput& InShaderInput)
 		: ShaderInput(InShaderInput)
 	{
-		FString ShaderDir = FPlatformProcess::ShaderDir();
-
-		InputShaderFile = ShaderDir / FPaths::GetCleanFilename(ShaderInput.SourceFilename);
-		if (FPaths::GetExtension(InputShaderFile) != TEXT("usf"))
-		{
-			InputShaderFile += TEXT(".usf");
-		}
+		// SourceFilename is expected to be relative to the engine shader folder 
+		InputShaderFile = ShaderInput.SourceFilename;
 
 		FString InputShaderSource;
 		if (LoadShaderSourceFile(*ShaderInput.SourceFilename,InputShaderSource))

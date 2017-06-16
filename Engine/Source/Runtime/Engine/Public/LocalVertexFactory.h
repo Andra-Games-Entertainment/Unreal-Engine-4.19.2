@@ -46,9 +46,6 @@ public:
 		FVertexStreamComponent ColorComponent;
 	};
 
-	DEPRECATED(4.11, "DataType has been renamed to FDataType.")
-	typedef FDataType DataType;
-
 	/**
 	 * Should we cache the material's shadertype on this platform with this vertex factory? 
 	 */
@@ -81,7 +78,7 @@ public:
 	{
 		checkf(ColorVertexBuffer->IsInitialized(), TEXT("Color Vertex buffer was not initialized! Name %s"), *ColorVertexBuffer->GetFriendlyName());
 		checkf(IsInitialized() && Data.ColorComponent.bSetByVertexFactoryInSetMesh && ColorStreamIndex > 0, TEXT("Per-mesh colors with bad stream setup! Name %s"), *ColorVertexBuffer->GetFriendlyName());
-		RHICmdList.SetStreamSource(ColorStreamIndex, ColorVertexBuffer->VertexBufferRHI, Data.ColorComponent.Stride, 0);
+		RHICmdList.SetStreamSource(ColorStreamIndex, ColorVertexBuffer->VertexBufferRHI, 0);
 	}
 
 protected:

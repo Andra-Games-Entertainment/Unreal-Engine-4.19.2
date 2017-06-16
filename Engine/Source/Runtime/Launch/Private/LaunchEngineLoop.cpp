@@ -1023,6 +1023,9 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 	FCString::Strcpy( CommandLineCopy, CommandLineSize, CmdLine );
 	const TCHAR* ParsedCmdLine	= CommandLineCopy;
 
+	// Add the default engine shader dir
+	FGenericPlatformProcess::AddShaderDir(FGenericPlatformProcess::ShaderDir());
+
 	FString Token				= FParse::Token( ParsedCmdLine, 0);
 
 #if WITH_ENGINE

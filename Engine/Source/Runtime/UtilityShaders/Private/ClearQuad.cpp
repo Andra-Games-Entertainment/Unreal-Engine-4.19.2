@@ -105,7 +105,7 @@ static void ClearQuadSetup( FRHICommandList& RHICmdList, ERHIFeatureLevel::Type 
 	PixelShader->SetColors(RHICmdList, ClearColorArray, NumClearColors);
 }
 
-const uint32 GMaxSizeUAVDMA = 1024;
+const uint32 GMaxSizeUAVDMA = 0;
 static void ClearUAVShader(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FUnorderedAccessViewRHIParamRef UnorderedAccessViewRHI, uint32 Size, uint32 Value)
 {
 	TShaderMapRef<FClearBufferReplacementCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
@@ -141,6 +141,19 @@ void ClearUAV(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, 
 	else
 	{
 		ClearUAVShader(RHICmdList, FeatureLevel, Buffer.UAV, Buffer.NumBytes, Value);
+	}
+}
+
+void ClearUAV(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FRHIUnorderedAccessView* Buffer, uint32 NumBytes, uint32 Value)
+{
+	if (NumBytes <= GMaxSizeUAVDMA)
+	{
+		uint32 Values[4] = { Value, Value, Value, Value };
+		RHICmdList.ClearTinyUAV(Buffer, Values);
+	}
+	else
+	{
+		ClearUAVShader(RHICmdList, FeatureLevel, Buffer, NumBytes, Value);
 	}
 }
 

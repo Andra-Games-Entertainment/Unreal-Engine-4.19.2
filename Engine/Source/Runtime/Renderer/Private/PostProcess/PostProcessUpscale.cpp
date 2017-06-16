@@ -175,23 +175,24 @@ public:
 		UpscaleSoftness.Bind(Initializer.ParameterMap,TEXT("UpscaleSoftness"));
 	}
 
-	void SetPS(const FRenderingCompositePassContext& Context)
+	template <typename TRHICmdList>
+	void SetPS(TRHICmdList& RHICmdList, const FRenderingCompositePassContext& Context)
 	{
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		
-		FGlobalShader::SetParameters<FViewUniformShaderParameters>(Context.RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
+		FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, Context.View.ViewUniformBuffer);
 
 		FSamplerStateRHIParamRef FilterTable[2];
 		FilterTable[0] = TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI();
 		FilterTable[1] = TStaticSamplerState<SF_Point,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI();
 			
-		PostprocessParameter.SetPS(ShaderRHI, Context, 0, eFC_0000, FilterTable);
-		DeferredParameters.Set(Context.RHICmdList, ShaderRHI, Context.View);
+		PostprocessParameter.SetPS(RHICmdList, ShaderRHI, Context, 0, eFC_0000, FilterTable);
+		DeferredParameters.Set(RHICmdList, ShaderRHI, Context.View);
 
 		{
 			float UpscaleSoftnessValue = FMath::Clamp(CVarUpscaleSoftness.GetValueOnRenderThread(), 0.0f, 1.0f);
 
-			SetShaderValue(Context.RHICmdList, ShaderRHI, UpscaleSoftness, UpscaleSoftnessValue);
+			SetShaderValue(RHICmdList, ShaderRHI, UpscaleSoftness, UpscaleSoftnessValue);
 		}
 	}
 	
@@ -225,6 +226,7 @@ VARIATION1(2)
 VARIATION1(3)
 VARIATION1(4)
 VARIATION1(5)
+VARIATION1(6)
 
 #undef VARIATION1
 
@@ -269,7 +271,7 @@ FShader* FRCPassPostProcessUpscale::SetShader(const FRenderingCompositePassConte
 		GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
 		SetGraphicsPipelineState(Context.RHICmdList, GraphicsPSOInit);
 
-		PixelShader->SetPS(Context);
+		PixelShader->SetPS(Context.RHICmdList, Context);
 		VertexShader->SetParameters(Context, PaniniConfig);
 		return *VertexShader;
 	}
@@ -285,7 +287,7 @@ FShader* FRCPassPostProcessUpscale::SetShader(const FRenderingCompositePassConte
 		GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
 		SetGraphicsPipelineState(Context.RHICmdList, GraphicsPSOInit);
 
-		PixelShader->SetPS(Context);
+		PixelShader->SetPS(Context.RHICmdList, Context);
 		VertexShader->SetParameters(Context);
 		return *VertexShader;
 	}
@@ -342,6 +344,7 @@ void FRCPassPostProcessUpscale::Process(FRenderingCompositePassContext& Context)
 			case 3:	VertexShader = SetShader<3, 1>(Context, PaniniConfig); break;
 			case 4:	VertexShader = SetShader<4, 1>(Context, PaniniConfig); break;
 			case 5:	VertexShader = SetShader<5, 1>(Context, PaniniConfig); break;
+			case 6:	VertexShader = SetShader<6, 1>(Context, PaniniConfig); break;
 			default:
 				checkNoEntry();
 				break;
@@ -357,6 +360,7 @@ void FRCPassPostProcessUpscale::Process(FRenderingCompositePassContext& Context)
 			case 3:	VertexShader = SetShader<3, 0>(Context, PaniniParams::Default); break;
 			case 4:	VertexShader = SetShader<4, 0>(Context, PaniniParams::Default); break;
 			case 5:	VertexShader = SetShader<5, 0>(Context, PaniniParams::Default); break;
+			case 6:	VertexShader = SetShader<6, 0>(Context, PaniniParams::Default); break;
 			default:
 				checkNoEntry();
 				break;

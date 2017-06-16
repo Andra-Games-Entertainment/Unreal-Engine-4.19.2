@@ -2061,6 +2061,11 @@ void FSequencer::PossessPIEViewports(UObject* CameraObject, UObject* UnlockIfCam
 	}
 }
 
+TSharedPtr<class ITimeSlider> FSequencer::GetTopTimeSliderWidget() const
+{
+	return SequencerWidget->GetTopTimeSliderWidget();
+}
+
 void FSequencer::UpdateCameraCut(UObject* CameraObject, UObject* UnlockIfCameraObject, bool bJumpCut)
 {
 	OnCameraCutEvent.Broadcast(CameraObject, bJumpCut);
@@ -5943,6 +5948,40 @@ void FSequencer::FixActorReferences()
 	}
 }
 
+void FSequencer::RebindPossessableReferences()
+{
+	FScopedTransaction Transaction(LOCTEXT("RebindAllPossessables", "Rebind Possessable References"));
+
+	UMovieSceneSequence* FocusedSequence = GetFocusedMovieSceneSequence();
+	FocusedSequence->Modify();
+
+	UMovieScene* FocusedMovieScene = FocusedSequence->GetMovieScene();
+
+	TMap<FGuid, TArray<UObject*, TInlineAllocator<1>>> AllObjects;
+
+	UObject* PlaybackContext = PlaybackContextAttribute.Get(nullptr);
+
+	for (int32 Index = 0; Index < FocusedMovieScene->GetPossessableCount(); Index++)
+	{
+		const FMovieScenePossessable& Possessable = FocusedMovieScene->GetPossessable(Index);
+
+		TArray<UObject*, TInlineAllocator<1>>& References = AllObjects.FindOrAdd(Possessable.GetGuid());
+		FocusedSequence->LocateBoundObjects(Possessable.GetGuid(), PlaybackContext, References);
+	}
+
+	for (auto& Pair : AllObjects)
+	{
+		// Only rebind things if they exist
+		if (Pair.Value.Num() > 0)
+		{
+			FocusedSequence->UnbindPossessableObjects(Pair.Key);
+			for (UObject* Object : Pair.Value)
+			{
+				FocusedSequence->BindPossessableObject(Pair.Key, *Object, PlaybackContext);
+			}
+		}
+	}
+}
 
 float SnapTime( float TimeValue, float TimeInterval )
 {
@@ -6729,6 +6768,11 @@ void FSequencer::BindCommands()
 	SequencerCommandBindings->MapAction(
 		Commands.FixActorReferences,
 		FExecuteAction::CreateSP( this, &FSequencer::FixActorReferences ),
+		FCanExecuteAction::CreateLambda( []{ return true; } ) );
+
+	SequencerCommandBindings->MapAction(
+		Commands.RebindPossessableReferences,
+		FExecuteAction::CreateSP( this, &FSequencer::RebindPossessableReferences ),
 		FCanExecuteAction::CreateLambda( []{ return true; } ) );
 
 	SequencerCommandBindings->MapAction(

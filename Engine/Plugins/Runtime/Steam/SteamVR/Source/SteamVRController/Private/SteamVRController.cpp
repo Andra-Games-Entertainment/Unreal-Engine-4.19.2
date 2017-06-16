@@ -292,7 +292,6 @@ public:
 				{
 					HandToUse = (HandToUse == EControllerHand::Left) ? EControllerHand::Right : EControllerHand::Left; 
 				}
-
 				if (VRSystem->GetControllerState(DeviceIndex, &VRControllerState, sizeof(vr::VRControllerState_t)))
 				{
 					if (VRControllerState.unPacketNum != ControllerState.PacketNum )

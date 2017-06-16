@@ -1343,6 +1343,7 @@ uint32 FPooledRenderTarget::Release() const
 			NonConstItem.SafeRelease();
 			delete this;
 		}
+#if !PLATFORM_MAC
 		else if (IsFree() && GIsRHIInitialized)
 		{
 			FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
@@ -1352,6 +1353,7 @@ uint32 FPooledRenderTarget::Release() const
 				RHICmdList.SetResourceAliasability(EResourceAliasability::EAliasable, &Texture, 1);
 			}
 		}
+#endif
 		return Refs;
 	}
 	check(NumRefs == 1);

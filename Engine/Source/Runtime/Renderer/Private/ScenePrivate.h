@@ -431,8 +431,14 @@ public:
 		return PrimitiveFadingOutLODMap[PrimIndex];
 	}
 
+	bool IsNodeHidden(const int32 PrimIndex) const
+	{
+		return HiddenChildPrimitiveMap.IsValidIndex(PrimIndex) && HiddenChildPrimitiveMap[PrimIndex];
+	}
+
 	TBitArray<>	PrimitiveFadingLODMap;
 	TBitArray<>	PrimitiveFadingOutLODMap;
+	TBitArray<>	HiddenChildPrimitiveMap;
 	float		TemporalLODSyncTime;
 	uint16		UpdateCount;
 };
@@ -1102,28 +1108,9 @@ public:
 
 		UMaterialInstanceDynamic* NewMID = 0;
 
-		if(MIDUsedCount < (uint32)MIDPool.Num())
-		{
-			NewMID = MIDPool[MIDUsedCount];
-
-			if(NewMID->Parent != ParentOfTheNewMID)
-			{
-				// create a new one
-				// garbage collector will remove the old one
-				// this should not happen too often
-				NewMID = UMaterialInstanceDynamic::Create(ParentOfTheNewMID, 0);
-				MIDPool[MIDUsedCount] = NewMID;
-			}
-
-			// reusing an existing object means we need to clear out the Vector and Scalar parameters
-			NewMID->ClearParameterValues();
-		}
-		else
 		{
 			NewMID = UMaterialInstanceDynamic::Create(ParentOfTheNewMID, 0);
 			check(NewMID);
-
-			MIDPool.Add(NewMID);
 		}
 
 		if(InputAsMID)

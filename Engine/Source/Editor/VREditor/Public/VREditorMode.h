@@ -15,6 +15,7 @@
 #include "HeadMountedDisplayTypes.h"
 #include "Kismet/HeadMountedDisplayFunctionLibrary.h"
 #include "UI/VRRadialMenuHandler.h"
+#include "Engine/StaticMeshActor.h"
 #include "VREditorMode.generated.h"
 
 class AActor;
@@ -56,15 +57,14 @@ public:
 	/** Default constructor */
 	UVREditorMode();
 
-	/** Cleans up this mode, called when the editor is shutting down */
-	virtual ~UVREditorMode();
-
 	/** Initialize the VREditor */
 	virtual void Init() override;
 
 	/** Shutdown the VREditor */
 	virtual void Shutdown() override;	
 	
+	bool InputKey( FEditorViewportClient* InViewportClient, FViewport* Viewport, FKey Key, EInputEvent Event ) override;
+
 	/** When the user actually enters the VR Editor mode */
 	void Enter();
 
@@ -301,11 +301,30 @@ public:
 
 	/** Return true if currently aiming to teleport. */
 	bool IsAimingTeleport() const;
+	bool IsTeleporting() const;
+
+	void SetIsCalibrating( const bool bNewIsCalibrating );
+
+	enum ECalibrationChange
+	{
+		Reset,
+		SetCalibrationToLaserHand,
+		PositiveYaw,
+		NegativeYaw,
+		MoveUp,
+		MoveDown,
+		MoveLeft,
+		MoveRight,
+		MoveForward,
+		MoveBackward,
+	};
+
+	void DoCalibrationChange( const ECalibrationChange Change );
+	void SetCalibrationTransformOffset( const FTransform NewOffset );
 
 protected:
-
+	
 	virtual void TransitionWorld(UWorld* NewWorld) override;
-	virtual void LeftSimulateInEditor() override;
 
 private:
 
@@ -367,8 +386,22 @@ protected:
 	//
 
 	/** Actor with components to represent the VR avatar in the world, including motion controller meshes */
+	UPROPERTY()
 	class AVREditorAvatarActor* AvatarActor;
 
+public:
+	UPROPERTY()
+	FTransform CalibrationTransformOffset;
+
+protected:
+	UPROPERTY()
+	class AStaticMeshActor* RoomSpacePivotActor;
+
+	UPROPERTY()
+	class AStaticMeshActor* CameraBaseActor;
+
+	UPROPERTY()
+	class AStaticMeshActor* HMDTransformActor;
 
 	//
 	// Flashlight
@@ -439,6 +472,12 @@ protected:
 	UPROPERTY()
 	class UVREditorMotionControllerInteractor* RightHandInteractor; 
 
+
+public:
+	UPROPERTY()
+	bool bIsCalibrating;
+
+
 	//
 	// Colors
 	//
@@ -486,7 +525,7 @@ private:
 	/** The world to meters scale when leaving PIE simulate to restore when back in the editor world. */
 	float SavedWorldToMetersScaleForPIE;
 
-	/** If we started play in editor from the VR Editor*/
+	/** If we started  in editor from the VR Editor*/
 	bool bStartedPlayFromVREditor;	
 
 	/** If we started play in editor from the VR Editor while in simulate. */
@@ -495,4 +534,45 @@ private:
 	/** Container of assets */
 	UPROPERTY()
 	class UVREditorAssetContainer* AssetContainer;
+
+	void DoToggleCalibrationMode();
+
+	struct IConsoleCommand* CalibrateConsoleCommand;
+	struct IConsoleCommand* TeleportToTaggedActorCommand;
+
+public:
+
+	void TeleportToTaggedActor( const TArray< FString >& Args );
+};
+
+
+UCLASS()
+class AVRReplicatedActor : public AStaticMeshActor
+{
+	GENERATED_BODY()
+
+public:
+	AVRReplicatedActor();
+
+	virtual void BeginPlay() override;
+};
+
+
+UCLASS()
+class ACameraBaseActor : public AVRReplicatedActor
+{
+	GENERATED_BODY()
+
+public:
+	virtual void BeginPlay() override;
+};
+
+
+UCLASS()
+class AHMDTransformActor : public AVRReplicatedActor
+{
+	GENERATED_BODY()
+
+public:
+	virtual void BeginPlay() override;
 };

@@ -186,7 +186,7 @@
 #include "IAssetTools.h"
 
 #include "DDSLoader.h"
-#include "Factories/HDRLoader.h"
+#include "HDRLoader.h"
 #include "Factories/IESLoader.h"
 #include "Interfaces/IImageWrapperModule.h"
 

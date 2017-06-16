@@ -154,6 +154,10 @@ public:
 	UFUNCTION()
 	virtual void OnRep_ReplicateMovement();
 
+	/** Called on client when updated ReplicatedScale value is received for this actor */
+	UFUNCTION()
+	virtual void OnRep_ReplicateScale();
+
 	/**
 	 * If true, this actor is no longer replicated to new clients, and is "torn off" (becomes a ROLE_Authority) on clients to which it was being replicated.
 	 * @see TornOff()
@@ -250,6 +254,10 @@ private:
 	 */
 	UPROPERTY(Replicated, transient)
 	TEnumAsByte<enum ENetRole> RemoteRole;
+
+	/** Temporary property to allow replicating scale to the client*/
+	UPROPERTY(ReplicatedUsing = OnRep_ReplicateScale)
+	FVector ReplicatedScale;
 
 	/**
 	 * Owner of this Actor, used primarily for replication (bNetUseOwnerRelevancy & bOnlyRelevantToOwner) and visibility (PrimitiveComponent bOwnerNoSee and bOnlyOwnerSee)
@@ -541,6 +549,10 @@ protected:
 	uint8 bListedInSceneOutliner:1;
 
 public:
+	/** True if this actor is the preview actor dragged out of the content browser */
+	UPROPERTY()
+	uint8 bIsEditorPreviewActor:1;
+
 	/** Whether this actor is hidden by the layer browser. */
 	UPROPERTY()
 	uint8 bHiddenEdLayer:1;
@@ -2107,7 +2119,6 @@ public:
 	/** Called to finish the spawning process, generally in the case of deferred spawning */
 	void FinishSpawning(const FTransform& Transform, bool bIsDefaultTransform = false, const FComponentInstanceDataCache* InstanceDataCache = nullptr);
 
-private:
 	/** Called after the actor has run its construction. Responsible for finishing the actor spawn process. */
 	void PostActorConstruction();
 

@@ -1486,14 +1486,14 @@ public:
 	}
 
 	/** Enables the raw stats mode. */
-	static FORCEINLINE_STATS void EnableRawStats()
+	static FORCEINLINE_STATS void EnableRawStats() TSAN_SAFE
 	{
 		bIsRawStatsActive = true;
 		FPlatformMisc::MemoryBarrier();
 	}
 
 	/** Disables the raw stats mode. */
-	static FORCEINLINE_STATS void DisableRawStats()
+	static FORCEINLINE_STATS void DisableRawStats() TSAN_SAFE
 	{
 		bIsRawStatsActive = false;
 		FPlatformMisc::MemoryBarrier();

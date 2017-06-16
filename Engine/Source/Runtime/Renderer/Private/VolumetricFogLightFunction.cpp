@@ -213,8 +213,7 @@ void FDeferredShadingSceneRenderer::RenderLightFunctionForVolumetricFog(
 			GraphicsPSOInit.BoundShaderState.VertexShaderRHI = GETSAFERHISHADER_VERTEX(*VertexShader);
 			GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(PixelShader);
 
-			FLocalGraphicsPipelineState LightFunctionBoundShaderState = RHICmdList.BuildLocalGraphicsPipelineState(GraphicsPSOInit);
-			RHICmdList.SetLocalGraphicsPipelineState(LightFunctionBoundShaderState);
+			SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
 
 			VertexShader->SetParameters(RHICmdList, View.ViewUniformBuffer);
 			PixelShader->SetParameters(RHICmdList, View, DirectionalLightSceneInfo, MaterialProxy, FVector2D(1.0f / LightFunctionResolution.X, 1.0f / LightFunctionResolution.Y), WorldToShadowValue.Inverse());

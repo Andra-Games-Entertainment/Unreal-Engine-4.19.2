@@ -133,6 +133,7 @@ void AActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 	}
 
 	FEditorSupportDelegates::UpdateUI.Broadcast();
+	ReplicatedScale = GetActorScale3D();
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 
@@ -186,6 +187,7 @@ void AActor::PostEditMove(bool bFinished)
 		// not doing manual update of all attached actors since UpdateActorAndComponentsInNavOctree should take care of it
 		UNavigationSystem::UpdateActorAndComponentsInNavOctree(*this);
 	}
+	ReplicatedScale = GetActorScale3D();
 }
 
 bool AActor::ReregisterComponentsWhenModified() const

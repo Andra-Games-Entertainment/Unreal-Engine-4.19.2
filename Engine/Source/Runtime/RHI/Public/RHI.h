@@ -108,6 +108,18 @@ RHI_API bool RHISupportsTessellation(const EShaderPlatform Platform);
 // helper to check that the shader platform supports writing to UAVs from pixel shaders.
 RHI_API bool RHISupportsPixelShaderUAVs(const EShaderPlatform Platform);
 
+inline bool RHISupportsInstancedStereo(const EShaderPlatform Platform)
+{
+	// Only D3D SM5, PS4 and Metal SM5 supports Instanced Stereo
+	return (Platform == EShaderPlatform::SP_PCD3D_SM5 || Platform == EShaderPlatform::SP_PS4 || Platform == EShaderPlatform::SP_METAL_SM5);
+}
+
+inline bool RHISupportsMultiView(const EShaderPlatform Platform)
+{
+	// Only PS4 and Metal SM5 from 10.13 onward supports Multi-View
+	return (Platform == EShaderPlatform::SP_PS4) || (Platform == EShaderPlatform::SP_METAL_SM5 && RHIGetShaderLanguageVersion(Platform) >= 3);
+}
+
 /** true if the GPU is AMD's Pre-GCN architecture */
 extern RHI_API bool GRHIDeviceIsAMDPreGCNArchitecture;
 
@@ -152,6 +164,9 @@ extern RHI_API bool GSupportsTexture3D;
 
 /** true if the RHI supports mobile multi-view */
 extern RHI_API bool GSupportsMobileMultiView;
+
+/** true if the RHI supports image external */
+extern RHI_API bool GSupportsImageExternal;
 
 /** true if the RHI supports SRVs */
 extern RHI_API bool GSupportsResourceView;

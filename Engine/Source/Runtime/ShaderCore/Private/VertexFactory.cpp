@@ -175,7 +175,7 @@ void FVertexFactory::Set(FRHICommandList& RHICmdList) const
 		if (!Stream.bSetByVertexFactoryInSetMesh)
 		{
 			checkf(Stream.VertexBuffer->IsInitialized(), TEXT("Vertex buffer was not initialized! Stream %u, Stride %u, Name %s"), StreamIndex, Stream.Stride, *Stream.VertexBuffer->GetFriendlyName());
-			RHICmdList.SetStreamSource(StreamIndex, Stream.VertexBuffer->VertexBufferRHI, Stream.Stride, Stream.Offset);
+			RHICmdList.SetStreamSource(StreamIndex, Stream.VertexBuffer->VertexBufferRHI, Stream.Offset);
 		}
 	}
 }
@@ -187,7 +187,7 @@ void FVertexFactory::OffsetInstanceStreams(FRHICommandList& RHICmdList, uint32 F
 		const FVertexStream& Stream = Streams[StreamIndex];
 		if (Stream.bUseInstanceIndex)
 		{
-			RHICmdList.SetStreamSource( StreamIndex, Stream.VertexBuffer->VertexBufferRHI, Stream.Stride, Stream.Offset + Stream.Stride * FirstVertex);
+			RHICmdList.SetStreamSource( StreamIndex, Stream.VertexBuffer->VertexBufferRHI, Stream.Offset + Stream.Stride * FirstVertex);
 		}
 	}
 }
@@ -200,7 +200,7 @@ void FVertexFactory::SetPositionStream(FRHICommandList& RHICmdList) const
 	{
 		const FVertexStream& Stream = PositionStream[StreamIndex];
 		check(Stream.VertexBuffer->IsInitialized());
-		RHICmdList.SetStreamSource( StreamIndex, Stream.VertexBuffer->VertexBufferRHI, Stream.Stride, Stream.Offset);
+		RHICmdList.SetStreamSource( StreamIndex, Stream.VertexBuffer->VertexBufferRHI, Stream.Offset);
 	}
 }
 
@@ -211,7 +211,7 @@ void FVertexFactory::OffsetPositionInstanceStreams(FRHICommandList& RHICmdList, 
 		const FVertexStream& Stream = PositionStream[StreamIndex];
 		if (Stream.bUseInstanceIndex)
 		{
-			RHICmdList.SetStreamSource( StreamIndex, Stream.VertexBuffer->VertexBufferRHI, Stream.Stride, Stream.Offset + Stream.Stride * FirstVertex);
+			RHICmdList.SetStreamSource( StreamIndex, Stream.VertexBuffer->VertexBufferRHI, Stream.Offset + Stream.Stride * FirstVertex);
 		}
 	}
 }
@@ -296,7 +296,6 @@ void FVertexFactory::InitDeclaration(FVertexDeclarationElementList& Elements)
 
 void FVertexFactory::InitPositionDeclaration(const FVertexDeclarationElementList& Elements)
 {
-	// Create the vertex declaration for rendering the factory normally.
 	PositionDeclaration = RHICreateVertexDeclaration(Elements);
 }
 

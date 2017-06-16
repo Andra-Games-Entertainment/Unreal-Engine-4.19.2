@@ -173,8 +173,6 @@ public:
 	/** Destruct all snapshots */
 	void DestroyAllSnapshots();
 
-	static TAutoConsoleVariable<int32> CVarSetSeperateTranslucencyEnabled;
-
 protected:
 	/** Constructor */
 	FSceneRenderTargets(): 
@@ -218,7 +216,7 @@ public:
 	 * Checks that scene render targets are ready for rendering a view family of the given dimensions.
 	 * If the allocated render targets are too small, they are reallocated.
 	 */
-	void Allocate(FRHICommandList& RHICmdList, const FSceneViewFamily& ViewFamily);
+	void Allocate(FRHICommandListImmediate& RHICmdList, const FSceneViewFamily& ViewFamily);
 
 	/**
 	 *
@@ -246,24 +244,26 @@ public:
 	/** Binds the appropriate shadow depth cube map for rendering. */
 	void BeginRenderingCubeShadowDepth(FRHICommandList& RHICmdList, int32 ShadowResolution);
 
+	/** Begin rendering translucency in the scene color. */
 	void BeginRenderingTranslucency(FRHICommandList& RHICmdList, const class FViewInfo& View, bool bFirstTimeThisFrame = true);
-
+	/** Begin rendering translucency in a separate (offscreen) buffer. This can be any translucency pass. */
 	void BeginRenderingSeparateTranslucency(FRHICommandList& RHICmdList, const FViewInfo& View, bool bFirstTimeThisFrame);
-	void FinishRenderingSeparateTranslucency(FRHICommandList& RHICmdList);
+	void FinishRenderingSeparateTranslucency(FRHICommandList& RHICmdList, const FViewInfo& View);
+
 	void FreeSeparateTranslucency()
 	{
 		SeparateTranslucencyRT.SafeRelease();
 		check(!SeparateTranslucencyRT);
 	}
 
-	void FreeSeparateTranslucencyDepth()
+	void FreeDownsampledTranslucencyDepth()
 	{
-		if (SeparateTranslucencyDepthRT.GetReference())
+		if (DownsampledTranslucencyDepthRT.GetReference())
 		{
-			SeparateTranslucencyDepthRT.SafeRelease();
+			DownsampledTranslucencyDepthRT.SafeRelease();
 		}
 	}
-
+	
 	void ResolveSceneDepthTexture(FRHICommandList& RHICmdList, const FResolveRect& ResolveRect);
 	void ResolveSceneDepthToAuxiliaryTexture(FRHICommandList& RHICmdList);
 
@@ -286,24 +286,25 @@ public:
 		DefaultDepthClear = DepthClear;
 	}
 
-	void GetSeparateTranslucencyDimensions(FIntPoint& OutScaledSize, float& OutScale)
+	FORCEINLINE void GetSeparateTranslucencyDimensions(FIntPoint& OutScaledSize, float& OutScale) const
 	{
 		OutScaledSize = SeparateTranslucencyBufferSize;
 		OutScale = SeparateTranslucencyScale;
 	}
 
+	/** Separate translucency buffer can be downsampled or not (as it is used to store the AfterDOF translucency) */
 	TRefCountPtr<IPooledRenderTarget>& GetSeparateTranslucency(FRHICommandList& RHICmdList, FIntPoint Size);
 
-	bool IsSeparateTranslucencyDepthValid()
+	bool IsDownsampledTranslucencyDepthValid()
 	{
-		return SeparateTranslucencyDepthRT != nullptr;
+		return DownsampledTranslucencyDepthRT != nullptr;
 	}
 
-	TRefCountPtr<IPooledRenderTarget>& GetSeparateTranslucencyDepth(FRHICommandList& RHICmdList, FIntPoint Size);
+	TRefCountPtr<IPooledRenderTarget>& GetDownsampledTranslucencyDepth(FRHICommandList& RHICmdList, FIntPoint Size);
 
-	const FTexture2DRHIRef& GetSeparateTranslucencyDepthSurface()
+	const FTexture2DRHIRef& GetDownsampledTranslucencyDepthSurface()
 	{
-		return (const FTexture2DRHIRef&)SeparateTranslucencyDepthRT->GetRenderTargetItem().TargetableTexture;
+		return (const FTexture2DRHIRef&)DownsampledTranslucencyDepthRT->GetRenderTargetItem().TargetableTexture;
 	}
 
 	/**
@@ -421,11 +422,21 @@ public:
 
 	// ---
 
+	template<int32 NumRenderTargets>
+	static void ClearVolumeTextures(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);	
+
+	void ClearTranslucentVolumeLighting(FRHICommandListImmediate& RHICmdList);
+
 	/** Get the current translucent ambient lighting volume texture. Can vary depending on whether volume filtering is enabled */
 	IPooledRenderTarget* GetTranslucencyVolumeAmbient(ETranslucencyVolumeCascade Cascade) { return TranslucencyLightingVolumeAmbient[SelectTranslucencyVolumeTarget(Cascade)].GetReference(); }
 
 	/** Get the current translucent directional lighting volume texture. Can vary depending on whether volume filtering is enabled */
 	IPooledRenderTarget* GetTranslucencyVolumeDirectional(ETranslucencyVolumeCascade Cascade) { return TranslucencyLightingVolumeDirectional[SelectTranslucencyVolumeTarget(Cascade)].GetReference(); }
+
+	bool IsValidGBufferResourcesUniformBuffer() const
+	{
+		return IsValidRef(GBufferResourcesUniformBuffer);
+	}
 
 	// ---
 	/** Get the uniform buffer containing GBuffer resources. */
@@ -514,13 +525,7 @@ public:
 
 	TRefCountPtr<IPooledRenderTarget>& GetReflectionBrightnessTarget();
 
-
-	bool IsSeparateTranslucencyActive(const FViewInfo& View) const;
-
-	bool IsSeparateTranslucencyPass()
-	{
-		return bSeparateTranslucencyPass;
-	}
+	FORCEINLINE bool IsSeparateTranslucencyPass() const { return bSeparateTranslucencyPass; }
 	
 	// Can be called when the Scene Color content is no longer needed. As we create SceneColor on demand we can make sure it is created with the right format.
 	// (as a call to SetSceneColor() can override it with a different format)
@@ -608,7 +613,8 @@ public:
 
 	/** ONLY for snapshots!!! this is a copy of the SeparateTranslucencyRT from the view state. */
 	TRefCountPtr<IPooledRenderTarget> SeparateTranslucencyRT;
-	TRefCountPtr<IPooledRenderTarget> SeparateTranslucencyDepthRT;
+	/** Downsampled depth used when rendering translucency in smaller resolution. */
+	TRefCountPtr<IPooledRenderTarget> DownsampledTranslucencyDepthRT;
 
 	// todo: free ScreenSpaceAO so pool can reuse
 	bool bScreenSpaceAOIsValid;
@@ -646,11 +652,11 @@ private:
 public:
 	/** Allocates render targets for use with the deferred shading path. */
 	// Temporarily Public to call from DefferedShaderRenderer to attempt recovery from a crash until cause is found.
-	void AllocateDeferredShadingPathRenderTargets(FRHICommandList& RHICmdList);
+	void AllocateDeferredShadingPathRenderTargets(FRHICommandListImmediate& RHICmdList);
 private:
 
 	/** Allocates render targets for use with the current shading path. */
-	void AllocateRenderTargets(FRHICommandList& RHICmdList);
+	void AllocateRenderTargets(FRHICommandListImmediate& RHICmdList);
 
 	/** Allocates common depth render targets that are used by both mobile and deferred rendering paths */
 	void AllocateCommonDepthTargets(FRHICommandList& RHICmdList);
@@ -711,6 +717,9 @@ private:
 		check(0);
 		return ESceneColorFormatType::Num;
 	}
+
+	static FResolveRect GetDefaultRect(const FResolveRect& Rect, uint32 DefaultWidth, uint32 DefaultHeight);
+	static void ResolveDepthTexture(FRHICommandList& RHICmdList, const FTexture2DRHIRef& SourceTexture, const FTexture2DRHIRef& DestTexture, const FResolveParams& ResolveParams);
 
 	/** Uniform buffer containing GBuffer resources. */
 	FUniformBufferRHIRef GBufferResourcesUniformBuffer;
@@ -780,3 +789,11 @@ private:
 
 };
 
+extern template void FSceneRenderTargets::ClearVolumeTextures<0>(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);
+extern template void FSceneRenderTargets::ClearVolumeTextures<1>(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);
+extern template void FSceneRenderTargets::ClearVolumeTextures<2>(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);
+extern template void FSceneRenderTargets::ClearVolumeTextures<3>(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);
+extern template void FSceneRenderTargets::ClearVolumeTextures<4>(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);
+extern template void FSceneRenderTargets::ClearVolumeTextures<5>(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);
+extern template void FSceneRenderTargets::ClearVolumeTextures<6>(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);
+extern template void FSceneRenderTargets::ClearVolumeTextures<7>(FRHICommandList& RHICmdList, ERHIFeatureLevel::Type FeatureLevel, FTextureRHIParamRef* RenderTargets, const FLinearColor* ClearColors);

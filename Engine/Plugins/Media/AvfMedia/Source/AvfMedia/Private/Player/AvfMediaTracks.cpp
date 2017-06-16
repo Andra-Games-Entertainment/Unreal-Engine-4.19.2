@@ -62,7 +62,7 @@ public:
 	 */
 	virtual uint32 GetResourceBulkDataSize() const override
 	{
-		return ImageBuffer ? ~0u : 0;
+		return 0;
 	}
 	
 	/**
@@ -71,6 +71,11 @@ public:
 	virtual void Discard() override
 	{
 		delete this;
+	}
+	
+	virtual EBulkDataType GetResourceType() const override
+	{
+		return EBulkDataType::MediaTexture;
 	}
 	
 	virtual ~FAvfTexture2DResourceWrapper()
