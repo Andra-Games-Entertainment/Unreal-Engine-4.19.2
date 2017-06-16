@@ -2,23 +2,22 @@
 
 #pragma once
 
-#include "CoreMinimal.h"
-#include "OnlineTitleFileInterface.h"
+#include "CloudTitleFileInterface.h"
 
-class FLocalTitleFile : public IOnlineTitleFile
+class FLocalTitleFile : public ICloudTitleFile
 {
 public:
 
 	FLocalTitleFile(const FString& InRootDirectory);
 
-	// IOnlineTitleFile interface
+	// ICloudTitleFile interface
 
 	virtual bool GetFileContents(const FString& DLName, TArray<uint8>& FileContents) override;
 	virtual bool ClearFiles() override;
 	virtual bool ClearFile(const FString& DLName) override;
 	virtual void DeleteCachedFiles(bool bSkipEnumerated) override;
-	virtual bool EnumerateFiles(const FPagedQuery& Page = FPagedQuery()) override;
-	virtual void GetFileList(TArray<FCloudFileHeader>& InFileHeaders) override;
+	virtual bool EnumerateFiles(const FCloudPagedQuery& Page = FCloudPagedQuery()) override;
+	virtual void GetFileList(TArray<FCloudHeader>& InFileHeaders) override;
 	virtual bool ReadFile(const FString& DLName) override;
 
 protected:
@@ -28,6 +27,6 @@ protected:
 private:
 
 	FString							RootDirectory;
-	TArray<FCloudFileHeader>		FileHeaders;
+	TArray<FCloudHeader>			FileHeaders;
 	TMap< FString, TArray<uint8> >	DLNameToFileContents;
 };

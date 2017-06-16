@@ -2,12 +2,7 @@
 
 #pragma once
 
-#include "CoreMinimal.h"
-#include "GenericPlatform/GenericPlatformFile.h"
-#include "HAL/Runnable.h"
-#include "Stats/Stats.h"
-
-// Helper class to find all pak/manifests files.
+// Helper class to find all pak/mainfests files.
 class FFileSearchVisitor : public IPlatformFile::FDirectoryVisitor
 {
 	FString			 FileWildcard;
@@ -313,13 +308,8 @@ public:
 						bSuccess = FCoreDelegates::OnMountPak.Execute(SandboxedPath, PakReadOrder, nullptr);
 					}
 #endif
-					if (bSuccess)
-					{
-						MountedPaks.Add(PakPath);
-
-						//Register the install
-						BPSModule->RegisterAppInstallation(Manifest.ToSharedRef(), FilenameOrDirectory);
-					}
+					//Register the install
+					BPSModule->RegisterAppInstallation(Manifest.ToSharedRef(), FilenameOrDirectory);
 				}
 			}
 		}

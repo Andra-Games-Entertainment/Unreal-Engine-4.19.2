@@ -2,19 +2,18 @@
 
 #pragma once
 
-#include "HAL/Runnable.h"
-#include "HAL/PlatformProcess.h"
-#include "HAL/Event.h"
-#include "HAL/PlatformFile.h"
-#include "HAL/FileManager.h"
-#include "HAL/PlatformFilemanager.h"
+#include "CoreMinimal.h"
+#include "Runnable.h"
 #include "Interfaces/IBuildManifest.h"
-#include "Interfaces/IBuildPatchServicesModule.h"
-#include "Misc/Paths.h"
-#include "Misc/CoreDelegates.h"
-#include "Stats/Stats.h"
-
-class IBuildPatchServicesModule;
+#include "IBuildPatchServicesModule.h"
+#include "PlatformProcess.h"
+#include "Event.h"
+#include "GenericPlatformFile.h"
+#include "Paths.h"
+#include "PlatformFilemanager.h"
+#include "CoreDelegates.h"
+#include "FileManager.h"
+#include "Stats.h"
 
 class FChunkInstallTask : public FRunnable
 {
@@ -28,7 +27,7 @@ public:
 	IBuildManifestPtr				BuildManifest;
 	bool							bCopy;
 	const TArray<FString>*			CurrentMountPaks;
-	FEvent*							CompleteEvent;
+	FEvent*							CompleteEvent;				
 	/** Output */
 	TArray<FString>					MountedPaks;
 
@@ -129,10 +128,6 @@ public:
 						bSuccess = FCoreDelegates::OnMountPak.Execute(SandboxedPath, PakReadOrder, nullptr);
 					}
 #endif
-					if (!bSuccess)
-					{
-						UE_LOG(LogTemp, Error, TEXT("Failed to mount pak %s"), *PakFiles[PakIndex]);
-					}
 					MountedPaks.Add(PakFiles[PakIndex]);
 				}
 			}
@@ -162,139 +157,5 @@ public:
 	FORCEINLINE TStatId GetStatId() const
 	{
 		RETURN_QUICK_DECLARE_CYCLE_STAT(FChunkInstallTask, STATGROUP_ThreadPoolAsyncTasks);
-	}
-};
-
-
-class FChunkMountOnlyTask : public FRunnable
-{
-	struct MountRecord
-	{
-		FString DestDir;
-		IBuildManifestPtr BuildManifest;
-	};
-public:
-	/** Input parameters */
-	TArray<MountRecord>				MountWork;
-	bool							bCopy;
-	const TArray<FString>*			CurrentMountPaks;
-	FEvent*							CompleteEvent;
-	/** Output */
-	TArray<FString>					MountedPaks;
-
-	FChunkMountOnlyTask()
-	{
-		CompleteEvent = FPlatformProcess::GetSynchEventFromPool(true);
-		CompleteEvent->Trigger();
-	}
-
-	~FChunkMountOnlyTask()
-	{
-		FPlatformProcess::ReturnSynchEventToPool(CompleteEvent);
-		CompleteEvent = nullptr;
-	}
-
-	void AddWork(FString InDestDir, IBuildManifestRef InBuildManifest, const TArray<FString>& InCurrentMountedPaks)
-	{
-		MountRecord Work;
-		Work.DestDir = InDestDir;
-		Work.BuildManifest = InBuildManifest;
-		MountWork.Add(Work);
-		CurrentMountPaks = &InCurrentMountedPaks;
-
-		MountedPaks.Reset();
-		CompleteEvent->Reset();
-	}
-
-	void DoWork()
-	{
-		// Helper class to find all pak files.
-		class FPakSearchVisitor : public IPlatformFile::FDirectoryVisitor
-		{
-			TArray<FString>& FoundPakFiles;
-		public:
-			FPakSearchVisitor(TArray<FString>& InFoundPakFiles)
-				: FoundPakFiles(InFoundPakFiles)
-			{}
-			virtual bool Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory)
-			{
-				if (bIsDirectory == false)
-				{
-					FString Filename(FilenameOrDirectory);
-					if (FPaths::GetExtension(Filename) == TEXT("pak"))
-					{
-						FoundPakFiles.Add(Filename);
-					}
-				}
-				return true;
-			}
-		};
-
-		check(CurrentMountPaks);
-
-		TArray<FString> PakFiles;
-		IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-
-		while (MountWork.Num() > 0)
-		{
-			// Find all pak files.
-			FPakSearchVisitor Visitor(PakFiles);
-			PlatformFile.IterateDirectoryRecursively(*(MountWork[0].DestDir), Visitor);
-			auto PakReadOrderField = MountWork[0].BuildManifest->GetCustomField("PakReadOrdering");
-			uint32 PakReadOrder = PakReadOrderField.IsValid() ? (uint32)PakReadOrderField->AsInteger() : 0;
-			for (uint32 PakIndex = 0, PakCount = PakFiles.Num(); PakIndex < PakCount; ++PakIndex)
-			{
-				if (!CurrentMountPaks->Contains(PakFiles[PakIndex]) && !MountedPaks.Contains(PakFiles[PakIndex]))
-				{
-					// TODO: are we a patch?
-					// 				if (PakFiles[PakIndex].EndsWith("_P.pak"))
-					// 				{
-					// 					// bump the read prioritiy 
-					// 					++PakReadOrder;
-					// 				}
-					if (FCoreDelegates::OnMountPak.IsBound())
-					{
-						auto bSuccess = FCoreDelegates::OnMountPak.Execute(PakFiles[PakIndex], PakReadOrder, nullptr);
-#if !UE_BUILD_SHIPPING
-						if (!bSuccess)
-						{
-							// This can fail because of the sandbox system - which the pak system doesn't understand.
-							auto SandboxedPath = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*PakFiles[PakIndex]);
-							bSuccess = FCoreDelegates::OnMountPak.Execute(SandboxedPath, PakReadOrder, nullptr);
-						}
-#endif
-						if (!bSuccess)
-						{
-							UE_LOG(LogTemp, Error, TEXT("Failed to mount pak %s"), *PakFiles[PakIndex]);
-						}
-						MountedPaks.Add(PakFiles[PakIndex]);
-					}
-				}
-			}
-			MountWork.RemoveAt(0);
-		}
-
-		CompleteEvent->Trigger();
-	}
-
-	uint32 Run()
-	{
-		DoWork();
-		return 0;
-	}
-
-	bool IsDone()
-	{
-		return CompleteEvent->Wait(FTimespan(0));
-	}
-
-	static const TCHAR *Name()
-	{
-		return TEXT("FChunkDescovery");
-	}
-
-	FORCEINLINE TStatId GetStatId() const
-	{
-		RETURN_QUICK_DECLARE_CYCLE_STAT(FChunkMountOnlyTask, STATGROUP_ThreadPoolAsyncTasks);
 	}
 };

@@ -1318,6 +1318,12 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 			UE_LOG(LogInit, Warning, TEXT("Could not find a valid project file, the engine will exit now."));
 			return 1;
 		}
+
+		if (IProjectManager::Get().GetCurrentProject() && IProjectManager::Get().GetCurrentProject()->bIsEnterpriseProject && FPaths::DirectoryExists(FPaths::EnterpriseDir()))
+		{
+			// Add the enterprise binaries directory if we're an enterprise project
+			FModuleManager::Get().AddBinariesDirectory( *FPaths::Combine( FPaths::EnterpriseDir(), TEXT("Binaries"), FPlatformProcess::GetBinariesSubdirectory() ), false );
+		}
 	}
 
 #if !IS_PROGRAM
@@ -1325,6 +1331,7 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 	{
 		// Tell the module manager what the game binaries folder is
 		const FString GameBinariesDirectory = FPaths::Combine( FPlatformMisc::GameDir(), TEXT( "Binaries" ), FPlatformProcess::GetBinariesSubdirectory() );
+		FPlatformProcess::AddDllDirectory(*GameBinariesDirectory);
 		FModuleManager::Get().SetGameBinariesDirectory(*GameBinariesDirectory);
 
 		LaunchFixGameNameCase();
@@ -2117,7 +2124,7 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 					UE_LOG(LogInit, Display, TEXT("-----------------------------------"));
 
 					const int32 MaxMessagesToShow = (GIsBuildMachine || FParse::Param(FCommandLine::Get(), TEXT("DUMPALLWARNINGS"))) ? 
-						FMath::Max(AllErrors.Num(), AllWarnings.Num()) : 50;
+						(AllErrors.Num() + AllWarnings.Num()) : 50;
 					
 					TSet<FString> ShownMessages;					
 					ShownMessages.Empty(MaxMessagesToShow);

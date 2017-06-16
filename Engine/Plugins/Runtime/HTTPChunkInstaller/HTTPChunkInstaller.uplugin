@@ -8,7 +8,7 @@
 	"Category" : "Online Platform",
 	"CreatedBy" : "Epic Games, Inc.",
 	"CreatedByURL" : "http://epicgames.com",
-	"EnabledByDefault" : true,
+	"EnabledByDefault" : false,
 
     "Modules": [
         {
@@ -21,16 +21,6 @@
 		{
 			"Name": "HTTPChunkInstaller",
 			"LoadingPolicy": "Always"
-		}
-	],
-	"Plugins": [
-		{
-			"Name": "OnlineSubsystem",
-			"Enabled": true
-		},
-		{
-			"Name": "OnlineSubsystemUtils",
-			"Enabled": true
 		}
 	]
 }

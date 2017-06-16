@@ -1,10 +1,9 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "LocalTitleFile.h"
-
-#include "Misc/Paths.h"
-#include "HAL/FileManager.h"
-#include "Misc/FileHelper.h"
+#include "FileManagerGeneric.h"
+#include "Paths.h"
+#include "FileHelper.h"
 
 FLocalTitleFile::FLocalTitleFile(const FString& InRootDirectory)
 : RootDirectory(InRootDirectory)
@@ -65,7 +64,7 @@ void FLocalTitleFile::DeleteCachedFiles(bool bSkipEnumerated)
 	// not implemented
 }
 
-bool FLocalTitleFile::EnumerateFiles(const FPagedQuery& Page)
+bool FLocalTitleFile::EnumerateFiles(const FCloudPagedQuery& Page)
 {
 	const FString WildCard = FPaths::Combine(*RootDirectory, TEXT("*"));
 
@@ -76,7 +75,7 @@ bool FLocalTitleFile::EnumerateFiles(const FPagedQuery& Page)
 	{
 		const FString Filename = Filenames[FileIdx];
 
-		FCloudFileHeader NewHeader;
+		FCloudHeader NewHeader;
 		NewHeader.FileName = Filename;
 		NewHeader.DLName = Filename + FString::Printf(TEXT("%d"),FileIdx);
 		NewHeader.FileSize = 0;
@@ -90,7 +89,7 @@ bool FLocalTitleFile::EnumerateFiles(const FPagedQuery& Page)
 	return true;
 }
 
-void FLocalTitleFile::GetFileList(TArray<FCloudFileHeader>& InFileHeaders)
+void FLocalTitleFile::GetFileList(TArray<FCloudHeader>& InFileHeaders)
 {
 	InFileHeaders.Append(FileHeaders);
 }

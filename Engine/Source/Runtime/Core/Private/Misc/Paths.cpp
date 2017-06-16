@@ -150,9 +150,14 @@ FString FPaths::EnginePluginsDir()
 	return FPaths::EngineDir() + TEXT("Plugins/");
 }
 
+FString FPaths::EnterpriseDir()
+{
+	return FPaths::RootDir() + TEXT("Enterprise/");
+}
+
 FString FPaths::EnterprisePluginsDir()
 {
-	return FPaths::RootDir() + TEXT("Enterprise/Plugins/");
+	return EnterpriseDir() + TEXT("Plugins/");
 }
 
 FString FPaths::RootDir()
@@ -1147,7 +1152,7 @@ bool FPaths::IsSamePath(const FString& PathA, const FString& PathB)
 	MakeStandardFilename(TmpA);
 	MakeStandardFilename(TmpB);
 
-#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_XBOXONE)
+#if PLATFORM_WINDOWS || PLATFORM_XBOXONE
 	return FCString::Stricmp(*TmpA, *TmpB) == 0;
 #else
 	return FCString::Strcmp(*TmpA, *TmpB) == 0;
