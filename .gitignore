@@ -161,3 +161,6 @@ Saved/
 # Explcitly ignore Mac DS_Store files, regardless of where they are
 .DS_Store
 
+# Image for README.md
+!/README.png
+
