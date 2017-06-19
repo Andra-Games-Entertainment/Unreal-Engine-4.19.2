@@ -1842,7 +1842,7 @@ float DecodePackedHeight(float2 PackedHeight)
 
 uint ReverseBits32( uint bits )
 {
-#if SM5_PROFILE && (COMPILER_METAL && MAX_SHADER_LANGUAGE_VERSION >= 2)
+#if SM5_PROFILE || COMPILER_METAL
 	return reversebits( bits );
 #else
 	bits = ( bits << 16) | ( bits >> 16);
