@@ -30,7 +30,7 @@ namespace VREd
 	static FAutoConsoleVariable TeleportAllowScaleBackToDefault(TEXT("VREd.TeleportAllowScaleBackToDefault"), 1, TEXT("Scale back to default world to meters scale"));
 	static FAutoConsoleVariable TeleportAllowPushPull(TEXT("VREd.TeleportAllowPushPull"), 1, TEXT("Allow being able to push and pull the teleporter along the laser."));
 	static FAutoConsoleVariable TeleportSlideBuffer(TEXT("VREd.TeleportSlideBuffer"), 0.01f, TEXT("The minimum slide on trackpad to push/pull or change scale."));
-	static FAutoConsoleVariable TeleportToTargetPointIfLongRange( TEXT( "VREd.TeleportToTargetPointIfLongRange" ), 1, TEXT( "" ) );
+	static FAutoConsoleVariable TeleportToTargetPointIfLongRange( TEXT( "VREd.TeleportToTargetPointIfLongRange" ), 0, TEXT( "" ) );
 }
 
 AVREditorTeleporter::AVREditorTeleporter():

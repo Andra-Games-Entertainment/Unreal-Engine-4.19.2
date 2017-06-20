@@ -73,7 +73,7 @@ namespace VREd
 	static FAutoConsoleVariable AllowCollisionOnMotionControllers(TEXT("VREd.AllowCollisionOnMotionControllers"), 0, TEXT("If the motioncontroller has collision in simulate mode"));
 
 	static FAutoConsoleVariable ShowControllers(TEXT("VREd.ShowControllers"), 1, TEXT("Toggles whether the actual controller meshes are drawn"));
-	static FAutoConsoleVariable ShowLaserOnTriggerTouch( TEXT( "VREd.ShowLaserOnTriggerTouch" ), 1, TEXT( "If we want the laser to depend on if the trigger is touched." ) );
+	static FAutoConsoleVariable ShowLaserOnTriggerTouch( TEXT( "VREd.ShowLaserOnTriggerTouch" ), 0, TEXT( "If we want the laser to depend on if the trigger is touched." ) );
 	static FAutoConsoleVariable LaserOnTriggerTouchCooldownTime( TEXT( "VREd.LaserOnTriggerTouchCooldownTime" ), 2.0f, TEXT( "" ) );
 }
 
