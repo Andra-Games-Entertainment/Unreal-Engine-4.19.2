@@ -124,11 +124,11 @@ void OpenGLTextureDeleted( FRHITexture* Texture )
 		TextureSize = ((FOpenGLTextureCube*)Texture->GetTextureCube())->GetMemorySize();
 		if (bRenderTarget)
 		{
-			DEC_MEMORY_STAT_BY(STAT_RenderTargetMemory3D,TextureSize);
+			DEC_MEMORY_STAT_BY(STAT_RenderTargetMemoryCube,TextureSize);
 		}
 		else
 		{
-			DEC_MEMORY_STAT_BY(STAT_TextureMemory3D,TextureSize);
+			DEC_MEMORY_STAT_BY(STAT_TextureMemoryCube,TextureSize);
 		}
 	}
 	else if (Texture->GetTexture2D())
@@ -271,7 +271,7 @@ FRHITexture* FOpenGLDynamicRHI::CreateOpenGLTexture(uint32 SizeX, uint32 SizeY, 
 		NumSamples = 1;
 	}
 
-	bool bNoSRGBSupport = (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES3_1);
+	bool bNoSRGBSupport = (GMaxRHIFeatureLevel == ERHIFeatureLevel::ES2);
 
 	if ((Flags & TexCreate_RenderTargetable) && Format == PF_B8G8R8A8 && !FOpenGL::SupportsBGRA8888RenderTarget())
 	{
@@ -1216,7 +1216,7 @@ void TOpenGLTexture<RHIResourceType>::Unlock(uint32 MipIndex,uint32 ArrayIndex)
 }
 
 template<typename RHIResourceType>
-void TOpenGLTexture<RHIResourceType>::CloneViaCopyImage( TOpenGLTexture<RHIResourceType>* Src, uint32 NumMips, int32 SrcOffset, int32 DstOffset)
+void TOpenGLTexture<RHIResourceType>::CloneViaCopyImage( TOpenGLTexture<RHIResourceType>* Src, uint32 InNumMips, int32 SrcOffset, int32 DstOffset)
 {
 	VERIFY_GL_SCOPE();
 	
@@ -1225,7 +1225,7 @@ void TOpenGLTexture<RHIResourceType>::CloneViaCopyImage( TOpenGLTexture<RHIResou
 	for (uint32 ArrayIndex = 0; ArrayIndex < this->GetEffectiveSizeZ(); ArrayIndex++)
 	{
 		// use the Copy Image functionality to copy mip level by mip level
-		for(uint32 MipIndex = 0;MipIndex < NumMips;++MipIndex)
+		for(uint32 MipIndex = 0;MipIndex < InNumMips;++MipIndex)
 		{
 			// Calculate the dimensions of the mip-map.
 			const uint32 DstMipIndex = MipIndex + DstOffset;
@@ -1244,7 +1244,7 @@ void TOpenGLTexture<RHIResourceType>::CloneViaCopyImage( TOpenGLTexture<RHIResou
 }
 
 template<typename RHIResourceType>
-void TOpenGLTexture<RHIResourceType>::CloneViaPBO( TOpenGLTexture<RHIResourceType>* Src, uint32 NumMips, int32 SrcOffset, int32 DstOffset)
+void TOpenGLTexture<RHIResourceType>::CloneViaPBO( TOpenGLTexture<RHIResourceType>* Src, uint32 InNumMips, int32 SrcOffset, int32 DstOffset)
 {
 	VERIFY_GL_SCOPE();
 	
@@ -1271,7 +1271,7 @@ void TOpenGLTexture<RHIResourceType>::CloneViaPBO( TOpenGLTexture<RHIResourceTyp
 	for (uint32 ArrayIndex = 0; ArrayIndex < this->GetEffectiveSizeZ(); ArrayIndex++)
 	{
 		// use PBO functionality to copy mip level by mip level
-		for(uint32 MipIndex = 0;MipIndex < NumMips;++MipIndex)
+		for(uint32 MipIndex = 0;MipIndex < InNumMips;++MipIndex)
 		{
 			// Actual mip levels
 			const uint32 DstMipIndex = MipIndex + DstOffset;
@@ -1520,7 +1520,7 @@ FTexture2DArrayRHIRef FOpenGLDynamicRHI::RHICreateTexture2DArray(uint32 SizeX,ui
 		NumMips = FindMaxMipmapLevel(SizeX, SizeY);
 	}
 
-	if (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES3_1)
+	if (GMaxRHIFeatureLevel == ERHIFeatureLevel::ES2)
 	{
 		// Remove sRGB read flag when not supported
 		Flags &= ~TexCreate_SRGB;
@@ -1633,7 +1633,7 @@ FTexture3DRHIRef FOpenGLDynamicRHI::RHICreateTexture3D(uint32 SizeX,uint32 SizeY
 		NumMips = FindMaxMipmapLevel(SizeX, SizeY, SizeZ);
 	}
 
-	if (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES3_1)
+	if (GMaxRHIFeatureLevel == ERHIFeatureLevel::ES2)
 	{
 		// Remove sRGB read flag when not supported
 		Flags &= ~TexCreate_SRGB;

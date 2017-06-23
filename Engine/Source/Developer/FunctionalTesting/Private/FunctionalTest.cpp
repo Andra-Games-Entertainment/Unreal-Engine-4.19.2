@@ -231,6 +231,11 @@ void AFunctionalTest::StartTest()
 	OnTestStart.Broadcast();
 }
 
+void AFunctionalTest::OnTimeout()
+{
+	FinishTest(TimesUpResult, TimesUpMessage.ToString());
+}
+
 void AFunctionalTest::Tick(float DeltaSeconds)
 {
 	// already requested not to tick. 
@@ -258,7 +263,7 @@ void AFunctionalTest::Tick(float DeltaSeconds)
 		TotalTime += DeltaSeconds;
 		if ( TimeLimit > 0.f && TotalTime > TimeLimit )
 		{
-			FinishTest(TimesUpResult, TimesUpMessage.ToString());
+			OnTimeout();
 		}
 		else
 		{
@@ -270,7 +275,7 @@ void AFunctionalTest::Tick(float DeltaSeconds)
 		TotalTime += DeltaSeconds;
 		if ( PreparationTimeLimit > 0.f && TotalTime > PreparationTimeLimit )
 		{
-			FinishTest(TimesUpResult, TimesUpMessage.ToString());
+			OnTimeout();
 		}
 	}
 }
@@ -621,7 +626,7 @@ bool AFunctionalTest::AssertEqual_Bool(const bool Actual, const bool Expected, c
 {
 	if (Actual != Expected)
 	{
-		LogStep(ELogVerbosity::Error, FString::Printf(TEXT("Expected '%d' to be {%d}, but it was {%d} for context '%s'"), *What, Expected, Actual, ContextObject ? *ContextObject->GetName() : TEXT("")));
+		LogStep(ELogVerbosity::Error, FString::Printf(TEXT("Expected '%s' to be {%d}, but it was {%d} for context '%s'"), *What, Expected, Actual, ContextObject ? *ContextObject->GetName() : TEXT("")));
 		return false;
 	}
 	else
@@ -635,7 +640,7 @@ bool AFunctionalTest::AssertEqual_Int(const int32 Actual, const int32 Expected, 
 {
 	if (Actual != Expected)
 	{
-		LogStep(ELogVerbosity::Error, FString::Printf(TEXT("Expected '%d' to be {%d}, but it was {%d} for context '%s'"), *What, Expected, Actual, ContextObject ? *ContextObject->GetName() : TEXT("")));
+		LogStep(ELogVerbosity::Error, FString::Printf(TEXT("Expected '%s' to be {%d}, but it was {%d} for context '%s'"), *What, Expected, Actual, ContextObject ? *ContextObject->GetName() : TEXT("")));
 		return false;
 	}
 	else

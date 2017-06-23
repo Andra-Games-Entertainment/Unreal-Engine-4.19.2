@@ -7,7 +7,6 @@ public class MeshUtilities : ModuleRules
 {
 	public MeshUtilities(ReadOnlyTargetRules Target) : base(Target)
 	{
-
         PublicDependencyModuleNames.AddRange(
             new string[] {
 				"MaterialUtilities",
@@ -39,6 +38,26 @@ public class MeshUtilities : ModuleRules
 				"EditorStyle",
             }
 		);
+
+        PublicIncludePathModuleNames.AddRange(
+            new string[] {
+                "MeshMergeUtilities"
+            }
+        );
+
+        PrivateIncludePathModuleNames.AddRange(
+          new string[] {
+                "MeshMergeUtilities",
+                "MaterialBaking",
+          }
+      );
+
+        DynamicallyLoadedModuleNames.AddRange(
+            new string[] {
+                "MeshMergeUtilities",
+                "MaterialBaking",
+            }
+        );
 
         AddEngineThirdPartyPrivateStaticDependencies(Target, "nvTriStrip");
         AddEngineThirdPartyPrivateStaticDependencies(Target, "ForsythTriOptimizer");
@@ -86,6 +105,9 @@ public class MeshUtilities : ModuleRules
             PublicAdditionalLibraries.Add(SDKDir + "lib/libembree.2.14.0.dylib");
 			PublicAdditionalLibraries.Add(SDKDir + "lib/libtbb.dylib");
 			PublicAdditionalLibraries.Add(SDKDir + "lib/libtbbmalloc.dylib");
+			RuntimeDependencies.Add(new RuntimeDependency("$(EngineDir)/Binaries/Mac/libembree.2.14.0.dylib"));
+            RuntimeDependencies.Add(new RuntimeDependency("$(EngineDir)/Binaries/Mac/libtbb.dylib"));
+            RuntimeDependencies.Add(new RuntimeDependency("$(EngineDir)/Binaries/Mac/libtbbmalloc.dylib"));
             Definitions.Add("USE_EMBREE=1");
         }
         else

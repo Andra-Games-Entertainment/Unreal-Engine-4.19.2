@@ -183,6 +183,14 @@ USceneCaptureComponent::USceneCaptureComponent(const FObjectInitializer& ObjectI
     CaptureStereoPass = EStereoscopicPass::eSSP_FULL;
 }
 
+void USceneCaptureComponent::OnRegister()
+{
+	Super::OnRegister();
+
+	// Make sure any loaded saved flag settings are reflected in our FEngineShowFlags
+	UpdateShowFlags();
+}
+
 void USceneCaptureComponent::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
 {
 	USceneCaptureComponent* This = CastChecked<USceneCaptureComponent>(InThis);
@@ -292,6 +300,12 @@ FSceneViewStateInterface* USceneCaptureComponent::GetViewState(int32 ViewIndex)
 
 void USceneCaptureComponent::UpdateShowFlags()
 {
+	USceneCaptureComponent* Archetype = Cast<USceneCaptureComponent>(GetArchetype());
+	if (Archetype)
+	{
+		ShowFlags = Archetype->ShowFlags;
+	}
+
 	for (FEngineShowFlagsSetting ShowFlagSetting : ShowFlagSettings)
 	{
 		int32 SettingIndex = ShowFlags.FindIndexByName(*(ShowFlagSetting.ShowFlagName));
@@ -406,9 +420,6 @@ USceneCaptureComponent2D::USceneCaptureComponent2D(const FObjectInitializer& Obj
 void USceneCaptureComponent2D::OnRegister()
 {
 	Super::OnRegister();
-
-	// Make sure any loaded saved flag settings are reflected in our FEngineShowFlags
-	UpdateShowFlags();
 
 #if WITH_EDITOR
 	// Update content on register to have at least one frames worth of good data.

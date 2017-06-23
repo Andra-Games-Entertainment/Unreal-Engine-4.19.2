@@ -19,8 +19,9 @@
 
 // On mobile renderers we don't convert textures into linear space when slate is rendering.
 // since the final output is a gamma space render target.
-// Metal iOS supports sampling from sRGB textures
-#define SOURCE_IN_LINEAR_SPACE !(ES2_PROFILE || ES3_1_PROFILE) || USE_MATERIALS || METAL_PROFILE
+// Metal iOS, Android OpenGL ES 3.1 and Vulkan support sampling from sRGB textures
+#define SOURCE_IN_LINEAR_SPACE  USE_MATERIALS || (FEATURE_LEVEL != FEATURE_LEVEL_ES2) // ES2 does blending in sRGB space
+
 
 /** Shader types (mirrored from ESlateShader::Type in RenderingCommon.h */
 #define ST_Default		0
@@ -44,22 +45,14 @@ struct VertexToPixelInterpolants
 	float4 Position : SV_POSITION;
 	half4 Color : COLOR0;
 	float4 OriginalPosition : ORIGINAL_POSITION;
-	float4 ClipOriginAndPos : TEXCOORD0;
-	float4 ClipExtents : TEXCOORD1;
-	float2 MaterialTexCoords : TEXCOORD2;
-	float4 TextureCoordinates[NUM_SLATE_TEXCOORDS] : TEXCOORD3;
+	float2 MaterialTexCoords : TEXCOORD0;
+	float4 TextureCoordinates[NUM_SLATE_TEXCOORDS] : TEXCOORD1;
 };
 
-float2 GetUV(VertexToPixelInterpolants Interpolants, int UVIndex)
+float2 GetUV(VertexToPixelInterpolants Interpolants, uint UVIndex)
 {
-#if ES2_PROFILE
-	// Only support 2 uv coords on ES2 for now.  It doesnt support modulo operations
 	float4 UVVector = Interpolants.TextureCoordinates[UVIndex / 2];
-	return UVIndex == 1 ? UVVector.zw : UVVector.xy;
-#else
-	float4 UVVector = Interpolants.TextureCoordinates[UVIndex / 2];
-	return UVIndex % 2 ? UVVector.zw : UVVector.xy;
-#endif
+	return Mod(UVIndex, 2) ? UVVector.zw : UVVector.xy;
 }
 
 half4 ApplyColorVisionDeficiencyFilter(half4 Color)

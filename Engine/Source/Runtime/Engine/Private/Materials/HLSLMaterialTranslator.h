@@ -227,6 +227,9 @@ protected:
 	/** true if the material reads mesh particle transform in the pixel shader. */
 	uint32 bUsesParticleTransform : 1;
 
+	/** true if the material uses any type of vertex position */
+	uint32 bUsesVertexPosition : 1;
+
 	uint32 bUsesTransformVector : 1;
 	// True if the current property requires last frame's information
 	uint32 bCompilingPreviousFrame : 1;
@@ -279,6 +282,7 @@ public:
 	,	bUsesVertexColor(false)
 	,	bUsesParticleColor(false)
 	,	bUsesParticleTransform(false)
+	,	bUsesVertexPosition(false)
 	,	bUsesTransformVector(false)
 	,	bCompilingPreviousFrame(false)
 	,	bOutputsBasePassVelocities(true)
@@ -2879,6 +2883,8 @@ protected:
 			FunctionNamePattern.ReplaceInline(TEXT("<NO_MATERIAL_OFFSETS>"), TEXT(""));
 		}
 
+		bUsesVertexPosition = true;
+
 		return AddInlinedCodeChunk(MCT_Float3, TEXT("%s(Parameters)"), *FunctionNamePattern);
 	}
 
@@ -2986,7 +2992,8 @@ protected:
 	{
 		// For WebGL 1 which is essentially GLES2.0, we can safely assume a higher number of supported vertex attributes
 		// even when we are compiling ES 2 feature level shaders.
-		const uint32 MaxNumCoordinates = ((Platform == SP_OPENGL_ES2_WEBGL) || (FeatureLevel != ERHIFeatureLevel::ES2)) ? 8 : 3;
+		// For UI materials can safely use more texture coordinates due to how they are packed in the slate material shader
+		const uint32 MaxNumCoordinates = ((Platform == SP_OPENGL_ES2_WEBGL) || (FeatureLevel != ERHIFeatureLevel::ES2) || Material->IsUIMaterial()) ? 8 : 3;
 
 		if (CoordinateIndex >= MaxNumCoordinates)
 		{
@@ -3367,9 +3374,10 @@ protected:
 
 		UseSceneTextureId(SceneTextureId, true);
 
+		FString DefaultScreenAligned(TEXT("ScreenAlignedPosition(GetScreenPosition(Parameters))"));
+
 		if (FeatureLevel >= ERHIFeatureLevel::SM4)
 		{
-			FString DefaultScreenAligned(TEXT("ScreenAlignedPosition(GetScreenPosition(Parameters))"));
 			FString TexCoordCode((UV != INDEX_NONE) ? CoerceParameter(UV, MCT_Float2) : DefaultScreenAligned);
 			
 			return AddCodeChunk(
@@ -3378,14 +3386,16 @@ protected:
 				*TexCoordCode, (int)SceneTextureId, bFiltered ? TEXT("true") : TEXT("false")
 				);
 		}
-		else
+		else // mobile
 		{
-			if (UV == INDEX_NONE)
+			if (UV == INDEX_NONE && Material->GetMaterialDomain() == MD_PostProcess)
 			{
-				// Avoid UV computation in a pixel shader
+				// Avoid UV computation in a PP pixel shader
 				UV = TextureCoordinate(0, false, false);
 			}
-			FString TexCoordCode = CoerceParameter(UV, MCT_Float2);
+			
+			FString TexCoordCode = ((UV != INDEX_NONE) ? CoerceParameter(UV, MCT_Float2) : DefaultScreenAligned);
+			
 			return AddCodeChunk(MCT_Float4,	TEXT("MobileSceneTextureLookup(Parameters, %d, %s)"), (int32)SceneTextureId, *TexCoordCode);
 		}
 	}
@@ -3634,7 +3644,7 @@ protected:
 	virtual int32 TextureParameter(FName ParameterName,UTexture* DefaultValue,int32& TextureReferenceIndex,ESamplerSourceMode SamplerSource=SSM_FromTextureAsset) override
 	{
 		if (ShaderFrequency != SF_Pixel
-			&& ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
+			&& ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::ES3_1) == INDEX_NONE)
 		{
 			return INDEX_NONE;
 		}

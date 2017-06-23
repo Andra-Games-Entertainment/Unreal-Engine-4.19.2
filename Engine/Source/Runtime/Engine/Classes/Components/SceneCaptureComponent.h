@@ -80,7 +80,7 @@ class ENGINE_API USceneCaptureComponent : public USceneComponent
 	int32 CaptureSortPriority;
 
 	/** ShowFlags for the SceneCapture's ViewFamily, to control rendering settings for this view. Hidden but accessible through details customization */
-	UPROPERTY(EditAnywhere, interp, Category=SceneComponent)
+	UPROPERTY(EditAnywhere, interp, Category=SceneCapture)
 	TArray<struct FEngineShowFlagsSetting> ShowFlagSettings;
 
 	// TODO: Make this a UStruct to set directly?
@@ -90,6 +90,10 @@ class ENGINE_API USceneCaptureComponent : public USceneComponent
 public:
 	/** Indicates which stereo pass this component is capturing for, if any */
     EStereoscopicPass CaptureStereoPass;
+
+	//~ Begin UActorComponent Interface
+	virtual void OnRegister() override;
+	//~ End UActorComponent Interface
 
 	/** Adds the component to our list of hidden components. */
 	UFUNCTION(BlueprintCallable, Category = "Rendering|SceneCapture")

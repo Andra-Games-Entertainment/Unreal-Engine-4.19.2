@@ -35,7 +35,7 @@ ULevelSequencePlayer::ULevelSequencePlayer(const FObjectInitializer& ObjectIniti
 /* ULevelSequencePlayer interface
  *****************************************************************************/
 
-ULevelSequencePlayer* ULevelSequencePlayer::CreateLevelSequencePlayer(UObject* WorldContextObject, ULevelSequence* InLevelSequence, FMovieSceneSequencePlaybackSettings Settings)
+ULevelSequencePlayer* ULevelSequencePlayer::CreateLevelSequencePlayer(UObject* WorldContextObject, ULevelSequence* InLevelSequence, FMovieSceneSequencePlaybackSettings Settings, ALevelSequenceActor*& OutActor)
 {
 	if (InLevelSequence == nullptr)
 	{
@@ -55,6 +55,7 @@ ULevelSequencePlayer* ULevelSequencePlayer::CreateLevelSequencePlayer(UObject* W
 	Actor->LevelSequence = InLevelSequence;
 
 	Actor->InitializePlayer();
+	OutActor = Actor;
 
 	return Actor->SequencePlayer;
 }
@@ -189,6 +190,11 @@ void ULevelSequencePlayer::UpdateCameraCut(UObject* CameraObject, UObject* Unloc
 		PC->PlayerCameraManager->bClientSimulatingViewTarget = (CameraActor != nullptr);
 		PC->PlayerCameraManager->bGameCameraCutThisFrame = true;
 	}
+
+	if (OnCameraCut.IsBound())
+	{
+		OnCameraCut.Broadcast(CameraComponent);
+	}
 }
 
 void ULevelSequencePlayer::NotifyBindingUpdate(const FGuid& InGuid, FMovieSceneSequenceIDRef InSequenceID, TArrayView<TWeakObjectPtr<>> Objects)
@@ -263,7 +269,7 @@ void ULevelSequencePlayer::TakeFrameSnapshot(FLevelSequencePlayerSnapshot& OutSn
 	const float StartTimeWithoutWarmupFrames = SnapshotOffsetTime.IsSet() ? StartTime + SnapshotOffsetTime.GetValue() : StartTime;
 
 	// Use the actual last evaluation time as per the play position, which accounts for fixed time step offsetting
-	const float CurrentTime = StartTimeWithoutWarmupFrames + PlayPosition.GetLastPlayEvalPostition().Get(TimeCursorPosition);
+	const float CurrentTime = PlayPosition.GetLastPlayEvalPostition().Get(StartTimeWithoutWarmupFrames + TimeCursorPosition);
 
 	OutSnapshot.Settings = SnapshotSettings;
 

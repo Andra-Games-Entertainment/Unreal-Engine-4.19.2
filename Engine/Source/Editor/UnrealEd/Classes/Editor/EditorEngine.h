@@ -1689,7 +1689,7 @@ public:
 	void RequestPlaySession( bool bAtPlayerStart, TSharedPtr<class ILevelViewport> DestinationViewport, bool bInSimulateInEditor, const FVector* StartLocation = NULL, const FRotator* StartRotation = NULL, int32 DestinationConsole = -1, bool bUseMobilePreview = false, bool bUseVRPreview = false, bool bUseVulkanPreview = false);
 
 	// @todo gmp: temp hack for Rocket demo
-	void RequestPlaySession( const FVector* StartLocation, const FRotator* StartRotation, bool MobilePreview, bool VulkanPreview );
+	void RequestPlaySession(const FVector* StartLocation, const FRotator* StartRotation, bool MobilePreview, bool VulkanPreview, const FString& MobilePreviewTargetDevice);
 
 	/**
 	 * Request to play a game on a remote device 
@@ -2079,7 +2079,7 @@ public:
 	 * @param	ObjectSet	the list of objects to sync to
 	 */
 	void SyncBrowserToObjects( TArray<UObject*>& InObjectsToSync, bool bFocusContentBrowser = true );
-	void SyncBrowserToObjects( TArray<class FAssetData>& InAssetsToSync, bool bFocusContentBrowser = true );
+	void SyncBrowserToObjects( TArray<struct FAssetData>& InAssetsToSync, bool bFocusContentBrowser = true );
 
 	/**
 	 * Syncs the selected actors objects to the content browser
@@ -2837,6 +2837,7 @@ private:
 	bool bPlayUsingLauncher;
 	bool bPlayUsingMobilePreview;
 	bool bPlayUsingVulkanPreview;
+	FString PlayUsingMobilePreviewTargetDevice;
 
 	/** The platform to run on (as selected in dreop down) */
 	FString PlayUsingLauncherDeviceId;
