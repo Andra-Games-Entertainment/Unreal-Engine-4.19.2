@@ -33,10 +33,14 @@ protected:
 	void OnScreenshotTakenAndCompared();
 	
 protected:
-	
-	UPROPERTY()
+
+	/** The horizontal field of view (in degrees) for the screenshot camera */
+	UPROPERTY(EditANywhere, Category="Screenshot", meta=(UIMin = "5.0", UIMax = "170", ClampMin = "0.001", ClampMax = "360.0", Units = deg))
+	float FieldOfView;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Camera", SimpleDisplay)
 	class UCameraComponent* ScreenshotCamera;
 
-	UPROPERTY(EditAnywhere, Category="Screenshot", SimpleDisplay)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Screenshot", SimpleDisplay)
 	FAutomationScreenshotOptions ScreenshotOptions;
 };

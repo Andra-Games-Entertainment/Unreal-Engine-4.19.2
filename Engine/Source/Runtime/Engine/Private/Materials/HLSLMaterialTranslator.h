@@ -829,7 +829,7 @@ public:
 				ResourcesString += CustomOutputImplementations[ExpressionIndex] + "\r\n\r\n";
 			}
 
-			LoadShaderSourceFileChecked(TEXT("MaterialTemplate"), MaterialTemplate);
+			LoadShaderSourceFileChecked(TEXT("/Engine/Private/MaterialTemplate.ush"), MaterialTemplate);
 
 			// Find the string index of the '#line' statement in MaterialTemplate.usf
 			const int32 LineIndex = MaterialTemplate.Find(TEXT("#line"), ESearchCase::CaseSensitive);
@@ -1016,7 +1016,7 @@ public:
 
 	FString GetMaterialShaderCode()
 	{	
-		// use "MaterialTemplate.usf" to create the functions to get data (e.g. material attributes) and code (e.g. material expressions to create specular color) from C++
+		// use "/Engine/Private/MaterialTemplate.ush" to create the functions to get data (e.g. material attributes) and code (e.g. material expressions to create specular color) from C++
 		FLazyPrintf LazyPrintf(*MaterialTemplate);
 
 		const uint32 NumCustomVectors = FMath::DivideAndRoundUp((uint32)CurrentCustomVertexInterpolatorOffset, 2u);
@@ -1459,7 +1459,7 @@ protected:
 		check(UniformExpression);
 
 		// Only a texture uniform expression can have MCT_Texture type
-		if ((Type & MCT_Texture) && !UniformExpression->GetTextureUniformExpression())
+		if ((Type & MCT_Texture) && !UniformExpression->GetTextureUniformExpression() && !UniformExpression->GetExternalTextureUniformExpression())
 		{
 			return Errorf(TEXT("Operation not supported on a Texture"));
 		}
@@ -1539,9 +1539,11 @@ protected:
 		check(CodeChunk.UniformExpression && !CodeChunk.UniformExpression->IsConstant());
 
 		FMaterialUniformExpressionTexture* TextureUniformExpression = CodeChunk.UniformExpression->GetTextureUniformExpression();
+		FMaterialUniformExpressionExternalTexture* ExternalTextureUniformExpression = CodeChunk.UniformExpression->GetExternalTextureUniformExpression();
+
 		// Any code chunk can have a texture uniform expression (eg FMaterialUniformExpressionFlipBookTextureParameter),
 		// But a texture code chunk must have a texture uniform expression
-		check(!(CodeChunk.Type & MCT_Texture) || TextureUniformExpression);
+		check(!(CodeChunk.Type & MCT_Texture) || TextureUniformExpression || ExternalTextureUniformExpression);
 
 		TCHAR FormattedCode[MAX_SPRINTF]=TEXT("");
 		if(CodeChunk.Type == MCT_Float)
@@ -1612,6 +1614,10 @@ protected:
 			case MCT_TextureCube:
 				TextureInputIndex = MaterialCompilationOutput.UniformExpressionSet.UniformCubeTextureExpressions.AddUnique(TextureUniformExpression);
 				BaseName = TEXT("TextureCube");
+				break;
+			case MCT_TextureExternal:
+				TextureInputIndex = MaterialCompilationOutput.UniformExpressionSet.UniformExternalTextureExpressions.AddUnique(ExternalTextureUniformExpression);
+				BaseName = TEXT("ExternalTexture");
 				break;
 			default: UE_LOG(LogMaterial, Fatal,TEXT("Unrecognized texture material value type: %u"),(int32)CodeChunk.Type);
 			};
@@ -3068,7 +3074,7 @@ protected:
 
 		EMaterialValueType TextureType = GetParameterType(TextureIndex);
 
-		if(TextureType != MCT_Texture2D && TextureType != MCT_TextureCube)
+		if(TextureType != MCT_Texture2D && TextureType != MCT_TextureCube && TextureType != MCT_TextureExternal)
 		{
 			Errorf(TEXT("Sampling unknown texture type: %s"),DescribeType(TextureType));
 			return INDEX_NONE;
@@ -3111,10 +3117,12 @@ protected:
 			SamplerStateCode = TEXT("GetMaterialSharedSampler(%sSampler,Material.Clamp_WorldGroupSettings)");
 		}
 
-		FString SampleCode = 
-			(TextureType == MCT_TextureCube)
-			? TEXT("TextureCubeSample")
-			: TEXT("Texture2DSample");
+		FString SampleCode =
+			(TextureType == MCT_TextureCube) ?
+			TEXT("TextureCubeSample") :
+			(TextureType == MCT_TextureExternal) ?
+			TEXT("TextureExternalSample") :
+			TEXT("Texture2DSample");
 		
 		EMaterialValueType UVsType = (TextureType == MCT_TextureCube) ? MCT_Float3 : MCT_Float2;
 	
@@ -3201,9 +3209,11 @@ protected:
 		}
 
 		FString TextureName =
-			(TextureType == MCT_TextureCube)
-			? CoerceParameter(TextureIndex, MCT_TextureCube)
-			: CoerceParameter(TextureIndex, MCT_Texture2D);
+			(TextureType == MCT_TextureCube) ?
+			CoerceParameter(TextureIndex, MCT_TextureCube) :
+			(TextureType == MCT_Texture2D) ?
+			CoerceParameter(TextureIndex, MCT_Texture2D) :
+			CoerceParameter(TextureIndex, MCT_TextureExternal);
 
 		FString UVs = CoerceParameter(CoordinateIndex, UVsType);
 
@@ -3655,6 +3665,16 @@ protected:
 		return AddUniformExpression(new FMaterialUniformExpressionTextureParameter(ParameterName, TextureReferenceIndex, SamplerSource),ShaderType,TEXT(""));
 	}
 
+	virtual int32 ExternalTexture(const FGuid& ExternalTextureGuid) override
+	{
+		if (ShaderFrequency != SF_Pixel)
+		{
+			return INDEX_NONE;
+		}
+
+		return AddUniformExpression(new FMaterialUniformExpressionExternalTexture(ExternalTextureGuid), MCT_TextureExternal, TEXT(""));
+	}
+
 	virtual int32 GetTextureReferenceIndex(UTexture* TextureValue)
 	{
 		return Material->GetReferencedTextures().Find(TextureValue);
@@ -4011,6 +4031,21 @@ protected:
 		}
 
 		return AddCodeChunk(GetParameterType(X),TEXT("log2(%s)"),*GetParameterCode(X));
+	}
+
+	virtual int32 Logarithm10(int32 X) override
+	{
+		if(X == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+		
+		if(GetParameterUniformExpression(X))
+		{
+			return AddUniformExpression(new FMaterialUniformExpressionLogarithm10(GetParameterUniformExpression(X)),GetParameterType(X),TEXT("log10(%s)"),*GetParameterCode(X));
+		}
+
+		return AddCodeChunk(GetParameterType(X),TEXT("log10(%s)"),*GetParameterCode(X));
 	}
 
 	virtual int32 SquareRoot(int32 X) override
@@ -4735,19 +4770,28 @@ protected:
 
 	virtual int32 Sobol(int32 Cell, int32 Index, int32 Seed) override
 	{
+		if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::ES3_1) == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+
 		return AddCodeChunk(MCT_Float2,
-			TEXT("floor(%s) + float2(DirectSobol(PixelSobol(uint2(%s), uint(%s) & 7u), uint(%s) >> 3u).xy ^ uint2(%s * 0x10000) & 0xffff) / 0x10000"),
+			TEXT("floor(%s) + float2(SobolIndex(SobolPixel(uint2(%s)), uint(%s)) ^ uint2(%s * 0x10000) & 0xffff) / 0x10000"),
 			*GetParameterCode(Cell),
 			*GetParameterCode(Cell),
-			*GetParameterCode(Index),
 			*GetParameterCode(Index),
 			*GetParameterCode(Seed));
 	}
 
 	virtual int32 TemporalSobol(int32 Index, int32 Seed) override
 	{
+		if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::ES3_1) == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+
 		return AddCodeChunk(MCT_Float2,
-			TEXT("float2(DirectSobol(PixelSobol(uint2(Parameters.SvPosition.xy), View.FrameNumber), uint(%s)).xy ^ uint2(%s * 0x10000) & 0xffff) / 0x10000"),
+			TEXT("float2(SobolIndex(SobolPixel(uint2(Parameters.SvPosition.xy)), uint(View.StateFrameIndexMod8 + 8 * %s)) ^ uint2(%s * 0x10000) & 0xffff) / 0x10000"),
 			*GetParameterCode(Index),
 			*GetParameterCode(Seed));
 	}

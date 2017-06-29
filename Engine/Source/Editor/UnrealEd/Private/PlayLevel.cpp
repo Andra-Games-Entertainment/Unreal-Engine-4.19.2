@@ -1444,7 +1444,8 @@ void UEditorEngine::PlayStandaloneLocalPc(FString MapNameOverride, FIntPoint* Wi
 
 	if (bPlayUsingVulkanPreview)
 	{
-		AdditionalParameters += TEXT(" -vulkan -faketouches");
+		ensure(!bPlayUsingMobilePreview);
+		AdditionalParameters += TEXT(" -vulkan -faketouches -featureleveles31");
 	}
 
 	// Disable the HMD device in the new process if present. The editor process owns the HMD resource.
@@ -3328,7 +3329,7 @@ UGameInstance* UEditorEngine::CreatePIEGameInstance(int32 InPIEInstance, bool bI
 
 				ViewportClient->SetViewportOverlayWidget( PieWindow, ViewportOverlayWidgetRef );
 				ViewportClient->SetGameLayerManager(GameLayerManagerRef);
-				bool bShouldMinimizeRootWindow = bUseVRPreview && GEngine->HMDDevice.IsValid();
+				bool bShouldMinimizeRootWindow = bUseVRPreview && GEngine->HMDDevice.IsValid() && GetDefault<ULevelEditorPlaySettings>()->ShouldMinimizeEditorOnVRPIE;
 				// Set up a notification when the window is closed so we can clean up PIE
 				{
 					struct FLocal
