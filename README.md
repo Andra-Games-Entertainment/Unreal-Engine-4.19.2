@@ -47,7 +47,7 @@ Before starting UE4, be sure to launch the SteamVR monitor by double clicking on
  
 Launch the UE4 editor, and verify that the VR Preview button is available, as shown below:
  
-![VR Preview Button](https://github.com/ben-marsh/UnrealEngine/raw/dev-vr-mac/README.png "VR Preview Button")
+![VR Preview Button](README.png "VR Preview Button")
  
 If you do not see that button, be sure that the SteamVR monitor does not report any errors, and that the headset is plugged in properly.  If you do see the VR Preview button, congratulations, you're now ready to run VR on the Mac!
 
