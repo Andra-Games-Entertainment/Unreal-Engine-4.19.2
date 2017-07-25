@@ -5,6 +5,7 @@
 #include "MacCursor.h"
 #include "CocoaTextView.h"
 #include "CocoaThread.h"
+#include "MacPlatformApplicationMisc.h"
 
 FMacWindow::FMacWindow()
 :	WindowHandle(NULL)
@@ -217,7 +218,7 @@ void FMacWindow::ReshapeWindow( int32 X, int32 Y, int32 Width, int32 Height )
 	{
 		SCOPED_AUTORELEASE_POOL;
 		
-		const float DPIScaleFactor = FPlatformMisc::GetDPIScaleFactorAtPoint(X, Y);
+		const float DPIScaleFactor = FPlatformApplicationMisc::GetDPIScaleFactorAtPoint(X, Y);
 		Width /= DPIScaleFactor;
 		Height /= DPIScaleFactor;
 
