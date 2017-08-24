@@ -43,6 +43,19 @@ ERejoinStatus URejoinCheck::GetStatus() const
 }
 #endif
 
+bool URejoinCheck::HasCompletedCheck() const
+{
+	ERejoinStatus CurrentStatus = GetStatus();
+	return (CurrentStatus != ERejoinStatus::NeedsRecheck && CurrentStatus != ERejoinStatus::UpdatingStatus);
+}
+
+bool URejoinCheck::IsRejoinAvailable() const
+{
+	ERejoinStatus CurrentStatus = GetStatus();
+	return (CurrentStatus != ERejoinStatus::NoMatchToRejoin &&
+		CurrentStatus != ERejoinStatus::NoMatchToRejoin_MatchEnded);
+}
+
 void URejoinCheck::CheckRejoinStatus(const FOnRejoinCheckComplete& InCompletionDelegate)
 {
 #if !UE_BUILD_SHIPPING
@@ -298,9 +311,11 @@ void URejoinCheck::TravelToSession()
 	ULocalPlayer* LP = GEngine->GetFirstGamePlayer(GetWorld());
 	if (ensure(LP))
 	{
-		bResult = GameInstance->ClientTravelToSession(LP->GetControllerId(), GameSessionName);
+		bResult = GameInstance->ClientTravelToSession(LP->GetControllerId(), NAME_GameSession);
 		if (bResult)
 		{
+			UE_LOG(LogOnline, Log, TEXT("URejoinCheck::TravelToSession: Performing ClientTravelToSession"));
+
 			// Record the result of the attempt to rejoin
 			Analytics_RecordRejoinAttempt(SearchResult, ERejoinAttemptResult::RejoinSuccess);
 
@@ -310,12 +325,12 @@ void URejoinCheck::TravelToSession()
 		}
 		else
 		{
-			UE_LOG(LogOnline, Verbose, TEXT("TravelToSession: Failed to travel to session"));
+			UE_LOG(LogOnline, Log, TEXT("URejoinCheck::TravelToSession: Failed to travel to session"));
 		}
 	}
 	else
 	{
-		UE_LOG(LogOnline, Verbose, TEXT("TravelToSession: Failed to find local player"));
+		UE_LOG(LogOnline, Log, TEXT("URejoinCheck::TravelToSession: Failed to find local player"));
 	}
 	
 	if (!bResult)

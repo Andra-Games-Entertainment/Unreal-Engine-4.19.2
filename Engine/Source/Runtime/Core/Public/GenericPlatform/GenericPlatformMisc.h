@@ -1024,6 +1024,11 @@ public:
 	static void RegisterForRemoteNotifications();
 
 	/**
+	 * Returns whether or not the device has been registered to receive remote notifications.
+	 */
+	static bool IsRegisteredForRemoteNotifications();
+
+	/**
 	* Requests unregistering from receiving remote notifications on the user's device.
 	*/
 	static void UnregisterForRemoteNotifications();
@@ -1049,12 +1054,6 @@ public:
 	 * to inches on the device.  If the accuracy is unknown OutInches will be set to 0.
 	 */
 	static EScreenPhysicalAccuracy ConvertPixelsToInches(float Pixels, float& OutInches);
-
-	/**
-	* Execute platform dependent pre load map actions
-	*/
-	static const void PreLoadMap(FString&, FString&, void*)
-	{}
 
 	/**
 	 * Allows platform at runtime to disable unsupported plugins

@@ -231,6 +231,11 @@ namespace UnrealBuildTool
 		public bool bEnableExceptions = false;
 
 		/// <summary>
+		/// Enable objective C exception handling
+		/// </summary>
+		public bool bEnableObjCExceptions = false;
+
+		/// <summary>
 		/// Enable warnings for shadowed variables
 		/// </summary>
 		public bool bEnableShadowVariableWarnings = true;
@@ -546,29 +551,6 @@ namespace UnrealBuildTool
 			{
 				Definitions.Add("WITH_NVCLOTH=0");
 			}
-		}
-
-		/// <summary>
-		/// Setup this module for Box2D support (based on the settings in UEBuildConfiguration)
-		/// </summary>
-		public void SetupModuleBox2DSupport(ReadOnlyTargetRules Target)
-		{
-			//@TODO: This need to be kept in sync with RulesCompiler.cs for now
-			bool bSupported = false;
-			if ((Target.Platform == UnrealTargetPlatform.Win64) || (Target.Platform == UnrealTargetPlatform.Win32))
-			{
-				bSupported = true;
-			}
-
-			bSupported = bSupported && Target.bCompileBox2D;
-
-			if (bSupported)
-			{
-				AddEngineThirdPartyPrivateStaticDependencies(Target, "Box2D");
-			}
-
-			// Box2D included define (required because pointer types may be in public exported structures)
-			Definitions.Add(string.Format("WITH_BOX2D={0}", bSupported ? 1 : 0));
 		}
 
 		/// <summary>

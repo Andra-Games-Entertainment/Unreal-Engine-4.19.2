@@ -205,7 +205,6 @@
 #include "EngineBuildSettings.h"
 #endif
 
-
 DEFINE_LOG_CATEGORY(LogEngine);
 IMPLEMENT_MODULE( FEngineModule, Engine );
 
@@ -10121,8 +10120,6 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 
 	FLoadTimeTracker::Get().ResetRawLoadTimes();
 
-	FPlatformMisc::PreLoadMap(URL.Map, WorldContext.LastURL.Map, nullptr);
-	
 	// make sure level streaming isn't frozen
 	if (WorldContext.World())
 	{
@@ -10182,6 +10179,10 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 
 	UE_LOG(LogLoad, Log,  TEXT("LoadMap: %s"), *URL.ToString() );
 	GInitRunaway();
+
+#if !UE_BUILD_SHIPPING
+	const bool bOldWorldWasShowingCollisionForHiddenComponents = WorldContext.World() && WorldContext.World()->bCreateRenderStateForHiddenComponents;
+#endif
 
 	// Unload the current world
 	if( WorldContext.World() )
@@ -10464,6 +10465,10 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 
 	WorldContext.SetCurrentWorld(NewWorld);
 	WorldContext.World()->WorldType = WorldContext.WorldType;
+	
+#if !UE_BUILD_SHIPPING
+	GWorld->bCreateRenderStateForHiddenComponents = bOldWorldWasShowingCollisionForHiddenComponents;
+#endif
 	
 	// Fixme: hacky but we need to set PackageFlags here if we are in a PIE Context.
 	// Also, don't add to root when in PIE, since PIE doesn't remove world from root

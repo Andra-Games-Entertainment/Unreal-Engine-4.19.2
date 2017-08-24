@@ -11,11 +11,6 @@
 #include "Net/DataChannel.h"
 #include "OnlineBeaconClient.h"
 
-/** For backwards compatibility with engine encryption support */
-#ifndef SUPPORTS_ENCRYPTION_TOKEN
-	#define SUPPORTS_ENCRYPTION_TOKEN 0
-#endif
-
 AOnlineBeaconHost::AOnlineBeaconHost(const FObjectInitializer& ObjectInitializer) :
 	Super(ObjectInitializer)
 {
@@ -99,11 +94,8 @@ void AOnlineBeaconHost::NotifyControlMessage(UNetConnection* Connection, uint8 M
 				uint32 LocalNetworkVersion = FNetworkVersion::GetLocalNetworkVersion();
 				FString EncryptionToken;
 
-#if SUPPORTS_ENCRYPTION_TOKEN
 				FNetControlMessage<NMT_Hello>::Receive(Bunch, IsLittleEndian, RemoteNetworkVersion, EncryptionToken);
-#else
-				FNetControlMessage<NMT_Hello>::Receive(Bunch, IsLittleEndian, RemoteNetworkVersion);
-#endif
+
 				if (!FNetworkVersion::IsNetworkCompatible(LocalNetworkVersion, RemoteNetworkVersion))
 				{
 					UE_LOG(LogBeacon, Error, TEXT("Client not network compatible %s (Local=%d, Remote=%d)"), *Connection->GetName(), LocalNetworkVersion, RemoteNetworkVersion);
@@ -116,16 +108,21 @@ void AOnlineBeaconHost::NotifyControlMessage(UNetConnection* Connection, uint8 M
 					{
 						SendWelcomeControlMessage(Connection);
 					}
-#if SUPPORTS_ENCRYPTION_TOKEN
 					else
 					{
-						UGameInstance* const Instance = GetGameInstance();
-						if (Instance)
+						if (FNetDelegates::OnReceivedNetworkEncryptionToken.IsBound())
 						{
-							Instance->ReceivedNetworkEncryptionToken(Connection, EncryptionToken, FSimpleDelegate::CreateUObject(this, &AOnlineBeaconHost::SendWelcomeControlMessage, Connection));
+							TWeakObjectPtr<UNetConnection> WeakConnection = Connection;
+							FNetDelegates::OnReceivedNetworkEncryptionToken.Execute(EncryptionToken, FOnEncryptionKeyResponse::CreateUObject(this, &AOnlineBeaconHost::SendWelcomeControlMessage, WeakConnection));
+						}
+						else
+						{
+							FString FailureMsg(TEXT("Encryption failure"));
+							UE_LOG(LogBeacon, Warning, TEXT("%s: No delegate available to handle encryption token, disconnecting."), *Connection->GetName());
+							FNetControlMessage<NMT_Failure>::Send(Connection, FailureMsg);
+							bCloseConnection = true;
 						}
 					}
-#endif
 				}
 				break;
 			}
@@ -343,6 +340,39 @@ void AOnlineBeaconHost::SendWelcomeControlMessage(UNetConnection* Connection)
 	else
 	{
 		UE_LOG(LogBeacon, Log, TEXT("OnlineBeaconHost::SendWelcomeControlMessage: Connection is null."));
+	}
+}
+
+void AOnlineBeaconHost::SendWelcomeControlMessage(const FEncryptionKeyResponse& Response, TWeakObjectPtr<UNetConnection> WeakConnection)
+{
+	UNetConnection* Connection = WeakConnection.Get();
+	if (Connection)
+	{
+		if (Connection->State != USOCK_Invalid && Connection->State != USOCK_Closed && Connection->Driver)
+		{
+			if (Response.Response == EEncryptionResponse::Success)
+			{
+				Connection->EnableEncryptionWithKeyServer(Response.EncryptionKey);
+				SendWelcomeControlMessage(Connection);
+			}
+			else
+			{
+				FString ResponseStr(Lex::ToString(Response.Response));
+				UE_LOG(LogBeacon, Warning, TEXT("OnlineBeaconHost::SendWelcomeControlMessage: encryption failure [%s] %s"), *ResponseStr, *Response.ErrorMsg);
+				FNetControlMessage<NMT_Failure>::Send(Connection, ResponseStr);
+				Connection->FlushNet();
+				// Can't close the connection here since it will leave the failure message in the send buffer and just close the socket. 
+				// Connection->Close();
+			}
+		}
+		else
+		{
+			UE_LOG(LogBeacon, Warning, TEXT("OnlineBeaconHost::SendWelcomeControlMessage: connection in invalid state. %s"), *Connection->Describe());
+		}
+	}
+	else
+	{
+		UE_LOG(LogBeacon, Warning, TEXT("OnlineBeaconHost::SendWelcomeControlMessage: Connection is null."));
 	}
 }
 
