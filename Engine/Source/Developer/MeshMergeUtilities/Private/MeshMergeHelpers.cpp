@@ -45,7 +45,9 @@
 
 void FMeshMergeHelpers::ExtractSections(const UStaticMeshComponent* Component, int32 LODIndex, TArray<FSectionInfo>& OutSections)
 {
-	static UMaterialInterface* DefaultMaterial = Cast<UMaterialInterface>(UMaterial::GetDefaultMaterial(MD_Surface));
+	static UMaterialInterface* DefaultMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
+
+	TArray<FName> MaterialSlotNames = Component->GetMaterialSlotNames();
 
 	const UStaticMesh* StaticMesh = Component->GetStaticMesh();
 	for (const FStaticMeshSection& MeshSection : StaticMesh->RenderData->LODResources[LODIndex].Sections)
@@ -60,7 +62,7 @@ void FMeshMergeHelpers::ExtractSections(const UStaticMeshComponent* Component, i
 		FSectionInfo SectionInfo;
 		SectionInfo.Material = StoredMaterial;
 		SectionInfo.MaterialIndex = MeshSection.MaterialIndex;
-
+		SectionInfo.MaterialSlotName = MaterialSlotNames.IsValidIndex(MeshSection.MaterialIndex) ? MaterialSlotNames[MeshSection.MaterialIndex] : NAME_None;
 		SectionInfo.StartIndex = MeshSection.FirstIndex / 3;
 		SectionInfo.EndIndex = SectionInfo.StartIndex + MeshSection.NumTriangles;
 
@@ -80,10 +82,12 @@ void FMeshMergeHelpers::ExtractSections(const UStaticMeshComponent* Component, i
 
 void FMeshMergeHelpers::ExtractSections(const USkeletalMeshComponent* Component, int32 LODIndex, TArray<FSectionInfo>& OutSections)
 {
-	static UMaterialInterface* DefaultMaterial = Cast<UMaterialInterface>(UMaterial::GetDefaultMaterial(MD_Surface));
+	static UMaterialInterface* DefaultMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
 	FSkeletalMeshResource* Resource = Component->GetSkeletalMeshResource();
 
 	checkf(Resource->LODModels.IsValidIndex(LODIndex), TEXT("Invalid LOD Index"));
+
+	TArray<FName> MaterialSlotNames = Component->GetMaterialSlotNames();
 
 	const FStaticLODModel& Model = Resource->LODModels[LODIndex];
 	for (const FSkelMeshSection& MeshSection : Model.Sections)
@@ -95,6 +99,7 @@ void FMeshMergeHelpers::ExtractSections(const USkeletalMeshComponent* Component,
 
 		FSectionInfo SectionInfo;
 		SectionInfo.Material = StoredMaterial;
+		SectionInfo.MaterialSlotName = MaterialSlotNames.IsValidIndex(MeshSection.MaterialIndex) ? MaterialSlotNames[MeshSection.MaterialIndex] : NAME_None;
 
 		if (MeshSection.bCastShadow && Component->CastShadow)
 		{
@@ -117,7 +122,7 @@ void FMeshMergeHelpers::ExtractSections(const USkeletalMeshComponent* Component,
 
 void FMeshMergeHelpers::ExtractSections(const UStaticMesh* StaticMesh, int32 LODIndex, TArray<FSectionInfo>& OutSections)
 {
-	static UMaterialInterface* DefaultMaterial = Cast<UMaterialInterface>(UMaterial::GetDefaultMaterial(MD_Surface));
+	static UMaterialInterface* DefaultMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
 
 	for (const FStaticMeshSection& MeshSection : StaticMesh->RenderData->LODResources[LODIndex].Sections)
 	{
@@ -131,6 +136,7 @@ void FMeshMergeHelpers::ExtractSections(const UStaticMesh* StaticMesh, int32 LOD
 		FSectionInfo SectionInfo;
 		SectionInfo.Material = StoredMaterial;
 		SectionInfo.MaterialIndex = MeshSection.MaterialIndex;
+		SectionInfo.MaterialSlotName = StaticMesh->StaticMaterials.IsValidIndex(MeshSection.MaterialIndex) ? StaticMesh->StaticMaterials[MeshSection.MaterialIndex].MaterialSlotName : NAME_None;
 
 		if (MeshSection.bEnableCollision)
 		{
@@ -170,12 +176,6 @@ void FMeshMergeHelpers::RetrieveMesh(const UStaticMeshComponent* StaticMeshCompo
 
 	// Transform raw mesh to world space
 	FTransform ComponentToWorldTransform = StaticMeshComponent->GetComponentTransform();
-	// Take into account build scale settings only for meshes imported from raw data
-	// meshes reconstructed from render data already have build scale applied
-	if (bImportedMesh)
-	{
-		ComponentToWorldTransform.SetScale3D(ComponentToWorldTransform.GetScale3D()*BuildSettings.BuildScale3D);
-	}
 
 	// Handle spline mesh deformation
 	if (bIsSplineMeshComponent)

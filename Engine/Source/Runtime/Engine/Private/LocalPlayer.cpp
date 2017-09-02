@@ -253,7 +253,7 @@ bool ULocalPlayer::SpawnPlayActor(const FString& URL,FString& OutError, UWorld* 
 
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.ObjectFlags |= RF_Transient;	// We never want to save player controllers into a map
-		PlayerController = CastChecked<APlayerController>(InWorld->SpawnActor<APlayerController>(PCClass, SpawnInfo));
+		PlayerController = InWorld->SpawnActor<APlayerController>(PCClass, SpawnInfo);
 		const int32 PlayerIndex = GEngine->GetGamePlayers(InWorld).Find(this);
 		PlayerController->NetPlayerIndex = PlayerIndex;
 	}
@@ -706,6 +706,22 @@ bool ULocalPlayer::CalcSceneViewInitOptions(
 		ViewInitOptions.SceneViewStateInterface = MonoViewState.GetReference();
 		break;
 	}
+
+
+#if WITH_EDITOR
+	if (GIsEditor)
+	{
+		static const auto ScreenPercentageCVar = IConsoleManager::Get().FindTConsoleVariableDataFloat(TEXT("r.ScreenPercentage"));
+
+		// Let scalability settings override editor in game viewports
+		if(ScreenPercentageCVar->GetValueOnGameThread() == 100)
+		{
+			// PIE viewports should adjust screen percentage if necessary (for DPI scale performance)
+			ViewInitOptions.EditorViewScreenPercentage = ViewportClient->GetEditorScreenPercentage();
+		}
+	}
+#endif
+
 	ViewInitOptions.ViewActor = PlayerController->GetViewTarget();
 	ViewInitOptions.PlayerIndex = GetControllerId();
 	ViewInitOptions.ViewElementDrawer = ViewDrawer;

@@ -14,6 +14,7 @@
 #include "Misc/Paths.h"
 #include "Misc/ScopedSlowTask.h"
 #include "Misc/App.h"
+#include "Misc/FileHelper.h"
 #include "Modules/ModuleManager.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/UObjectIterator.h"
@@ -2772,7 +2773,7 @@ namespace ObjectTools
 				}
 				// Don't allow a move/rename to occur into a package that has a filename invalid for saving. This is a rare case
 				// that should not happen often, but could occur using packages created before the editor checked against file name length
-				else if ( ExistingOutermostPackage && ExistingOutermostPackageFilename.Len() > 0 && !FEditorFileUtils::IsFilenameValidForSaving( ExistingOutermostPackageFilename, Reason ) )
+				else if ( ExistingOutermostPackage && ExistingOutermostPackageFilename.Len() > 0 && !FFileHelper::IsFilenameValidForSaving( ExistingOutermostPackageFilename, Reason ) )
 				{
 					bMoveFailed = true;
 				}
@@ -3721,7 +3722,7 @@ namespace ThumbnailTools
 				InObject, ImageWidth, ImageHeight, TextureFlushMode, NULL,
 				&NewThumbnail );		// Out
 
-			UPackage* MyOutermostPackage = CastChecked< UPackage >( InObject->GetOutermost() );
+			UPackage* MyOutermostPackage = InObject->GetOutermost();
 			return CacheThumbnail( InObject->GetFullName(), &NewThumbnail, MyOutermostPackage );
 		}
 
@@ -3883,7 +3884,7 @@ namespace ThumbnailTools
 	/** Returns the thumbnail for the specified object or NULL if one doesn't exist yet */
 	FObjectThumbnail* GetThumbnailForObject( UObject* InObject )
 	{
-		UPackage* ObjectPackage = CastChecked< UPackage >( InObject->GetOutermost() );
+		UPackage* ObjectPackage = InObject->GetOutermost();
 		return FindCachedThumbnailInPackage( ObjectPackage, FName( *InObject->GetFullName() ) );
 	}
 

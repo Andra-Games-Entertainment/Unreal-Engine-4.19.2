@@ -2617,7 +2617,7 @@ UTextureFactory::UTextureFactory(const FObjectInitializer& ObjectInitializer)
 
 bool UTextureFactory::FactoryCanImport(const FString& Filename)
 {
-	FString Extension = FPaths::GetExtension(Filename).ToLower();
+	FString Extension = FPaths::GetExtension(Filename);
 
 	return (Formats.ContainsByPredicate(
 		[&Extension](const FString& Format)
@@ -3880,7 +3880,10 @@ UObject* UTextureFactory::FactoryCreateBinary
 
 void UTextureFactory::ApplyAutoImportSettings(UTexture* Texture)
 {
-	FJsonObjectConverter::JsonObjectToUStruct(AutomatedImportSettings.ToSharedRef(), Texture->GetClass(), Texture, 0, CPF_InstancedReference);
+	if ( AutomatedImportSettings.IsValid() )
+	{
+		FJsonObjectConverter::JsonObjectToUStruct(AutomatedImportSettings.ToSharedRef(), Texture->GetClass(), Texture, 0, CPF_InstancedReference);
+	}
 }
 
 bool UTextureFactory::IsImportResolutionValid(int32 Width, int32 Height, bool bAllowNonPowerOfTwo, FFeedbackContext* Warn)
@@ -5068,7 +5071,7 @@ EReimportResult::Type UReimportFbxStaticMeshFactory::Reimport( UObject* Obj )
 		}
 
 		CurrentFilename = Filename;
-
+		bool bImportSucceed = true;
 		if ( FFbxImporter->ImportFromFile( *Filename, FPaths::GetExtension( Filename ), true ) )
 		{
 			FFbxImporter->ApplyTransformSettingsToFbxNode(FFbxImporter->Scene->GetRootNode(), ImportData);
@@ -5132,16 +5135,18 @@ EReimportResult::Type UReimportFbxStaticMeshFactory::Reimport( UObject* Obj )
 			else
 			{
 				UE_LOG(LogEditorFactories, Warning, TEXT("-- import failed") );
+				bImportSucceed = false;
 			}
 		}
 		else
 		{
 			UE_LOG(LogEditorFactories, Warning, TEXT("-- import failed") );
+			bImportSucceed = false;
 		}
 
 		FFbxImporter->ReleaseScene(); 
 
-		return EReimportResult::Succeeded;
+		return bImportSucceed ? EReimportResult::Succeeded : EReimportResult::Failed;
 	}
 	else
 	{
@@ -5190,7 +5195,7 @@ bool UReimportFbxSkeletalMeshFactory::CanReimport( UObject* Obj, TArray<FString>
 				//This skeletal mesh was import with a scene import, we cannot reimport it here
 				return false;
 			}
-			else if (FPaths::GetExtension(SkeletalMesh->AssetImportData->GetFirstFilename()).ToLower() == "abc")
+			else if (FPaths::GetExtension(SkeletalMesh->AssetImportData->GetFirstFilename()) == TEXT("abc"))
 			{
 				return false;
 			}
@@ -5411,7 +5416,7 @@ bool UReimportFbxAnimSequenceFactory::CanReimport( UObject* Obj, TArray<FString>
 				//This mesh was import with a scene import, we cannot reimport it
 				return false;
 			}
-			else if (FPaths::GetExtension(AnimSequence->AssetImportData->GetFirstFilename()).ToLower() == "abc")
+			else if (FPaths::GetExtension(AnimSequence->AssetImportData->GetFirstFilename()) == TEXT("abc"))
 			{
 				return false;
 			}

@@ -793,6 +793,27 @@ namespace PropertyEditorHelpers
 		PropertyEditorHelpers::MakeRequiredPropertyButtons( PropertyEditor, OutButtons, ButtonsToIgnore, bUsingAssetPicker );
 	}
 
+	TSharedRef<SWidget> MakePropertyReorderHandle(const TSharedRef<FPropertyNode>& PropertyNode, SDetailSingleItemRow* InParentRow)
+	{
+		TSharedRef<SArrayRowHandle> Handle = SNew(SArrayRowHandle)
+			.Content()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.Padding(5.0f, 0.0f)
+				[
+					SNew(SImage)
+					.Image(FCoreStyle::Get().GetBrush("VerticalBoxDragIndicatorShort"))
+				]
+			]
+		.ParentRow(InParentRow);
+		TWeakPtr<FPropertyNode> NodePtr(PropertyNode);
+		TAttribute<bool>::FGetter IsPropertyButtonEnabledDelegate = TAttribute<bool>::FGetter::CreateStatic(&IsPropertyButtonEnabled, NodePtr);
+		TAttribute<bool> IsEnabledAttribute = TAttribute<bool>::Create(IsPropertyButtonEnabledDelegate);
+		Handle->SetEnabled(IsEnabledAttribute);
+		return Handle;
+	}
+
 	void MakeRequiredPropertyButtons( const TSharedRef< FPropertyEditor >& PropertyEditor, TArray< TSharedRef<SWidget> >& OutButtons, const TArray<EPropertyButton::Type>& ButtonsToIgnore, bool bUsingAssetPicker )
 	{
 		TArray< EPropertyButton::Type > RequiredButtons;
@@ -1027,7 +1048,7 @@ namespace PropertyEditorHelpers
 			Property->GetMetaData(ValidEnumValuesName).ParseIntoArray(ValidEnumValuesAsString, TEXT(","));
 			for(auto& Value : ValidEnumValuesAsString)
 			{
-				Value.Trim();
+				Value.TrimStartInline();
 				ValidEnumValues.Add(*InEnum->GenerateFullEnumName(*Value));
 			}
 		}

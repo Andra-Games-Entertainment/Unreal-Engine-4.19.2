@@ -71,7 +71,7 @@ uint32 FLauncherWorker::Run( )
 			{
 				for (int32 Index = 0; Index < count-1; ++Index)
 				{
-					StringArray[Index].TrimTrailing();
+					StringArray[Index].TrimEndInline();
 					OutputMessageReceived.Broadcast(StringArray[Index]);
 				}
 				Line = StringArray[count-1];
@@ -97,7 +97,7 @@ uint32 FLauncherWorker::Run( )
 				{
 					for (int32 Index = 0; Index < count-1; ++Index)
 					{
-						StringArray[Index].TrimTrailing();
+						StringArray[Index].TrimEndInline();
 						OutputMessageReceived.Broadcast(StringArray[Index]);
 					}
 					Line = StringArray[count-1];
@@ -427,14 +427,26 @@ FString FLauncherWorker::CreateUATCommand( const ILauncherProfileRef& InProfile,
 	FString CommandLine = FString::Printf(TEXT(" -cmdline=\"%s -Messaging\""),
 		*InitialMap);
 
+	// localization command line
+	FString LocalizationCommands;
+#if WITH_EDITOR
+	const FString PreviewGameLanguage = FTextLocalizationManager::Get().GetConfiguredGameLocalizationPreviewLanguage();
+	if (!PreviewGameLanguage.IsEmpty())
+	{
+		LocalizationCommands += TEXT(" -culture=");
+		LocalizationCommands += PreviewGameLanguage;
+	}
+#endif	// WITH_EDITOR
+
 	// additional commands to be sent to the commandline
 	FString SessionName = InProfile->GetName().Replace(TEXT("\'"), TEXT("_")).Replace(TEXT("\'"), TEXT("_"));
 	FString SessionOwner = FString(FPlatformProcess::UserName(false)).Replace(TEXT("\'"), TEXT("_")).Replace(TEXT("\'"), TEXT("_"));;
-	FString AdditionalCommandLine = FString::Printf(TEXT(" -addcmdline=\"-SessionId=%s -SessionOwner='%s' -SessionName='%s'%s\""),
+	FString AdditionalCommandLine = FString::Printf(TEXT(" -addcmdline=\"-SessionId=%s -SessionOwner='%s' -SessionName='%s'%s%s\""),
 		*SessionId.ToString(),
 		*SessionOwner,
 		*SessionName,
-		*RoleCommands);
+		*RoleCommands,
+		*LocalizationCommands);
 
 	// map list
 	FString MapList = TEXT("");

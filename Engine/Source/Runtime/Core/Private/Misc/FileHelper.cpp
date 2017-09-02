@@ -13,6 +13,14 @@
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/SecureHash.h"
 
+#define LOCTEXT_NAMESPACE "FileHelper"
+
+static const FString InvalidFilenames[] = {
+	TEXT("CON"), TEXT("PRN"), TEXT("AUX"), TEXT("CLOCK$"), TEXT("NUL"), TEXT("NONE"),
+	TEXT("COM1"), TEXT("COM2"), TEXT("COM3"), TEXT("COM4"), TEXT("COM5"), TEXT("COM6"), TEXT("COM7"), TEXT("COM8"), TEXT("COM9"),
+	TEXT("LPT1"), TEXT("LPT2"), TEXT("LPT3"), TEXT("LPT4"), TEXT("LPT5"), TEXT("LPT6"), TEXT("LPT7"), TEXT("LPT8"), TEXT("LPT9")
+};
+
 /*-----------------------------------------------------------------------------
 	FFileHelper
 -----------------------------------------------------------------------------*/
@@ -103,7 +111,7 @@ void FFileHelper::BufferToString( FString& Result, const uint8* Buffer, int32 Si
  * @param Filename name of the file to load
  * @param VerifyFlags flags controlling the hash verification behavior ( see EHashOptions )
  */
-bool FFileHelper::LoadFileToString( FString& Result, const TCHAR* Filename, uint32 VerifyFlags )
+bool FFileHelper::LoadFileToString( FString& Result, const TCHAR* Filename, EHashOptions VerifyFlags )
 {
 	FScopedLoadingState ScopedLoadingState(Filename);
 
@@ -127,7 +135,7 @@ bool FFileHelper::LoadFileToString( FString& Result, const TCHAR* Filename, uint
 	BufferToString( Result, Ch, Size );
 
 	// handle SHA verify of the file
-	if( (VerifyFlags & EHashOptions::EnableVerify) && ( (VerifyFlags & EHashOptions::ErrorMissingHash) || FSHA1::GetFileSHAHash(Filename, NULL) ) )
+	if( EnumHasAnyFlags(VerifyFlags, EHashOptions::EnableVerify) && ( EnumHasAnyFlags(VerifyFlags, EHashOptions::ErrorMissingHash) || FSHA1::GetFileSHAHash(Filename, NULL) ) )
 	{
 		// kick off SHA verify task. this frees the buffer on close
 		FBufferReaderWithSHA Ar( Ch, Size, true, Filename, false, true );
@@ -139,6 +147,39 @@ bool FFileHelper::LoadFileToString( FString& Result, const TCHAR* Filename, uint
 	}
 
 	return Success;
+}
+
+bool FFileHelper::LoadFileToStringArray( TArray<FString>& Result, const TCHAR* Filename, EHashOptions VerifyFlags )
+{
+	Result.Empty();
+
+	FString Buffer;
+	if(!LoadFileToString(Buffer, Filename, VerifyFlags))
+	{
+		return false;
+	}
+
+	for(const TCHAR* Pos = *Buffer; *Pos != 0; )
+	{
+		const TCHAR* LineStart = Pos;
+		while(*Pos != 0 && *Pos != '\r' && *Pos != '\n')
+		{
+			Pos++;
+		}
+
+		Result.Add(FString(Pos - LineStart, LineStart));
+
+		if(*Pos == '\r')
+		{
+			Pos++;
+		}
+		if(*Pos == '\n')
+		{
+			Pos++;
+		}
+	}
+
+	return true;
 }
 
 /**
@@ -160,7 +201,7 @@ bool FFileHelper::SaveArrayToFile(TArrayView<const uint8> Array, const TCHAR* Fi
  * Write the FString to a file.
  * Supports all combination of ANSI/Unicode files and platforms.
  */
-bool FFileHelper::SaveStringToFile( const FString& String, const TCHAR* Filename,  EEncodingOptions::Type EncodingOptions, IFileManager* FileManager /*= &IFileManager::Get()*/, uint32 WriteFlags )
+bool FFileHelper::SaveStringToFile( const FString& String, const TCHAR* Filename,  EEncodingOptions EncodingOptions, IFileManager* FileManager /*= &IFileManager::Get()*/, uint32 WriteFlags )
 {
 	// max size of the string is a UCS2CHAR for each character and some UNICODE magic 
 	auto Ar = TUniquePtr<FArchive>( FileManager->CreateFileWriter( Filename, WriteFlags ) );
@@ -201,6 +242,26 @@ bool FFileHelper::SaveStringToFile( const FString& String, const TCHAR* Filename
 	}
 
 	return true;
+}
+
+bool FFileHelper::SaveStringArrayToFile( const TArray<FString>& Lines, const TCHAR* Filename, EEncodingOptions EncodingOptions, IFileManager* FileManager, uint32 WriteFlags )
+{
+	int32 Length = 10;
+	for(const FString& Line : Lines)
+	{
+		Length += Line.Len() + ARRAY_COUNT(LINE_TERMINATOR);
+	}
+	
+	FString CombinedString;
+	CombinedString.Reserve(Length);
+
+	for(const FString& Line : Lines)
+	{
+		CombinedString += Line;
+		CombinedString += LINE_TERMINATOR;
+	}
+
+	return SaveStringToFile(CombinedString, Filename, EncodingOptions, FileManager, WriteFlags);
 }
 
 /**
@@ -510,6 +571,82 @@ bool FFileHelper::LoadANSITextFileToStrings(const TCHAR* InFilename, IFileManage
 	}
 }
 
+/**
+* Checks to see if a filename is valid for saving.
+* A filename must be under MAX_UNREAL_FILENAME_LENGTH to be saved
+*
+* @param Filename	Filename, with or without path information, to check.
+* @param OutError	If an error occurs, this is the reason why
+*/
+bool FFileHelper::IsFilenameValidForSaving(const FString& Filename, FText& OutError)
+{
+	bool bFilenameIsValid = false;
+
+	// Get the clean filename (filename with extension but without path )
+	const FString BaseFilename = FPaths::GetBaseFilename(Filename);
+
+	// Check length of the filename
+	if (BaseFilename.Len() > 0)
+	{
+		if (BaseFilename.Len() <= MAX_UNREAL_FILENAME_LENGTH)
+		{
+			bFilenameIsValid = true;
+
+			/*
+			// Check that the name isn't the name of a UClass
+			for ( TObjectIterator<UClass> It; It; ++It )
+			{
+			UClass* Class = *It;
+			if ( Class->GetName() == BaseFilename )
+			{
+			bFilenameIsValid = false;
+			break;
+			}
+			}
+			*/
+
+			for (const FString& InvalidFilename : InvalidFilenames)
+			{
+				if (BaseFilename.Equals(InvalidFilename, ESearchCase::IgnoreCase))
+				{
+					OutError = NSLOCTEXT("UnrealEd", "Error_InvalidFilename", "A file/folder may not match any of the following : \nCON, PRN, AUX, CLOCK$, NUL, NONE, \nCOM1, COM2, COM3, COM4, COM5, COM6, COM7, COM8, COM9, \nLPT1, LPT2, LPT3, LPT4, LPT5, LPT6, LPT7, LPT8, or LPT9.");
+					return false;
+				}
+			}
+
+			if (FName(*BaseFilename).IsNone())
+			{
+				OutError = FText::Format(NSLOCTEXT("UnrealEd", "Error_NoneFilename", "Filename '{0}' resolves to 'None' and cannot be used"), FText::FromString(BaseFilename));
+				return false;
+			}
+
+			// Check for invalid characters in the filename
+			if (bFilenameIsValid &&
+				(BaseFilename.Contains(TEXT("."), ESearchCase::CaseSensitive, ESearchDir::FromEnd) ||
+					BaseFilename.Contains(TEXT(":"), ESearchCase::CaseSensitive, ESearchDir::FromEnd)))
+			{
+				bFilenameIsValid = false;
+			}
+
+			if (!bFilenameIsValid)
+			{
+				OutError = FText::Format(NSLOCTEXT("UnrealEd", "Error_FilenameDisallowed", "Filename '{0}' is disallowed."), FText::FromString(BaseFilename));
+			}
+		}
+		else
+		{
+			OutError = FText::Format(NSLOCTEXT("UnrealEd", "Error_FilenameIsTooLongForCooking", "Filename '{0}' is too long; this may interfere with cooking for consoles.  Unreal filenames should be no longer than {1} characters."),
+				FText::FromString(BaseFilename), FText::AsNumber(MAX_UNREAL_FILENAME_LENGTH));
+		}
+	}
+	else
+	{
+		OutError = LOCTEXT("Error_FilenameIsTooShort", "Please provide a filename for the asset.");
+	}
+
+	return bFilenameIsValid;
+}
+
 /*-----------------------------------------------------------------------------
 	FMaintenance
 -----------------------------------------------------------------------------*/
@@ -601,3 +738,4 @@ void FMaintenance::DeleteOldLogs()
 	}
 }
 
+#undef LOCTEXT_NAMESPACE

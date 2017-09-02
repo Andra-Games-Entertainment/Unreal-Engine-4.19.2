@@ -323,7 +323,7 @@ void FUnrealEdMisc::OnInit()
 			// If the specified package exists
 			if ( FPackageName::SearchForPackageOnDisk(ParsedMapName, NULL, &InitialMapName) &&
 				// and it's a valid map file
-				FPaths::GetExtension(InitialMapName, /*bIncludeDot=*/true).ToLower() == FPackageName::GetMapPackageExtension().ToLower() )
+				FPaths::GetExtension(InitialMapName, /*bIncludeDot=*/true) == FPackageName::GetMapPackageExtension() )
 			{
 				// Never show loading progress when loading a map at startup.  Loading status will instead
 				// be reflected in the splash screen status
@@ -1841,7 +1841,7 @@ void FUnrealEdMisc::OnUserDefinedChordChanged(const FUICommandInfo& CommandInfo)
 		//@todo This shouldn't be using a localized value; GetInputText() [10/11/2013 justin.sargent]
 		TArray< FAnalyticsEventAttribute > ChordAttribs;
 		ChordAttribs.Add(FAnalyticsEventAttribute(TEXT("Context"), ChordName));
-		ChordAttribs.Add(FAnalyticsEventAttribute(TEXT("Shortcut"), CommandInfo.GetActiveChord()->GetInputText().ToString()));
+		ChordAttribs.Add(FAnalyticsEventAttribute(TEXT("Shortcut"), CommandInfo.GetInputText().ToString()));
 		FEngineAnalytics::GetProvider().RecordEvent(TEXT("Editor.Usage.KeyboardShortcut"), ChordAttribs);
 	}
 }

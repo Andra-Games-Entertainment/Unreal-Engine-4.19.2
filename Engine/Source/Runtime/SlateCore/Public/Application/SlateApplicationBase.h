@@ -194,7 +194,7 @@ public:
 	 *
 	 * @param OutDisplayMetrics Will contain the display metrics.
 	 */
-	void GetDisplayMetrics(FDisplayMetrics& OutDisplayMetrics) const { FDisplayMetrics::GetDisplayMetrics(OutDisplayMetrics); }
+	void GetDisplayMetrics(FDisplayMetrics& OutDisplayMetrics) const;
 
 	/**
 	 * Get the highest level of window transparency support currently enabled by this application
@@ -524,6 +524,9 @@ public:
 protected:
 	/** multicast delegate to broadcast when a global invalidate is requested */
 	FOnGlobalInvalidate OnGlobalInvalidateEvent;
+
+	/** Critical section for active timer registration as it can be called from the movie thread and the game thread */
+	FCriticalSection ActiveTimerCS;
 
 	// Gets set when Slate goes to sleep and cleared when active.
 	bool bIsSlateAsleep;

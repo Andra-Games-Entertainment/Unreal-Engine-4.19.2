@@ -1248,6 +1248,8 @@ bool GameProjectUtils::GenerateProjectFromScratch(const FProjectInformation& InP
 			Descriptor.Modules.Add(FModuleDescriptor(*StartupModuleNames[Idx]));
 		}
 
+		Descriptor.bIsEnterpriseProject = InProjectInfo.bIsEnterpriseProject;
+
 		// Try to save it
 		FText LocalFailReason;
 		if(!Descriptor.Save(InProjectInfo.ProjectFilename, LocalFailReason))
@@ -1510,7 +1512,7 @@ bool GameProjectUtils::CreateProjectFromTemplate(const FProjectInformation& InPr
 			for ( const FString& LineIn : FileLines )
 			{
 				FString Line = LineIn;
-				Line.Trim().TrimTrailing();
+				Line.TrimStartAndEndInline();
 
 				bool bShouldExcludeLineFromOutput = false;
 
@@ -1626,6 +1628,8 @@ bool GameProjectUtils::CreateProjectFromTemplate(const FProjectInformation& InPr
 		// Update it to current
 		Project.EngineAssociation.Empty();
 		Project.EpicSampleNameHash = 0;
+
+		Project.bIsEnterpriseProject = InProjectInfo.bIsEnterpriseProject; // Force the enterprise flag to the value that was requested in the ProjectInfo.
 
 		// Fix up module names
 		const FString BaseSourceName = FPaths::GetBaseFilename(InProjectInfo.TemplateFile);
@@ -2059,13 +2063,13 @@ bool GameProjectUtils::BuildCodeProject(const FString& ProjectFilename)
 	// Try to compile the modules
 	if(!bCompileSucceeded)
 	{
-		FText DevEnvName = FSourceCodeNavigation::GetSuggestedSourceCodeIDE( true );
+		FText DevEnvName = FSourceCodeNavigation::GetSelectedSourceCodeIDE();
 
 		TArray<FText> CompileFailedButtons;
 		int32 OpenIDEButton = CompileFailedButtons.Add(FText::Format(LOCTEXT("CompileFailedOpenIDE", "Open with {0}"), DevEnvName));
 		CompileFailedButtons.Add(LOCTEXT("CompileFailedCancel", "Cancel"));
 
-		FText LogText = FText::FromString(OutputLog.Replace(LINE_TERMINATOR, TEXT("\n")).TrimTrailing());
+		FText LogText = FText::FromString(OutputLog.Replace(LINE_TERMINATOR, TEXT("\n")).TrimEnd());
 		int32 CompileFailedChoice = SOutputLogDialog::Open(LOCTEXT("CompileFailedTitle", "Compile Failed"), FText::Format(LOCTEXT("CompileFailedHeader", "The project could not be compiled. Would you like to open it in {0}?"), DevEnvName), LogText, FText::GetEmpty(), CompileFailedButtons);
 
 		FText FailReason;
@@ -2348,7 +2352,7 @@ GameProjectUtils::EProjectDuplicateResult GameProjectUtils::DuplicateProjectForU
 			break;
 		}
 
-		NewDirectoryName = NewDirectoryName.Left(LastSpace).TrimTrailing();
+		NewDirectoryName = NewDirectoryName.Left(LastSpace).TrimEnd();
 	}
 
 	// Append the new version number
