@@ -2772,7 +2772,7 @@ UClass* FLinkerLoad::GetExportLoadClass(int32 Index)
 	UClass* ExportClass = (UClass*)IndexToObject(Export.ClassIndex);
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 	check(!Export.ClassIndex.IsImport() || !(LoadFlags & LOAD_DeferDependencyLoads) || 
-		(ExportClass && ExportClass->HasAnyClassFlags(CLASS_Intrinsic)) || (Cast<ULinkerPlaceholderClass>(ExportClass) != nullptr));
+		(ExportClass && ExportClass->HasAnyClassFlags(CLASS_Native)) || (Cast<ULinkerPlaceholderClass>(ExportClass) != nullptr));
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
 	return ExportClass;
@@ -3800,10 +3800,10 @@ UObject* FLinkerLoad::CreateExport( int32 Index )
 				Export.Object->SetLinker(this, Index);
 
 				// If this object was allocated but never loaded (components created by a constructor) make sure it gets loaded
-				// Do this for all subobjects created in the native constructor.
+				// Do this for all subobjects created in the native constructor, and anything loaded in an editor build
 				FUObjectThreadContext::Get().ObjLoaded.AddUnique(Export.Object);
 				if (!Export.Object->HasAnyFlags(RF_LoadCompleted) &&
-					(Export.Object->HasAnyFlags(RF_DefaultSubObject) || (ThisParent && ThisParent->IsTemplate(RF_ClassDefaultObject))))
+					(!FPlatformProperties::RequiresCookedData() || Export.Object->HasAnyFlags(RF_DefaultSubObject) || (ThisParent && ThisParent->IsTemplate(RF_ClassDefaultObject))))
 				{
 					check(!GEventDrivenLoaderEnabled || !EVENT_DRIVEN_ASYNC_LOAD_ACTIVE_AT_RUNTIME);
 					Export.Object->SetFlags(RF_NeedLoad | RF_NeedPostLoad | RF_NeedPostLoadSubobjects | RF_WasLoaded);
@@ -4962,6 +4962,43 @@ bool FLinkerLoad::HasAnyObjectsPendingLoad() const
 		}
 	}
 	return false;
+}
+
+bool FLinkerLoad::AttachExternalReadDependency(FExternalReadCallback& ReadCallback)
+{
+	ExternalReadDependencies.Add(ReadCallback);
+	return true;
+}
+
+bool FLinkerLoad::FinishExternalReadDependencies(double InTimeLimit)
+{
+	double LocalStartTime = FPlatformTime::Seconds();
+	double RemainingTime = InTimeLimit;
+	
+	while (ExternalReadDependencies.Num())
+	{
+		FExternalReadCallback& ReadCallback = ExternalReadDependencies.Last();
+		
+		bool bFinished = ReadCallback(RemainingTime);
+		
+		checkf(RemainingTime > 0.0 || bFinished, TEXT("FExternalReadCallback must be finished when RemainingTime is zero"));
+
+		if (bFinished)
+		{
+			ExternalReadDependencies.RemoveAt(ExternalReadDependencies.Num() - 1);
+		}
+
+		// Update remaining time
+		if (RemainingTime > 0.0)
+		{
+			RemainingTime-= (FPlatformTime::Seconds() - LocalStartTime);
+			if (RemainingTime <= 0.0)
+			{
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 #if WITH_EDITORONLY_DATA

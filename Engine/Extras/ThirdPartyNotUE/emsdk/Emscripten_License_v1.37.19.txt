@@ -99,3 +99,4 @@ system/lib/libc/musl/COPYRIGHT
 The third_party/ subdirectory contains code with other licenses. None of it is
 used by default, but certain options use it (e.g., the optional closure compiler
 flag will run closure compiler from third_party/).
+

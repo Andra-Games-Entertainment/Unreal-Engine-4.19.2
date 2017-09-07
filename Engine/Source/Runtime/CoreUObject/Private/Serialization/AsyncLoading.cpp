@@ -66,6 +66,7 @@ DECLARE_CYCLE_STAT(TEXT("CreateExports AsyncPackage"),STAT_FAsyncPackage_CreateE
 DECLARE_CYCLE_STAT(TEXT("FreeReferencedImports AsyncPackage"), STAT_FAsyncPackage_FreeReferencedImports, STATGROUP_AsyncLoad);
 DECLARE_CYCLE_STAT(TEXT("Precache ArchiveAsync"), STAT_FArchiveAsync_Precache, STATGROUP_AsyncLoad);
 DECLARE_CYCLE_STAT(TEXT("PreLoadObjects AsyncPackage"),STAT_FAsyncPackage_PreLoadObjects,STATGROUP_AsyncLoad);
+DECLARE_CYCLE_STAT(TEXT("ExternalReadDependencies AsyncPackage"),STAT_FAsyncPackage_ExternalReadDependencies,STATGROUP_AsyncLoad);
 DECLARE_CYCLE_STAT(TEXT("PostLoadObjects AsyncPackage"),STAT_FAsyncPackage_PostLoadObjects,STATGROUP_AsyncLoad);
 DECLARE_CYCLE_STAT(TEXT("FinishObjects AsyncPackage"),STAT_FAsyncPackage_FinishObjects,STATGROUP_AsyncLoad);
 DECLARE_CYCLE_STAT(TEXT("CreateAsyncPackagesFromQueue"), STAT_FAsyncPackage_CreateAsyncPackagesFromQueue, STATGROUP_AsyncLoad);
@@ -242,7 +243,6 @@ static FORCEINLINE bool IsTimeLimitExceeded(double InTickStartTime, bool bUseTim
 		LastTestTime = CurrentTime;
 	}
 
-	FCoreDelegates::OnAsyncLoadingFlushUpdate.Broadcast();
 	return bTimeLimitExceeded;
 }
 FORCEINLINE bool FAsyncPackage::IsTimeLimitExceeded()
@@ -334,6 +334,11 @@ void FAsyncLoadingThread::InitializeAsyncThread()
 
 void FAsyncLoadingThread::CancelAsyncLoadingInternal()
 {
+	// Cancel is not thread safe because the loaded delegates expect to be called on the game thread
+	// EDL does not support this function, but for backward compatible reasons we are letting it run on the async loading thread
+	// If this is enabled for EDL it must be made properly thread safe
+	UE_CLOG(GEventDrivenLoaderEnabled && !IsInGameThread(), LogStreaming, Fatal, TEXT("CancelAsyncLoadingInternal is not thread safe! This must be fixed before being enabled for EDL"));
+
 	{
 		// Packages we haven't yet started processing.
 #if THREADSAFE_UOBJECTS
@@ -342,7 +347,11 @@ void FAsyncLoadingThread::CancelAsyncLoadingInternal()
 		const EAsyncLoadingResult::Type Result = EAsyncLoadingResult::Canceled;
 		for (FAsyncPackageDesc* PackageDesc : QueuedPackages)
 		{
-			PackageDesc->PackageLoadedDelegate.ExecuteIfBound(PackageDesc->Name, nullptr, Result);
+			if (PackageDesc->PackageLoadedDelegate.IsValid())
+			{
+				PackageDesc->PackageLoadedDelegate->ExecuteIfBound(PackageDesc->Name, nullptr, Result);
+			}
+
 			delete PackageDesc;
 		}
 		QueuedPackages.Reset();
@@ -408,14 +417,14 @@ void FAsyncLoadingThread::CancelAsyncLoadingInternal()
 	CancelLoadingEvent->Trigger();
 }
 
-void FAsyncLoadingThread::QueuePackage(const FAsyncPackageDesc& Package)
+void FAsyncLoadingThread::QueuePackage(FAsyncPackageDesc& Package)
 {
 	{
 #if THREADSAFE_UOBJECTS
 		FScopeLock QueueLock(&QueueCritical);
 #endif
 		QueuedPackagesCounter.Increment();
-		QueuedPackages.Add(new FAsyncPackageDesc(Package));
+		QueuedPackages.Add(new FAsyncPackageDesc(Package, MoveTemp(Package.PackageLoadedDelegate)));
 	}
 	NotifyAsyncLoadingStateHasMaybeChanged();
 
@@ -439,12 +448,12 @@ FAsyncPackage* FAsyncLoadingThread::FindExistingPackageAndAddCompletionCallback(
 	FAsyncPackage* Result = PackageList.FindRef(PackageRequest->Name);
 	if (Result)
 	{
-		if (PackageRequest->PackageLoadedDelegate.IsBound())
+		if (PackageRequest->PackageLoadedDelegate.IsValid())
 		{
 			const bool bInternalCallback = false;
-			Result->AddCompletionCallback(PackageRequest->PackageLoadedDelegate, bInternalCallback);
+			Result->AddCompletionCallback(MoveTemp(PackageRequest->PackageLoadedDelegate), bInternalCallback);
 		}
-			Result->AddRequestID(PackageRequest->RequestID);
+		Result->AddRequestID(PackageRequest->RequestID);
 		if (FlushTree)
 		{
 			Result->PopulateFlushTree(FlushTree);
@@ -514,10 +523,10 @@ void FAsyncLoadingThread::ProcessAsyncPackageRequest(FAsyncPackageDesc* InReques
 			FGCScopeGuard GCGuard;
 			Package = new FAsyncPackage(*InRequest);
 		}
-		if (InRequest->PackageLoadedDelegate.IsBound())
+		if (InRequest->PackageLoadedDelegate.IsValid())
 		{
 			const bool bInternalCallback = false;
-			Package->AddCompletionCallback(InRequest->PackageLoadedDelegate, bInternalCallback);
+			Package->AddCompletionCallback(MoveTemp(InRequest->PackageLoadedDelegate), bInternalCallback);
 		}
 		Package->SetDependencyRootPackage(InRootPackage);
 		if (FlushTree)
@@ -4747,6 +4756,9 @@ EAsyncPackageState::Type FAsyncLoadingThread::TickAsyncLoading(bool bUseTimeLimi
 				}
 			}
 		}
+
+		// Call update callback once per tick on the game thread
+		FCoreDelegates::OnAsyncLoadingFlushUpdate.Broadcast();
 	}
 
 	return Result;
@@ -5192,6 +5204,8 @@ FAsyncPackage::~FAsyncPackage()
 	{
 		for (FCompletionCallback& CompletionCallback : CompletionCallbacks)
 		{
+			checkSlow(CompletionCallback.bIsInternal || IsInGameThread());
+
 			if (!CompletionCallback.bCalled)
 			{
 				check(0);
@@ -5494,6 +5508,12 @@ EAsyncPackageState::Type FAsyncPackage::TickAsyncPackage(bool InbUseTimeLimit, b
 				LoadingState = PreLoadObjects();
 			}
 		} // !GEventDrivenLoaderEnabled
+
+		if (LoadingState == EAsyncPackageState::Complete && !bLoadHasFailed)
+		{
+			SCOPED_LOADTIMER(Package_ExternalReadDependencies);
+			LoadingState = FinishExternalReadDependencies();
+		}
 
 		// Call PostLoad on objects, this could cause new objects to be loaded that require
 		// another iteration of the PreLoad loop.
@@ -5814,7 +5834,8 @@ void FAsyncPackage::AddImportDependency(const FName& PendingImport, FFlushTree* 
 		!PackageToStream->bLoadHasFailed)
 	{
 		const bool bInternalCallback = true;
-		PackageToStream->AddCompletionCallback(FLoadPackageAsyncDelegate::CreateRaw(this, &FAsyncPackage::ImportFullyLoadedCallback), bInternalCallback);
+		TUniquePtr<FLoadPackageAsyncDelegate> InternalDelegate(new FLoadPackageAsyncDelegate(FLoadPackageAsyncDelegate::CreateRaw(this, &FAsyncPackage::ImportFullyLoadedCallback)));
+		PackageToStream->AddCompletionCallback(MoveTemp(InternalDelegate), bInternalCallback);
 		PackageToStream->DependencyRefCount.Increment();
 		PendingImportedPackages.Add(PackageToStream);
 		if (FlushTree)
@@ -5988,10 +6009,10 @@ void FAsyncPackage::ImportFullyLoadedCallback(const FName& InPackageName, UPacka
 		int32 Index = ContainsDependencyPackage(PendingImportedPackages, InPackageName);
 		if (Index != INDEX_NONE)
 		{
-		// Keep a reference to this package so that its linker doesn't go away too soon
-		ReferencedImports.Add(PendingImportedPackages[Index]);
-		PendingImportedPackages.RemoveAt(Index);
-	}
+			// Keep a reference to this package so that its linker doesn't go away too soon
+			ReferencedImports.Add(PendingImportedPackages[Index]);
+			PendingImportedPackages.RemoveAt(Index);
+		}
 	}
 }
 
@@ -6159,6 +6180,27 @@ EAsyncPackageState::Type FAsyncPackage::PreLoadObjects()
 	ThreadObjLoaded.Reset();
 
 	return PreLoadIndex == PackageObjLoaded.Num() ? EAsyncPackageState::Complete : EAsyncPackageState::TimeOut;
+}
+
+EAsyncPackageState::Type FAsyncPackage::FinishExternalReadDependencies()
+{
+	if (!IsTimeLimitExceeded())
+	{
+		double CurrentTime = FPlatformTime::Seconds();
+		double RemainingTimeLimit = TimeLimit - (CurrentTime - TickStartTime);
+		
+		if (!bUseTimeLimit || RemainingTimeLimit > 0.0)
+		{
+			if (Linker->FinishExternalReadDependencies(bUseTimeLimit ? RemainingTimeLimit : 0.0))
+			{
+				return EAsyncPackageState::Complete;
+			}
+		}
+	}
+	
+	LastTypeOfWorkPerformed = TEXT("ExternalReadDependencies");
+
+	return EAsyncPackageState::TimeOut;
 }
 
 /**
@@ -6510,7 +6552,7 @@ void FAsyncPackage::CallCompletionCallbacks(bool bInternal, EAsyncLoadingResult:
 		if (CompletionCallback.bIsInternal == bInternal && !CompletionCallback.bCalled)
 		{
 			CompletionCallback.bCalled = true;
-			CompletionCallback.Callback.ExecuteIfBound(Desc.Name, LoadedPackage, LoadingResult);
+			CompletionCallback.Callback->ExecuteIfBound(Desc.Name, LoadedPackage, LoadingResult);
 		}
 	}
 }
@@ -6520,14 +6562,11 @@ void FAsyncPackage::Cancel()
 	UE_CLOG(GEventDrivenLoaderEnabled, LogStreaming, Fatal, TEXT("FAsyncPackage::Cancel is not supported with the new loader"));
 
 	// Call any completion callbacks specified.
+	bLoadHasFailed = true;
 	const EAsyncLoadingResult::Type Result = EAsyncLoadingResult::Canceled;
-	for (int32 CallbackIndex = 0; CallbackIndex < CompletionCallbacks.Num(); CallbackIndex++)
-	{
-		if (!CompletionCallbacks[CallbackIndex].bCalled)
-		{
-			CompletionCallbacks[CallbackIndex].Callback.ExecuteIfBound(Desc.Name, nullptr, Result);
-		}
-	}
+	CallCompletionCallbacks(true, Result);
+	CallCompletionCallbacks(false, Result);
+
 	{
 		// Clear load flags from any referenced objects
 		FScopeLock RereferncedObjectsLock(&ReferencedObjectsCritical);
@@ -6540,7 +6579,6 @@ void FAsyncPackage::Cancel()
 		EmptyReferencedObjects();
 	}
 
-	bLoadHasFailed = true;
 	if (LinkerRoot)
 	{
 		if (Linker)
@@ -6556,11 +6594,11 @@ void FAsyncPackage::Cancel()
 	PreLoadSortIndex = 0;
 }
 
-void FAsyncPackage::AddCompletionCallback(const FLoadPackageAsyncDelegate& Callback, bool bInternal)
+void FAsyncPackage::AddCompletionCallback(TUniquePtr<FLoadPackageAsyncDelegate>&& Callback, bool bInternal)
 {
 	// This is to ensure that there is no one trying to subscribe to a already loaded package
 	//check(!bLoadHasFinished && !bLoadHasFailed);
-	CompletionCallbacks.Add(FCompletionCallback(bInternal, Callback));
+	CompletionCallbacks.Emplace(bInternal, MoveTemp(Callback));
 }
 
 void FAsyncPackage::UpdateLoadPercentage()
@@ -6629,8 +6667,16 @@ int32 LoadPackageAsync(const FString& InName, const FGuid* InGuid /*= nullptr*/,
 	// this function, otherwise it would be added when the packages are being processed on the async thread).
 	const int32 RequestID = GPackageRequestID.Increment();
 	FAsyncLoadingThread::Get().AddPendingRequest(RequestID);
+
+	// Allocate delegate on Game Thread, it is not safe to copy delegates by value on other threads
+	TUniquePtr<FLoadPackageAsyncDelegate> CompletionDelegatePtr;
+	if (InCompletionDelegate.IsBound())
+	{
+		CompletionDelegatePtr.Reset(new FLoadPackageAsyncDelegate(InCompletionDelegate));
+	}
+
 	// Add new package request
-	FAsyncPackageDesc PackageDesc(RequestID, *PackageName, *PackageNameToLoad, InGuid ? *InGuid : FGuid(), InCompletionDelegate, InPackageFlags, InPIEInstanceID, InPackagePriority);
+	FAsyncPackageDesc PackageDesc(RequestID, *PackageName, *PackageNameToLoad, InGuid ? *InGuid : FGuid(), MoveTemp(CompletionDelegatePtr), InPackageFlags, InPIEInstanceID, InPackagePriority);
 	FAsyncLoadingThread::Get().QueuePackage(PackageDesc);
 
 	return RequestID;

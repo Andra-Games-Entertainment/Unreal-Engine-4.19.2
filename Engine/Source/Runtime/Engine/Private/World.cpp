@@ -906,7 +906,7 @@ bool UWorld::PreSaveRoot(const TCHAR* Filename)
 	{
 		for (UBlueprint* Blueprint : PersistentLevel->GetLevelBlueprints())
 		{
-			FKismetEditorUtilities::CompileBlueprint(Blueprint, EBlueprintCompileOptions::SkipGarbageCollection);
+			FKismetEditorUtilities::CompileBlueprint(Blueprint, EBlueprintCompileOptions::SkipGarbageCollection | EBlueprintCompileOptions::SkipSave);
 		}
 	}
 #endif
@@ -2527,6 +2527,7 @@ void UWorld::RenameToPIEWorld(int32 PIEInstanceID)
 	UPackage* WorldPackage = GetOutermost();
 
 	WorldPackage->PIEInstanceID = PIEInstanceID;
+	WorldPackage->SetPackageFlags(PKG_PlayInEditor);
 
 	const FString PIEPackageName = *UWorld::ConvertToPIEPackageName(WorldPackage->GetName(), PIEInstanceID);
 	WorldPackage->Rename(*PIEPackageName);
@@ -2909,6 +2910,11 @@ void UWorld::UpdateLevelStreaming()
 
 void UWorld::FlushLevelStreaming(EFlushLevelStreamingType FlushType)
 {
+	if (!FPlatformProcess::SupportsMultithreading())
+	{
+		return;
+	}
+
 	AWorldSettings* WorldSettings = GetWorldSettings();
 
 	TGuardValue<EFlushLevelStreamingType> FlushingLevelStreamingGuard(FlushLevelStreamingType, FlushType);
@@ -2995,6 +3001,10 @@ void UWorld::ConditionallyBuildStreamingData()
 
 bool UWorld::IsVisibilityRequestPending() const
 {
+	if (!FPlatformProcess::SupportsMultithreading())
+	{
+		return false;
+	}
 	return (CurrentLevelPendingVisibility != nullptr || CurrentLevelPendingInvisibility != nullptr);
 }
 
