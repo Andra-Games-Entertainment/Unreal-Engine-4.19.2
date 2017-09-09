@@ -135,6 +135,12 @@ float UMediaPlayer::GetHorizontalFieldOfView() const
 }
 
 
+FText UMediaPlayer::GetMediaName() const
+{
+	return PlayerFacade->GetMediaName();
+}
+
+
 int32 UMediaPlayer::GetNumTracks(EMediaPlayerTrack TrackType) const
 {
 	return PlayerFacade->GetNumTracks((EMediaTrackType)TrackType);
@@ -604,10 +610,11 @@ void UMediaPlayer::PostDuplicate(bool bDuplicateForPIE)
 }
 
 
-void UMediaPlayer::PostLoad()
+void UMediaPlayer::PostInitProperties()
 {
-	Super::PostLoad();
+	Super::PostInitProperties();
 
+	// Set the player GUID - required for UMediaPlayers dynamically allocated at runtime
 	PlayerFacade->SetGuid(PlayerGuid);
 
 	IMediaModule* MediaModule = FModuleManager::LoadModulePtr<IMediaModule>("Media");
@@ -619,6 +626,13 @@ void UMediaPlayer::PostLoad()
 	}
 }
 
+void UMediaPlayer::PostLoad()
+{
+	Super::PostLoad();
+
+	// Set the player GUID - required for UMediaPlayer assets
+	PlayerFacade->SetGuid(PlayerGuid);
+}
 
 #if WITH_EDITOR
 
@@ -696,6 +710,10 @@ void UMediaPlayer::HandlePlayerMediaEvent(EMediaEvent Event)
 
 	case EMediaEvent::SeekCompleted:
 		OnSeekCompleted.Broadcast();
+		break;
+
+	case EMediaEvent::TracksChanged:
+		OnTracksChanged.Broadcast();
 		break;
 	}
 }
