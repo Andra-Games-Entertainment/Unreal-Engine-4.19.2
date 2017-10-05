@@ -595,6 +595,10 @@ FSceneView::FSceneView(const FSceneViewInitOptions& InitOptions)
 	, UnconstrainedViewRect(InitOptions.GetViewRect())
 	, MaxShadowCascades(10)
 	, ViewMatrices(InitOptions)
+	, ViewLocation(EForceInit::ForceInitToZero)
+	, ViewRotation(EForceInit::ForceInitToZero)
+	, BaseHmdOrientation(EForceInit::ForceInit)
+	, BaseHmdLocation(EForceInit::ForceInitToZero)
 	, WorldToMetersScale(InitOptions.WorldToMetersScale)
 	, ShadowViewMatrices(InitOptions)
 	, ProjectionMatrixUnadjustedForRHI(InitOptions.ProjectionMatrix)
@@ -2203,6 +2207,7 @@ void FSceneView::SetupCommonViewUniformBufferParameters(
 	ViewUniformShaderParameters.TranslatedWorldToCameraView = InViewMatrices.GetTranslatedViewMatrix();
 	ViewUniformShaderParameters.CameraViewToTranslatedWorld = InViewMatrices.GetInvTranslatedViewMatrix();
 	ViewUniformShaderParameters.ViewToClip = InViewMatrices.GetProjectionMatrix();
+	ViewUniformShaderParameters.ViewToClipNoAA = InViewMatrices.GetProjectionNoAAMatrix();
 	ViewUniformShaderParameters.ClipToView = InViewMatrices.GetInvProjectionMatrix();
 	ViewUniformShaderParameters.ClipToTranslatedWorld = InViewMatrices.GetInvTranslatedViewProjectionMatrix();
 	ViewUniformShaderParameters.ViewForward = InViewMatrices.GetOverriddenTranslatedViewMatrix().GetColumn(2);

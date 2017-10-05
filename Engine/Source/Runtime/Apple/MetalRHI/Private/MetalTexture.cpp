@@ -1566,7 +1566,7 @@ void* FMetalSurface::AsyncLock(class FRHICommandListImmediate& RHICmdList, uint3
 	return BufferData;
 }
             
-struct FMetalRHICommandUnlockTextureUpdate : public FRHICommand<FMetalRHICommandUnlockTextureUpdate>
+struct FMetalRHICommandUnlockTextureUpdate final : public FRHICommand<FMetalRHICommandUnlockTextureUpdate>
 			{
 	FMetalSurface* Surface;
 	void* UpdateData;
@@ -1804,7 +1804,7 @@ void FMetalDynamicRHI::RHIGenerateMips(FTextureRHIParamRef SourceSurfaceRHI)
 }
 
 // deferred unlock commands
-struct FMetalRHICommandAsyncReallocateTexture2D : public FRHICommand<FMetalRHICommandAsyncReallocateTexture2D>
+struct FMetalRHICommandAsyncReallocateTexture2D final : public FRHICommand<FMetalRHICommandAsyncReallocateTexture2D>
 {
 	FMetalContext& Context;
 	FMetalTexture2D* OldTexture;
@@ -1989,7 +1989,7 @@ void FMetalDynamicRHI::RHIUnlockTexture2DArray(FTexture2DArrayRHIParamRef Textur
 }
 }
 
-struct FMetalRHICommandUpdateTexture2D : public FRHICommand<FMetalRHICommandUpdateTexture2D>
+struct FMetalRHICommandUpdateTexture2D final : public FRHICommand<FMetalRHICommandUpdateTexture2D>
 {
 	FMetalContext& Context;
 	FMetalTexture2D* Texture;
@@ -2399,7 +2399,7 @@ void FMetalDynamicRHI::RHIVirtualTextureSetFirstMipVisible(FTexture2DRHIParamRef
 	NOT_SUPPORTED("RHIVirtualTextureSetFirstMipVisible");
 }
 
-struct FMetalRHICommandUnaliasTextures : public FRHICommand<FMetalRHICommandUnaliasTextures>
+struct FMetalRHICommandUnaliasTextures final : public FRHICommand<FMetalRHICommandUnaliasTextures>
 {
 	TArray<FTextureRHIParamRef> Textures;
 	
@@ -2454,5 +2454,94 @@ void FMetalDynamicRHI::RHISetResourceAliasability_RenderThread(class FRHICommand
 			default:
 				break;
 		}
+	}
+}
+
+struct FRHICopySubTextureRegion final : public FRHICommand<FRHICopySubTextureRegion>
+{
+	FTexture2DRHIParamRef SourceTexture;
+	FTexture2DRHIParamRef DestinationTexture;
+	FBox2D SourceBox;
+	FBox2D DestinationBox;
+	
+	FORCEINLINE_DEBUGGABLE FRHICopySubTextureRegion(FTexture2DRHIParamRef InSourceTexture, FTexture2DRHIParamRef InDestinationTexture, FBox2D InSourceBox, FBox2D InDestinationBox)
+	: SourceTexture(InSourceTexture)
+	, DestinationTexture(InDestinationTexture)
+	, SourceBox(InSourceBox)
+	, DestinationBox(InDestinationBox)
+	{
+	}
+	
+	void Execute(FRHICommandListBase& CmdList)
+	{
+		GDynamicRHI->RHICopySubTextureRegion(SourceTexture, DestinationTexture, SourceBox, DestinationBox);
+	}
+};
+
+void FMetalDynamicRHI::RHICopySubTextureRegion_RenderThread(class FRHICommandListImmediate& RHICmdList, FTexture2DRHIParamRef SourceTexture, FTexture2DRHIParamRef DestinationTexture, FBox2D SourceBox, FBox2D DestinationBox)
+{
+	@autoreleasepool
+	{
+		if (RHICmdList.Bypass() || !IsRunningRHIInSeparateThread())
+		{
+			GDynamicRHI->RHICopySubTextureRegion(SourceTexture, DestinationTexture, SourceBox, DestinationBox);
+		}
+		else
+		{
+			new (RHICmdList.AllocCommand<FRHICopySubTextureRegion>()) FRHICopySubTextureRegion(SourceTexture, DestinationTexture, SourceBox, DestinationBox);
+		}
+	}
+}
+
+void FMetalDynamicRHI::RHICopySubTextureRegion(FTexture2DRHIParamRef SourceTexture, FTexture2DRHIParamRef DestinationTexture, FBox2D SourceBox, FBox2D DestinationBox)
+{
+	check(SourceTexture);
+	check(DestinationTexture);
+	
+	if(SourceTexture->GetFormat() == DestinationTexture->GetFormat())
+	{
+		FMetalTexture2D* MetalSrcTexture = ResourceCast(SourceTexture);
+		FMetalTexture2D* MetalDestTexture = ResourceCast(DestinationTexture);
+		
+		FVector2D SourceSizeVector = SourceBox.GetSize();
+		FVector2D DestinatioSizeVector = DestinationBox.GetSize();
+
+		MTLOrigin SourceOrigin = MTLOriginMake(SourceBox.Min.X, SourceBox.Min.Y, 0);
+		MTLSize SourceSize = MTLSizeMake(SourceSizeVector.X, SourceSizeVector.Y, 1);
+		
+		MTLOrigin DestinationOrigin = MTLOriginMake(DestinationBox.Min.X, DestinationBox.Min.Y, 0);
+		MTLSize DestinationSize = MTLSizeMake(DestinatioSizeVector.X, DestinatioSizeVector.Y, 1);
+		
+		check(DestinationSize.width == SourceSize.width);
+		check(DestinationSize.height == SourceSize.height);
+		
+		// Account for create with TexCreate_SRGB flag which could make these different
+		if(MetalSrcTexture->Surface.Texture.pixelFormat == MetalDestTexture->Surface.Texture.pixelFormat)
+		{
+			ImmediateContext.GetInternalContext().CopyFromTextureToTexture(MetalSrcTexture->Surface.Texture, 0, 0, SourceOrigin,SourceSize,MetalDestTexture->Surface.Texture, 0, 0, DestinationOrigin);
+		}
+		else
+		{
+			// Linear and sRGB mismatch then try to go via metal buffer
+			// Modified clone of logic from MetalRenderTarget.cpp
+			uint32 BytesPerPixel = (MetalSrcTexture->Surface.PixelFormat != PF_DepthStencil) ? GPixelFormats[MetalSrcTexture->Surface.PixelFormat].BlockBytes : 1;
+			const uint32 Stride = BytesPerPixel * SourceSize.width;
+			const uint32 Alignment = PLATFORM_MAC ? 1u : 64u;
+			const uint32 AlignedStride = ((Stride - 1) & ~(Alignment - 1)) + Alignment;
+			const uint32 BytesPerImage = AlignedStride *  SourceSize.height;
+			
+			id<MTLBuffer> Buffer = GetMetalDeviceContext().CreatePooledBuffer(FMetalPooledBufferArgs(ImmediateContext.Context->GetDevice(), BytesPerImage, MTLStorageModeShared));
+			
+			check(Buffer != nil);
+			
+			ImmediateContext.GetInternalContext().CopyFromTextureToBuffer(MetalSrcTexture->Surface.Texture, 0, 0, SourceOrigin, SourceSize, Buffer, 0, AlignedStride, BytesPerImage, MTLBlitOptionNone);
+			ImmediateContext.GetInternalContext().CopyFromBufferToTexture(Buffer, 0, Stride, BytesPerImage, SourceSize, MetalDestTexture->Surface.Texture, 0, 0, DestinationOrigin);
+			
+			GetMetalDeviceContext().ReleasePooledBuffer(Buffer);
+		}
+	}
+	else
+	{
+		UE_LOG(LogMetal, Warning, TEXT("RHICopySubTextureRegion Source <-> Destination texture format mismatch"));
 	}
 }

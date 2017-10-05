@@ -356,6 +356,17 @@ bool UUserWidget::Initialize()
 			InitializeNamedSlots(bReparentToWidgetTree);
 		}
 
+		// Setup the player context on sub user widgets, if we have a valid context
+		if (PlayerContext.IsValid())
+		{
+			WidgetTree->ForEachWidget([&](UWidget* Widget) {
+				if (UUserWidget* UserWidget = Cast<UUserWidget>(Widget))
+				{
+					UserWidget->SetPlayerContext(PlayerContext);
+				}
+			});
+		}
+
 		return true;
 	}
 
@@ -1735,7 +1746,12 @@ void UUserWidget::PostLoad()
 	Super::PostLoad();
 
 #if WITH_EDITOR
-	// No-Op
+	if (!HasAnyFlags(RF_ClassDefaultObject))
+	{
+		UUserWidget* DefeaultWidget = Cast<UUserWidget>(GetClass()->GetDefaultObject());
+		bCanEverTick = DefeaultWidget->bCanEverTick;
+		bCanEverPaint = DefeaultWidget->bCanEverPaint;
+	}
 #else
 	if ( HasAnyFlags(RF_ArchetypeObject) && !HasAllFlags(RF_ClassDefaultObject) )
 	{

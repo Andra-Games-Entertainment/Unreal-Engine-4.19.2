@@ -183,7 +183,9 @@ struct FMacApplicationInfo
 		gethostname(MachineName, ARRAY_COUNT(MachineName));
 		
 		FString CrashVideoPath = FPaths::ProjectLogDir() + TEXT("CrashVideo.avi");
-		
+
+		// The engine mode may be incorrect at this point, as GIsEditor is uninitialized yet. We'll update BranchBaseDir in PostInitUpdate(),
+		// but we initialize it here anyway in case the engine crashes before PostInitUpdate() is called.
 		BranchBaseDir = FString::Printf( TEXT( "%s!%s!%s!%d" ), *FApp::GetBranchName(), FPlatformProcess::BaseDir(), FPlatformMisc::GetEngineMode(), FEngineVersion::Current().GetChangelist() );
 		
 		// Get the paths that the files will actually have been saved to
@@ -449,6 +451,11 @@ void FMacPlatformMisc::PlatformInit()
 		UE_LOG(LogInit, Log, TEXT("No Xcode installed"));
 	}
 #endif
+}
+
+void FMacPlatformMisc::PostInitMacAppInfoUpdate()
+{
+	GMacAppInfo.BranchBaseDir = FString::Printf(TEXT("%s!%s!%s!%d"), *FApp::GetBranchName(), FPlatformProcess::BaseDir(), FPlatformMisc::GetEngineMode(), FEngineVersion::Current().GetChangelist());
 }
 
 void FMacPlatformMisc::PlatformTearDown()
@@ -1214,28 +1221,6 @@ uint32 FMacPlatformMisc::GetCPUInfo()
 	return Args[0];
 }
 
-FString FMacPlatformMisc::GetDefaultLanguage()
-{
-	CFArrayRef Languages = CFLocaleCopyPreferredLanguages();
-	CFStringRef LangCodeStr = (CFStringRef)CFArrayGetValueAtIndex(Languages, 0);
-	FString LangCode((__bridge NSString*)LangCodeStr);
-	CFRelease(Languages);
-
-	return LangCode;
-}
-
-FString FMacPlatformMisc::GetDefaultLocale()
-{
-	CFLocaleRef Locale = CFLocaleCopyCurrent();
-	CFStringRef LangCodeStr = (CFStringRef)CFLocaleGetValue(Locale, kCFLocaleLanguageCode);
-	FString LangCode((__bridge NSString*)LangCodeStr);
-	CFStringRef CountryCodeStr = (CFStringRef)CFLocaleGetValue(Locale, kCFLocaleCountryCode);
-	FString CountryCode((__bridge NSString*)CountryCodeStr);
-	CFRelease(Locale);
-
-	return CountryCode.IsEmpty() ? LangCode : FString::Printf(TEXT("%s-%s"), *LangCode, *CountryCode);
-}
-
 FText FMacPlatformMisc::GetFileManagerName()
 {
 	return NSLOCTEXT("MacPlatform", "FileManagerName", "Finder");
@@ -1298,6 +1283,38 @@ bool FMacPlatformMisc::IsSupportedXcodeVersionInstalled()
 {
 	// We need Xcode 8.2 or newer to be able to compile Metal shaders correctly
 	return GMacAppInfo.XcodeVersion.majorVersion > 8 || (GMacAppInfo.XcodeVersion.majorVersion == 8 && GMacAppInfo.XcodeVersion.minorVersion >= 2);
+}
+
+CGDisplayModeRef FMacPlatformMisc::GetSupportedDisplayMode(CGDirectDisplayID DisplayID, uint32 Width, uint32 Height)
+{
+	CGDisplayModeRef BestMatchingMode = nullptr;
+	uint32 BestWidth = 0;
+	uint32 BestHeight = 0;
+
+	CFArrayRef AllModes = CGDisplayCopyAllDisplayModes(DisplayID, nullptr);
+	if (AllModes)
+	{
+		const int32 NumModes = CFArrayGetCount(AllModes);
+		for (int32 Index = 0; Index < NumModes; Index++)
+		{
+			CGDisplayModeRef Mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(AllModes, Index);
+			const int32 ModeWidth = (int32)CGDisplayModeGetWidth(Mode);
+			const int32 ModeHeight = (int32)CGDisplayModeGetHeight(Mode);
+
+			const bool bIsEqualOrBetterWidth = FMath::Abs((int32)ModeWidth - (int32)Width) <= FMath::Abs((int32)BestWidth - (int32)Width);
+			const bool bIsEqualOrBetterHeight = FMath::Abs((int32)ModeHeight - (int32)Height) <= FMath::Abs((int32)BestHeight - (int32)Height);
+			if (!BestMatchingMode || (bIsEqualOrBetterWidth && bIsEqualOrBetterHeight))
+			{
+				BestWidth = ModeWidth;
+				BestHeight = ModeHeight;
+				BestMatchingMode = Mode;
+			}
+		}
+		BestMatchingMode = CGDisplayModeRetain(BestMatchingMode);
+		CFRelease(AllModes);
+	}
+
+	return BestMatchingMode;
 }
 
 /** Global pointer to crash handler */

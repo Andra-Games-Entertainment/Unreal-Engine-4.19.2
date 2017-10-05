@@ -610,7 +610,7 @@ public class IOSPlatform : Platform
 			{
 				// Get the path to UBT
 				string InstalledUBT = CombinePaths(CmdEnv.LocalRoot, "Engine/Binaries/DotNET/UnrealBuildTool.exe");
-				Arguments = "-XcodeProjectFile " + Arguments;
+				Arguments = "-XcodeProjectFiles " + Arguments;
 				RunUBT(CmdEnv, InstalledUBT, Arguments);
 			}
 			else
@@ -907,7 +907,7 @@ public class IOSPlatform : Platform
 			}
 		}
         {
-			StageMovieFiles(DirectoryReference.Combine(SC.EngineRoot, "Content", "Movies"), SC);
+            StageMovieFiles(DirectoryReference.Combine(SC.EngineRoot, "Content", "Movies"), SC);
 			StageMovieFiles(DirectoryReference.Combine(SC.ProjectRoot, "Content", "Movies"), SC);
         }
 		{

@@ -73,6 +73,13 @@ static FAutoConsoleVariableRef CVarStaticMeshUpdateMeshLODGroupSettingsAtLoad(
 	TEXT("If set, LODGroup settings for static meshes will be applied at load time."));
 #endif
 
+int32 GForceStripMeshAdjacencyDataDuringCooking = 0;
+static FAutoConsoleVariableRef CVarForceStripMeshAdjacencyDataDuringCooking(
+	TEXT("r.ForceStripAdjacencyDataDuringCooking"),
+	GForceStripMeshAdjacencyDataDuringCooking,
+	TEXT("If set, adjacency data will be stripped for all static and skeletal meshes during cooking (acting like the target platform did not support tessellation)."));
+
+
 #if ENABLE_COOK_STATS
 namespace StaticMeshCookStats
 {
@@ -139,7 +146,9 @@ void FStaticMeshLODResources::Serialize(FArchive& Ar, UObject* Owner, int32 Inde
 
 	// Actual flags used during serialization
 	uint8 ClassDataStripFlags = 0;
-	ClassDataStripFlags |= (Ar.IsCooking() && !Ar.CookingTarget()->SupportsFeature(ETargetPlatformFeatures::Tessellation)) ? AdjacencyDataStripFlag : 0;
+
+	const bool bWantToStripTessellation = Ar.IsCooking() && ((GForceStripMeshAdjacencyDataDuringCooking != 0) || !Ar.CookingTarget()->SupportsFeature(ETargetPlatformFeatures::Tessellation));
+	ClassDataStripFlags |= bWantToStripTessellation ? AdjacencyDataStripFlag : 0;
 
 	FStripDataFlags StripFlags( Ar, ClassDataStripFlags );
 
@@ -1285,7 +1294,7 @@ void FStaticMeshRenderData::Cache(UStaticMesh* Owner, const FStaticMeshLODSettin
 			FStaticMeshStatusMessageContext StatusContext( FText::Format( NSLOCTEXT("Engine", "BuildingStaticMeshStatus", "Building static mesh {StaticMeshName}..."), Args ) );
 
 			IMeshUtilities& MeshUtilities = FModuleManager::Get().LoadModuleChecked<IMeshUtilities>(TEXT("MeshUtilities"));
-			if (!MeshUtilities.BuildStaticMesh(*this, Owner->SourceModels, LODGroup, Owner->LightmapUVVersion, Owner->ImportVersion))
+			if (!MeshUtilities.BuildStaticMesh(*this, Owner, LODGroup))
 			{
 				UE_LOG(LogStaticMesh, Error, TEXT("Failed to build static mesh. See previous line(s) for details."));
 				return;
@@ -1336,7 +1345,7 @@ void FStaticMeshRenderData::Cache(UStaticMesh* Owner, const FStaticMeshLODSettin
 		}
 		else
 		{
-			UE_LOG(LogStaticMesh, Error, TEXT("Failed to generate distance field data due to missing LODResource for LOD 0."));
+			UE_LOG(LogStaticMesh, Error, TEXT("Failed to generate distance field data for %s due to missing LODResource for LOD 0."), *Owner->GetPathName());
 		}
 	}
 }
@@ -2508,6 +2517,7 @@ void UStaticMesh::Serialize(FArchive& Ar)
 				// Assuming billboard material is added last
 				Info.MaterialIndex = StaticMaterials.Num() - 1;
 				SectionInfoMap.Set(LODIndex, 0, Info);
+				OriginalSectionInfoMap.Set(LODIndex, 0, Info);
 			}
 		}
 	}
@@ -2755,6 +2765,11 @@ void UStaticMesh::PostLoad()
 					SectionInfoMap.Set(LODResourceIndex, SectionIndex, FMeshSectionInfo(MaterialIndex));
 				}
 			}
+			//Make sure the OriginalSectionInfoMap has some information, the post load only add missing slot, this data should be set when importing/re-importing the asset
+			if (!OriginalSectionInfoMap.IsValidSection(LODResourceIndex, SectionIndex))
+			{
+				OriginalSectionInfoMap.Set(LODResourceIndex, SectionIndex, SectionInfoMap.Get(LODResourceIndex, SectionIndex));
+			}
 		}
 	}
 #endif // #if WITH_EDITOR
@@ -2979,22 +2994,21 @@ void UStaticMesh::CreateBodySetup()
 
 void UStaticMesh::CreateNavCollision(const bool bIsUpdate)
 {
-	// do NOT test properties of BodySetup at load time, they still can change between PostLoad and component's OnRegister
-	if (bHasNavigationData && BodySetup != nullptr && (!bIsUpdate || NavigationHelper::IsBodyNavigationRelevant(*BodySetup)))
+	if (bHasNavigationData && BodySetup != nullptr)
 	{
-		UNavCollision* PrevNavCollision = NavCollision;
-
-		if (NavCollision == nullptr || bIsUpdate)
+		if (NavCollision == nullptr)
 		{
 			NavCollision = NewObject<UNavCollision>(this);
 		}
 
-		if (PrevNavCollision)
+#if WITH_EDITOR
+		if (bIsUpdate)
 		{
-			NavCollision->CopyUserSettings(*PrevNavCollision);
+			NavCollision->InvalidateCollision();
 		}
+#endif // WITH_EDITOR
 
-		NavCollision->Setup(BodySetup);
+		NavCollision->Setup(BodySetup);	
 	}
 	else
 	{
@@ -3561,7 +3575,7 @@ void UStaticMesh::GenerateLodsInPackage()
 
 	// Generate the reduced models
 	IMeshUtilities& MeshUtilities = FModuleManager::Get().LoadModuleChecked<IMeshUtilities>(TEXT("MeshUtilities"));
-	if (MeshUtilities.GenerateStaticMeshLODs(SourceModels, LODSettings.GetLODGroup(LODGroup), LightmapUVVersion))
+	if (MeshUtilities.GenerateStaticMeshLODs(this, LODSettings.GetLODGroup(LODGroup)))
 	{
 		// Clear LOD settings
 		LODGroup = NAME_None;

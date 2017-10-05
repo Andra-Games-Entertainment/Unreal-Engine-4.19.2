@@ -1542,6 +1542,16 @@ protected:
             expr->operands[0]->accept(this);
             ralloc_asprintf_append(buffer, ")");
         }
+		else if (Backend && Backend->Version >= 2 && numOps == 2 && op == ir_binop_mul && expr->operands[0]->type == expr->operands[1]->type && expr->operands[0]->type->is_float())
+		{
+			ralloc_asprintf_append(buffer, "fma(");
+			expr->operands[0]->accept(this);
+			ralloc_asprintf_append(buffer, ",");
+			expr->operands[1]->accept(this);
+			ralloc_asprintf_append(buffer, ",");
+			print_type_full(expr->operands[0]->type);
+			ralloc_asprintf_append(buffer, "(0))");
+		}
 		else if (numOps == 2 && (op == ir_binop_add || op == ir_binop_sub || op == ir_binop_mul || op == ir_binop_div))
 		{
 			bool bHandleFloatHalfConflict = false;
@@ -1615,7 +1625,7 @@ protected:
 		}
 		else if ((op == ir_ternop_fma || op == ir_ternop_clamp || op == ir_unop_sqrt || op == ir_unop_rsq || op == ir_unop_saturate) && expr->type->base_type == GLSL_TYPE_FLOAT)
 		{
-			if (!Backend->bAllowFastIntriniscs && op != ir_ternop_fma)
+			if (Backend && !Backend->bAllowFastIntriniscs && op != ir_ternop_fma)
 			{
 				ralloc_asprintf_append(buffer, "precise::");
 			}
@@ -1636,7 +1646,7 @@ protected:
 			{
 				OpString = (OpString + 1);
 			}
-			else if(!Backend->bAllowFastIntriniscs && expr->type->base_type == GLSL_TYPE_FLOAT)
+			else if(Backend && !Backend->bAllowFastIntriniscs && expr->type->base_type == GLSL_TYPE_FLOAT)
 			{
 				ralloc_asprintf_append(buffer, "precise::");
 			}
@@ -2805,9 +2815,15 @@ protected:
 						ralloc_asprintf_append(buffer, "(-1.0/0.0)");
 						break;
 
+					case 0x7fc00000u:
+						ralloc_asprintf_append(buffer, "(NAN)");
+						_mesa_glsl_warning(ParseState, "Generated a float literal value of NAN - this is almost certainly incorrect.");
+						break;
+
 					default:
-						ralloc_asprintf_append(buffer, "UnknownNonFinite_0x%08x", constant->value.u[index]);
-						check(0);
+						ralloc_asprintf_append(buffer, "as_type<float>(0x%08x)", constant->value.u[index]);
+						_mesa_glsl_warning(ParseState, "Generated an unknown non-finite float literal value of 0x%08x - this is almost certainly incorrect.", constant->value.u[index]);
+						break;
 				}
 			}
 		}
