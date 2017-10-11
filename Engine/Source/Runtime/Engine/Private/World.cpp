@@ -756,10 +756,12 @@ void UWorld::FinishDestroy()
 			delete PhysicsScene;
 			PhysicsScene = NULL;
 
+#if WITH_PHYSX
 			if(GPhysCommandHandler)
 			{
 				GPhysCommandHandler->Flush();
 			}
+#endif // WITH_PHYSX
 		}
 
 		if (Scene)
@@ -895,6 +897,9 @@ void UWorld::PostLoad()
 		}
 	}
 #endif
+
+	// Reset between worlds so that the metric is only relevant to the current world.
+	ResetAverageRequiredTexturePoolSize();
 }
 
 
