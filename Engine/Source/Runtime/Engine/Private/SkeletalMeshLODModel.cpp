@@ -256,7 +256,11 @@ FArchive& operator<<(FArchive& Ar, FSkelMeshSection& S)
 	// for clothing info
 	if (Ar.UE4Ver() >= VER_UE4_APEX_CLOTH)
 	{
-		Ar << S.bDisabled;
+		// Load old 'disabled' flag on sections, as this was used to identify legacy clothing sections for conversion
+		if (Ar.CustomVer(FSkeletalMeshCustomVersion::GUID) < FSkeletalMeshCustomVersion::DeprecateSectionDisabledFlag)
+		{
+			Ar << S.bLegacyClothingSection_DEPRECATED;
+		}
 
 		// No longer serialize this if it's not used to map sections any more.
 		if(Ar.CustomVer(FSkeletalMeshCustomVersion::GUID) < FSkeletalMeshCustomVersion::RemoveDuplicatedClothingSections)
@@ -383,6 +387,15 @@ FArchive& operator<<(FArchive& Ar, FSkelMeshSection& S)
 		{
 			Ar << S.ClothingData;
 		}
+
+        Ar.UsingCustomVersion(FOverlappingVerticesCustomVersion::GUID);
+
+        if (Ar.CustomVer(FOverlappingVerticesCustomVersion::GUID) >= FOverlappingVerticesCustomVersion::DetectOVerlappingVertices)
+        {
+            Ar << S.OverlappingVertices;
+        }
+
+        return Ar;
 	}
 
 	return Ar;
@@ -768,7 +781,7 @@ int32 FSkeletalMeshLODModel::GetNumNonClothingVertices() const
 		const FSkelMeshSection& Section = Sections[i];
 
 		// Stop when we hit clothing sections
-		if (Section.ClothingData.AssetGuid.IsValid() && !Section.bDisabled)
+		if (Section.ClothingData.AssetGuid.IsValid())
 		{
 			break;
 		}

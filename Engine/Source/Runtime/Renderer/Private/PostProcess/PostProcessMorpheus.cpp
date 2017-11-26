@@ -99,10 +99,12 @@ public:
 		DeferredParameters.Set(RHICmdList, ShaderRHI, Context.View, MD_PostProcess);
 
 		{
+			static FName MorpheusName(TEXT("PSVR"));
 			check(GEngine->XRSystem.IsValid());
-			IHeadMountedDisplay* HMDDevice = GEngine->XRSystem->GetHMDDevice();
+			check(GEngine->XRSystem->GetSystemName() == MorpheusName);
 
-			check(HMDDevice && HMDDevice->GetHMDDeviceType() == EHMDDeviceType::DT_Morpheus); // TODO: use XRSystem->GetSystemName() instead
+			IHeadMountedDisplay* HMDDevice = GEngine->XRSystem->GetHMDDevice();
+			check(HMDDevice);
 
 			auto RCoefs = HMDDevice->GetRedDistortionParameters();
 			auto GCoefs = HMDDevice->GetGreenDistortionParameters();
@@ -201,7 +203,7 @@ void FRCPassPostProcessMorpheus::Process(FRenderingCompositePassContext& Context
 		return;
 	}
 
-	const FSceneView& View = Context.View;
+	const FViewInfo& View = Context.View;
 	const FSceneViewFamily& ViewFamily = *(View.Family);
 	
 	FIntRect SrcRect = View.ViewRect;

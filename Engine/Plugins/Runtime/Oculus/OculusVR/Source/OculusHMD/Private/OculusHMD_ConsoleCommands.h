@@ -22,7 +22,6 @@ public:
 	virtual bool Exec(UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar) override;
 private:
 	FAutoConsoleCommand UpdateOnRenderThreadCommand;
-	FAutoConsoleCommand PixelDensityCommand;
 	FAutoConsoleCommand PixelDensityMinCommand;
 	FAutoConsoleCommand PixelDensityMaxCommand;
 	FAutoConsoleCommand PixelDensityAdaptiveCommand;
@@ -37,10 +36,7 @@ private:
 	FAutoConsoleCommand StatsCommand;
 	FAutoConsoleCommand CubemapCommand;
 	FAutoConsoleCommand ShowSettingsCommand;
-	FAutoConsoleCommand ResetSettingsCommand;
 	FAutoConsoleCommand IPDCommand;
-	FAutoConsoleCommand FCPCommand;
-	FAutoConsoleCommand NCPCommand;
 #endif // !UE_BUILD_SHIPPING
 };
 

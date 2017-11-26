@@ -53,6 +53,8 @@ struct FSkeletalMeshCustomVersion
 		RemoveTriangleSorting = 13,
 		// Remove the duplicated clothing sections that were a legacy holdover from when we didn't use our own render data
 		RemoveDuplicatedClothingSections = 14,
+		// Remove 'Disabled' flag from SkelMesh asset sections
+		DeprecateSectionDisabledFlag = 15,
 
 		// -----<new versions can be added above this line>-------------------------------------------------
 		VersionPlusOne,
@@ -85,6 +87,27 @@ struct FRecomputeTangentCustomVersion
 	
 private:
 	FRecomputeTangentCustomVersion() {}
+};
+
+// custom version for overlapping vertcies code
+struct FOverlappingVerticesCustomVersion
+{
+	enum Type
+	{
+		// Before any version changes were made in the plugin
+		BeforeCustomVersionWasAdded = 0,
+		// Converted to use HierarchicalInstancedStaticMeshComponent
+		DetectOVerlappingVertices = 1,
+		// -----<new versions can be added above this line>-------------------------------------------------
+		VersionPlusOne,
+		LatestVersion = VersionPlusOne - 1
+	};
+
+	// The GUID for this custom version number
+	const static FGuid GUID;
+
+private:
+	FOverlappingVerticesCustomVersion() {}
 };
 
 /** Flags used when building vertex buffers. */
@@ -183,6 +206,8 @@ FSkeletalMeshSceneProxy
 class ENGINE_API FSkeletalMeshSceneProxy : public FPrimitiveSceneProxy
 {
 public:
+	SIZE_T GetTypeHash() const override;
+
 	/** 
 	 * Constructor. 
 	 * @param	Component - skeletal mesh primitive being added
@@ -220,7 +245,7 @@ public:
 	/** 
 	 * Render physics asset for debug display
 	 */
-	void DebugDrawPhysicsAsset(int32 ViewIndex, FMeshElementCollector& Collector, const FEngineShowFlags& EngineShowFlags) const;
+	virtual void DebugDrawPhysicsAsset(int32 ViewIndex, FMeshElementCollector& Collector, const FEngineShowFlags& EngineShowFlags) const;
 
 	/** Render the bones of the skeleton for debug display */
 	void DebugDrawSkeleton(int32 ViewIndex, FMeshElementCollector& Collector, const FEngineShowFlags& EngineShowFlags) const;
@@ -319,22 +344,23 @@ protected:
 	void GetMeshElementsConditionallySelectable(const TArray<const FSceneView*>& Views, const FSceneViewFamily& ViewFamily, bool bInSelectable, uint32 VisibilityMap, FMeshElementCollector& Collector) const;
 };
 
-/** Used to recreate all skeletal mesh components for a given skeletal mesh */
-class ENGINE_API FSkeletalMeshComponentRecreateRenderStateContext
+/** Used to recreate all skinned mesh components for a given skeletal mesh */
+class ENGINE_API FSkinnedMeshComponentRecreateRenderStateContext
 {
 public:
 
 	/** Initialization constructor. */
-	FSkeletalMeshComponentRecreateRenderStateContext(USkeletalMesh* InSkeletalMesh, bool InRefreshBounds = false);
-
+	FSkinnedMeshComponentRecreateRenderStateContext(USkeletalMesh* InSkeletalMesh, bool InRefreshBounds = false);
 
 	/** Destructor: recreates render state for all components that had their render states destroyed in the constructor. */
-	~FSkeletalMeshComponentRecreateRenderStateContext();
+	~FSkinnedMeshComponentRecreateRenderStateContext();
 	
-
 private:
 
-	TArray< class USkeletalMeshComponent*> SkeletalMeshComponents;
+	/** List of components to reset */
+	TArray< class USkinnedMeshComponent*> MeshComponents;
+
+	/** Whether we'll refresh the component bounds as we reset */
 	bool bRefreshBounds;
 };
 

@@ -53,6 +53,8 @@ struct FImportedVolumetricLightmapBrick
 	float AverageClosestGeometryDistance;
 	TArray<FFloat3Packed> AmbientVector;
 	TArray<FColor> SHCoefficients[6];
+	TArray<FFloat3Packed> LQLightColor;
+	TArray<FColor> LQLightDirection;
 	TArray<FColor> SkyBentNormal;
 	TArray<uint8> DirectionalLightShadowing;
 	TArray<Lightmass::FIrradianceVoxelImportProcessingData> TaskVoxelImportProcessingData;
@@ -110,6 +112,9 @@ bool CopyFromBrickmapTexel(
 			*(FColor*)&BrickData.SHCoefficients[i].Data[LinearDestCellIndex * sizeof(FColor)] = FilteredVolumeLookupReconverted<FColor>(BrickTextureCoordinate, CurrentLevelData.BrickDataDimensions, (const FColor*)BrickData.SHCoefficients[i].Data.GetData());
 		}
 
+		*(FFloat3Packed*)&BrickData.LQLightColor.Data[LinearDestCellIndex * sizeof(FFloat3Packed)] = FilteredVolumeLookupReconverted<FFloat3Packed>(BrickTextureCoordinate, CurrentLevelData.BrickDataDimensions, (const FFloat3Packed*)BrickData.LQLightColor.Data.GetData());
+		*(FColor*)&BrickData.LQLightDirection.Data[LinearDestCellIndex * sizeof(FColor)] = FilteredVolumeLookupReconverted<FColor>(BrickTextureCoordinate, CurrentLevelData.BrickDataDimensions, (const FColor*)BrickData.LQLightDirection.Data.GetData());
+
 		if (BrickData.SkyBentNormal.Data.Num() > 0)
 		{
 			*(FColor*)&BrickData.SkyBentNormal.Data[LinearDestCellIndex * sizeof(FColor)] = FilteredVolumeLookupReconverted<FColor>(BrickTextureCoordinate, CurrentLevelData.BrickDataDimensions, (const FColor*)BrickData.SkyBentNormal.Data.GetData());
@@ -143,7 +148,6 @@ void FLightmassProcessor::ImportIrradianceTasks(bool& bGenerateSkyShadowing, TAr
 
 			int32 NumBricks;
 			Swarm.ReadChannel(Channel, &NumBricks, sizeof(NumBricks));
-
 			NewTaskData.Bricks.Empty(NumBricks);
 
 			for (int32 BrickIndex = 0; BrickIndex < NumBricks; BrickIndex++)
@@ -159,7 +163,10 @@ void FLightmassProcessor::ImportIrradianceTasks(bool& bGenerateSkyShadowing, TAr
 				{
 					ReadArray(Channel, NewBrick.SHCoefficients[i]);
 				}
-				
+
+				ReadArray(Channel, NewBrick.LQLightColor);
+				ReadArray(Channel, NewBrick.LQLightDirection);
+
 				ReadArray(Channel, NewBrick.SkyBentNormal);
 				ReadArray(Channel, NewBrick.DirectionalLightShadowing);
 
@@ -172,7 +179,7 @@ void FLightmassProcessor::ImportIrradianceTasks(bool& bGenerateSkyShadowing, TAr
 		}
 		else
 		{
-			UE_LOG(LogVolumetricLightmapImport, Warning,  TEXT("Error, OpenChannel failed to open %s with error code %d"), *ChannelName, Channel );
+			UE_LOG(LogVolumetricLightmapImport, Fatal,  TEXT("Error, failed to import volumetric lightmap %s with error code %d"), *ChannelName, Channel );
 		}
 
 		delete Element;
@@ -840,7 +847,7 @@ void FLightmassProcessor::ImportVolumetricLightmap()
 
 	ImportIrradianceTasks(bGenerateSkyShadowing, TaskDataArray);
 
-	check(TaskDataArray.Num() == Exporter->VolumetricLightmapTaskGuids.Num());
+	checkf(TaskDataArray.Num() == Exporter->VolumetricLightmapTaskGuids.Num(), TEXT("Import Volumetric Lightmap failed: Expected %u tasks, only found %u"), Exporter->VolumetricLightmapTaskGuids.Num(), TaskDataArray.Num());
 
 	TArray<TArray<const FImportedVolumetricLightmapBrick*>> BricksByDepth;
 	BricksByDepth.Empty(VolumetricLightmapSettings.MaxRefinementLevels);
@@ -872,6 +879,9 @@ void FLightmassProcessor::ImportVolumetricLightmap()
 		{
 			CurrentLevelData.BrickData.SHCoefficients[i].Format = PF_B8G8R8A8;
 		}
+
+		CurrentLevelData.BrickData.LQLightColor.Format = PF_FloatR11G11B10;
+		CurrentLevelData.BrickData.LQLightDirection.Format = PF_B8G8R8A8;
 	}
 
 	const float MaximumBrickMemoryMb = System.GetWorld()->GetWorldSettings()->LightmassSettings.VolumetricLightmapMaximumBrickMemoryMb;
@@ -929,6 +939,12 @@ void FLightmassProcessor::ImportVolumetricLightmap()
 			CurrentLevelData.BrickData.SHCoefficients[i].Resize(TotalBrickDataSize * Stride);
 		}
 
+		CurrentLevelData.BrickData.LQLightColor.Data.Empty(TotalBrickDataSize * GPixelFormats[CurrentLevelData.BrickData.LQLightColor.Format].BlockBytes);
+		CurrentLevelData.BrickData.LQLightColor.Data.AddZeroed(TotalBrickDataSize * GPixelFormats[CurrentLevelData.BrickData.LQLightColor.Format].BlockBytes);
+
+		CurrentLevelData.BrickData.LQLightDirection.Data.Empty(TotalBrickDataSize * GPixelFormats[CurrentLevelData.BrickData.LQLightDirection.Format].BlockBytes);
+		CurrentLevelData.BrickData.LQLightDirection.Data.AddZeroed(TotalBrickDataSize * GPixelFormats[CurrentLevelData.BrickData.LQLightDirection.Format].BlockBytes);
+
 		VoxelImportProcessingData.Empty(TotalBrickDataSize);
 		VoxelImportProcessingData.AddZeroed(TotalBrickDataSize);
 	}
@@ -962,6 +978,22 @@ void FLightmassProcessor::ImportVolumetricLightmap()
 					(const uint8*)Brick.SHCoefficients[i].GetData(),
 					CurrentLevelData.BrickData.SHCoefficients[i].Data.GetData());
 			}
+
+			CopyBrickToAtlasVolumeTexture(
+				GPixelFormats[CurrentLevelData.BrickData.LQLightColor.Format].BlockBytes,
+				CurrentLevelData.BrickDataDimensions,
+				BrickLayoutPosition,
+				FIntVector(BrickSize),
+				(const uint8*)Brick.LQLightColor.GetData(),
+				CurrentLevelData.BrickData.LQLightColor.Data.GetData());
+
+			CopyBrickToAtlasVolumeTexture(
+				GPixelFormats[CurrentLevelData.BrickData.LQLightDirection.Format].BlockBytes,
+				CurrentLevelData.BrickDataDimensions,
+				BrickLayoutPosition,
+				FIntVector(BrickSize),
+				(const uint8*)Brick.LQLightDirection.GetData(),
+				CurrentLevelData.BrickData.LQLightDirection.Data.GetData());
 
 			if (bGenerateSkyShadowing)
 			{
@@ -1081,7 +1113,8 @@ void FLightmassProcessor::ImportVolumetricLightmap()
 		CurrentLevelData.IndirectionTextureDimensions.Z,
 		CurrentLevelData.IndirectionTexture.Data.Num() / 1024.0f / 1024.0f);
 
-	int32 BrickDataSize = CurrentLevelData.BrickData.AmbientVector.Data.Num() + CurrentLevelData.BrickData.SkyBentNormal.Data.Num() + CurrentLevelData.BrickData.DirectionalLightShadowing.Data.Num();
+	int32 BrickDataSize = CurrentLevelData.BrickData.AmbientVector.Data.Num() + CurrentLevelData.BrickData.SkyBentNormal.Data.Num() + CurrentLevelData.BrickData.DirectionalLightShadowing.Data.Num()
+			+ CurrentLevelData.BrickData.LQLightColor.Data.Num() + CurrentLevelData.BrickData.LQLightColor.Data.Num();
 
 	for (int32 i = 0; i < ARRAY_COUNT(CurrentLevelData.BrickData.SHCoefficients); i++)
 	{

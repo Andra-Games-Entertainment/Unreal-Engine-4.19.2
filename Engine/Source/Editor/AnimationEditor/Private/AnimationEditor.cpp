@@ -249,6 +249,12 @@ void FAnimationEditor::ExtendToolbar()
 		GetToolkitCommands(),
 		FToolBarExtensionDelegate::CreateLambda([this](FToolBarBuilder& ToolbarBuilder)
 		{
+			FPersonaModule& PersonaModule = FModuleManager::LoadModuleChecked<FPersonaModule>("Persona");
+			FPersonaModule::FCommonToolbarExtensionArgs Args;
+			Args.bPreviewAnimation = false;
+			Args.bReferencePose = false;
+			PersonaModule.AddCommonToolbarExtensions(ToolbarBuilder, PersonaToolkit.ToSharedRef(), Args);
+
 			ToolbarBuilder.BeginSection("Animation");
 			{
 				// create button
@@ -283,9 +289,6 @@ void FAnimationEditor::ExtendToolbar()
 				ToolbarBuilder.AddToolBarButton(FAnimationEditorCommands::Get().ApplyAnimation, NAME_None, LOCTEXT("Toolbar_ApplyAnimation", "Apply"));
 			}
 			ToolbarBuilder.EndSection();
-
-			FPersonaModule& PersonaModule = FModuleManager::LoadModuleChecked<FPersonaModule>("Persona");
-			PersonaModule.AddCommonToolbarExtensions(ToolbarBuilder, PersonaToolkit.ToSharedRef());
 
 			TSharedRef<class IAssetFamily> AssetFamily = PersonaModule.CreatePersonaAssetFamily(AnimationAsset);
 			AddToolbarWidget(PersonaModule.CreateAssetFamilyShortcutWidget(SharedThis(this), AssetFamily));
@@ -960,16 +963,17 @@ void FAnimationEditor::CopyCurveToSoundWave(const FAssetData& SoundWaveAssetData
 	}
 
 	// If no internal table, create one now
-	if (!SoundWave->InternalCurves)
+	if (!SoundWave->GetInternalCurveData())
 	{
 		static const FName InternalCurveTableName("InternalCurveTable");
-		SoundWave->Curves = NewObject<UCurveTable>(SoundWave, InternalCurveTableName);
-		SoundWave->Curves->ClearFlags(RF_Public);
-		SoundWave->Curves->SetFlags(SoundWave->Curves->GetFlags() | RF_Standalone | RF_Transactional);
-		SoundWave->InternalCurves = SoundWave->Curves;
+		UCurveTable* NewCurves = NewObject<UCurveTable>(SoundWave, InternalCurveTableName);
+		NewCurves->ClearFlags(RF_Public);
+		NewCurves->SetFlags(NewCurves->GetFlags() | RF_Standalone | RF_Transactional);
+		SoundWave->SetCurveData(NewCurves);
+		SoundWave->SetInternalCurveData(NewCurves);
 	}
 
-	UCurveTable* CurveTable = SoundWave->InternalCurves;
+	UCurveTable* CurveTable = SoundWave->GetInternalCurveData();
 
 	// iterate over curves in anim data
 	const int32 NumCurves = Sequence->RawCurveData.FloatCurves.Num();

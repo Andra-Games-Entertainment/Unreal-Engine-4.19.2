@@ -40,7 +40,7 @@ public:
 
 	virtual void Discard() override
 	{
-		// Keep backing data in the editor for saving
+		//temporarily remove until the semantics around lighting scenarios are fixed.
 		if (!GIsEditor)
 		{
 			Data.Empty();
@@ -70,12 +70,16 @@ public:
 	FVolumetricLightmapDataLayer SHCoefficients[6];
 	FVolumetricLightmapDataLayer SkyBentNormal;
 	FVolumetricLightmapDataLayer DirectionalLightShadowing;
+	// Mobile LQ layers:
+	FVolumetricLightmapDataLayer LQLightColor;
+	FVolumetricLightmapDataLayer LQLightDirection;
 
 	ENGINE_API int32 GetMinimumVoxelSize() const;
 
 	SIZE_T GetAllocatedBytes() const
 	{
 		SIZE_T NumBytes = AmbientVector.DataSize + SkyBentNormal.DataSize + DirectionalLightShadowing.DataSize;
+		NumBytes += LQLightColor.Data.Num() + LQLightDirection.Data.Num();
 
 		for (int32 i = 0; i < ARRAY_COUNT(SHCoefficients); i++)
 		{
@@ -83,6 +87,13 @@ public:
 		}
 
 		return NumBytes;
+	}
+
+	// discard the layers used for low quality lightmap (LQ includes direct lighting from stationary lights).
+	void DiscardLowQualityLayers()
+	{
+		LQLightColor.Discard();
+		LQLightDirection.Discard();
 	}
 };
 

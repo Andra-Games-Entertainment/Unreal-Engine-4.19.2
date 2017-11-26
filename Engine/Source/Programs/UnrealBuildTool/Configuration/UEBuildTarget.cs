@@ -1782,12 +1782,12 @@ namespace UnrealBuildTool
 						Receipt.PrecompiledBuildDependencies.Add(ExternalFile);
 					}
 				}
+			}
 
-				// Also add the version file if it's been specified
-				if (VersionFile != null)
-				{
-					Receipt.BuildProducts.Add(new BuildProduct(VersionFile, BuildProductType.BuildResource));
-				}
+			// Also add the version file if it's been specified
+			if (VersionFile != null)
+			{
+				Receipt.BuildProducts.Add(new BuildProduct(VersionFile, BuildProductType.BuildResource));
 			}
 
 			// Prepare all the version manifests
@@ -3633,7 +3633,7 @@ namespace UnrealBuildTool
 			{
 				foreach(PluginInfo Plugin in NameToInfo.Values)
 				{
-					if(!NameToInstance.ContainsKey(Plugin.Name))
+					if(!NameToInstance.ContainsKey(Plugin.Name) && !Plugin.Descriptor.bCanBeUsedWithUnrealHeaderTool)
 					{
 						PluginReferenceDescriptor Reference = new PluginReferenceDescriptor(Plugin.Name, null, true);
 						AddPlugin(Reference, TargetRulesFile.GetFileName(), ExcludeFolders, NameToInstance, NameToInfo);

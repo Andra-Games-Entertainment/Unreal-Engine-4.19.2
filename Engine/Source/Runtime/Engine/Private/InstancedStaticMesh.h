@@ -239,7 +239,8 @@ public:
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, const FMaterial* Material, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		const bool ContainsManualVertexFetch = OutEnvironment.GetDefinitions().Contains("MANUAL_VERTEX_FETCH");
-		if (!ContainsManualVertexFetch && !IsES2Platform(Platform) && !IsMetalPlatform(Platform))
+		static const auto MetalCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Metal.ManualVertexFetch"));
+		if (!ContainsManualVertexFetch && !IsES2Platform(Platform) && (!IsMetalPlatform(Platform) || (MetalCVar && MetalCVar->GetInt() != 0 && IsPCPlatform(Platform))))
 		{
 			OutEnvironment.SetDefine(TEXT("MANUAL_VERTEX_FETCH"), TEXT("1"));
 		}
@@ -705,6 +706,7 @@ private:
 class FInstancedStaticMeshSceneProxy : public FStaticMeshSceneProxy
 {
 public:
+	SIZE_T GetTypeHash() const override;
 
 	FInstancedStaticMeshSceneProxy(UInstancedStaticMeshComponent* InComponent, ERHIFeatureLevel::Type InFeatureLevel)
 	:	FStaticMeshSceneProxy(InComponent, true)

@@ -12,9 +12,7 @@ namespace OculusHMD
 //-------------------------------------------------------------------------------------------------
 
 FSettings::FSettings() :
-	  NearClippingPlane(0)
-	, FarClippingPlane(0)
-	, BaseOffset(0, 0, 0)
+	BaseOffset(0, 0, 0)
 	, BaseOrientation(FQuat::Identity)
 	, PixelDensity(1.0f)
 	, PixelDensityMin(0.5f)
@@ -32,8 +30,10 @@ FSettings::FSettings() :
 #if PLATFORM_ANDROID
 	Flags.bCompositeDepth = false;
 #else
-	Flags.bCompositeDepth = true;
+	// TODO: This is temporary. It should be fixed in 4.18. Revisit after this goes to main.
+	Flags.bCompositeDepth = false;
 #endif
+	Flags.bSupportsDash = false;
 	EyeRenderViewport[0] = EyeRenderViewport[1] = EyeRenderViewport[2] = FIntRect(0, 0, 0, 0);
 
 	RenderTargetSize = FIntPoint(0, 0);
@@ -45,20 +45,16 @@ TSharedPtr<FSettings, ESPMode::ThreadSafe> FSettings::Clone() const
 	return NewSettings;
 }
 
-bool FSettings::UpdatePixelDensityFromScreenPercentage()
+bool FSettings::UpdatePixelDensity(const float NewPixelDensity)
 {
 	if (!bPixelDensityAdaptive)
 	{
-		static const auto ScreenPercentageCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage"));
-		float ScreenPercentage = ScreenPercentageCVar->GetFloat() / 100.;
-
-		PixelDensity = FMath::Clamp(ScreenPercentage, ClampPixelDensityMin, ClampPixelDensityMax);
+		PixelDensity = NewPixelDensity;
 		PixelDensityMin = FMath::Min(PixelDensity, PixelDensityMin);
 		PixelDensityMax = FMath::Max(PixelDensity, PixelDensityMax);
 	}
 	return true;
 }
-
 
 
 } // namespace OculusHMD

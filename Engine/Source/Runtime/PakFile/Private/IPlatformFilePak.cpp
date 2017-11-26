@@ -3439,6 +3439,20 @@ void FAsyncIOCPUWorkTask::DoTask(ENamedThreads::Type CurrentThread, const FGraph
 #endif  
 
 
+#if PAK_TRACKER
+TMap<FString, int32> FPakPlatformFile::GPakSizeMap;
+
+void FPakPlatformFile::TrackPak(const TCHAR* Filename, const FPakEntry* PakEntry)
+{
+	FString Key(Filename);
+
+	if(!GPakSizeMap.Find(Key))
+	{
+		GPakSizeMap.Add(Key, PakEntry->Size);
+	}
+}
+#endif
+
 IAsyncReadFileHandle* FPakPlatformFile::OpenAsyncRead(const TCHAR* Filename)
 {
 	check(GConfig);
@@ -3449,6 +3463,10 @@ IAsyncReadFileHandle* FPakPlatformFile::OpenAsyncRead(const TCHAR* Filename)
 		const FPakEntry* FileEntry = FindFileInPakFiles(Filename, &PakFile);
 		if (FileEntry && PakFile && PakFile->GetFilenameName() != NAME_None)
 		{
+#if PAK_TRACKER
+			TrackPak(Filename, FileEntry);
+#endif
+			
 			return new FPakAsyncReadFileHandle(FileEntry, PakFile, Filename);
 		}
 		if (FString(Filename).Contains(TEXT("/Saved/PakFileTest/")))
@@ -4250,7 +4268,8 @@ bool FPakPlatformFile::Initialize(IPlatformFile* Inner, const TCHAR* CmdLine)
 	DecryptionKey.Exponent.Parse(PakSigningKeyExponent);
 	DecryptionKey.Modulus.Parse(PakSigningKeyModulus);
 
-	bSigned = !DecryptionKey.Exponent.IsZero() && !DecryptionKey.Modulus.IsZero();
+	// signed if we have keys, and are not running with fileopenlog (currently results in a deadlock).
+	bSigned = !DecryptionKey.Exponent.IsZero() && !DecryptionKey.Modulus.IsZero() && !FParse::Param(FCommandLine::Get(), TEXT("fileopenlog"));;
 	
 	bool bMountPaks = true;
 	TArray<FString> PaksToLoad;
@@ -4500,6 +4519,10 @@ IFileHandle* FPakPlatformFile::OpenRead(const TCHAR* Filename, bool bAllowWrite)
 	const FPakEntry* FileEntry = FindFileInPakFiles(Filename, &PakFile);	
 	if (FileEntry != NULL)
 	{
+#if PAK_TRACKER
+		TrackPak(Filename, FileEntry);
+#endif
+		
 		Result = CreatePakFileHandle(Filename, PakFile, FileEntry);
 	}
 	else

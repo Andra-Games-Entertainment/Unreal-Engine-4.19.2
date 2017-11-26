@@ -303,6 +303,11 @@ void UStaticMeshComponent::Serialize(FArchive& Ar)
 		{
 			LODData[ LODIndex ].OwningComponent = this;
 		}
+
+		if (GetName().Contains(TEXT("Dusk_Launcher_EmissTop")))
+		{
+			printf("");
+		}
 	}
 
 #if WITH_EDITORONLY_DATA
@@ -1247,7 +1252,7 @@ void UStaticMeshComponent::PrivateFixupOverrideColors()
 			//Use the existing LOD custom paint and remap it on the new mesh
 			RemapPaintedVertexColors(
 				LODInfo.PaintedVertices,
-				*LODInfo.OverrideVertexColors,
+				LODInfo.OverrideVertexColors,
 				SourceRenderData.VertexBuffers.PositionVertexBuffer,
 				SourceRenderData.VertexBuffers.StaticMeshVertexBuffer,
 				CurRenderData.VertexBuffers.PositionVertexBuffer,
@@ -1259,7 +1264,7 @@ void UStaticMeshComponent::PrivateFixupOverrideColors()
 		{
 			RemapPaintedVertexColors(
 				LOD0Info.PaintedVertices,
-				*LOD0Info.OverrideVertexColors,
+				LOD0Info.OverrideVertexColors,
 				SourceRenderData.VertexBuffers.PositionVertexBuffer,
 				SourceRenderData.VertexBuffers.StaticMeshVertexBuffer,
 				CurRenderData.VertexBuffers.PositionVertexBuffer,
@@ -1628,6 +1633,11 @@ void UStaticMeshComponent::UpdateCollisionFromStaticMesh()
 
 void UStaticMeshComponent::PostLoad()
 {
+	if (GetName().Contains(TEXT("SternInhibitorRing1")))
+	{
+		printf("");
+	}
+
 	// need to postload the StaticMesh because super initializes variables based on GetStaticLightingType() which we override and use from the StaticMesh
 	if (GetStaticMesh())
 	{
@@ -2159,6 +2169,11 @@ FActorComponentInstanceData* UStaticMeshComponent::GetComponentInstanceData() co
 void UStaticMeshComponent::ApplyComponentInstanceData(FStaticMeshComponentInstanceData* StaticMeshInstanceData)
 {
 	check(StaticMeshInstanceData);
+
+	if (GetName().Contains(TEXT("SternInhibitorRing1")))
+	{
+		printf("");
+	}
 
 	// Note: ApplyComponentInstanceData is called while the component is registered so the rendering thread is already using this component
 	// That means all component state that is modified here must be mirrored on the scene proxy, which will be recreated to receive the changes later due to MarkRenderStateDirty.

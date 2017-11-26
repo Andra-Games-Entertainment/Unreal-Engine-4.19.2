@@ -13,6 +13,7 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimationSettings.h"
 #include "Engine/SkeletalMeshSocket.h"
 #include "AI/NavigationSystemHelpers.h"
 #include "PhysicsPublic.h"
@@ -32,10 +33,12 @@
 
 #include "ClothingSimulationFactoryInterface.h"
 #include "ClothingSimulationInterface.h"
+#include "ClothingSimulationInteractor.h"
 #include "Features/IModularFeatures.h"
 #include "Misc/RuntimeErrors.h"
 #include "AnimPhysObjectVersion.h"
 #include "ScopeExit.h"
+
 
 #define LOCTEXT_NAMESPACE "SkeletalMeshComponent"
 
@@ -222,6 +225,7 @@ USkeletalMeshComponent::USkeletalMeshComponent(const FObjectInitializer& ObjectI
 
 	ClothingSimulation = nullptr;
 	ClothingSimulationContext = nullptr;
+	ClothingInteractor = nullptr;
 
 	bPostEvaluatingAnimation = false;
 	bAllowAnimCurveEvaluation = true;
@@ -475,6 +479,10 @@ void USkeletalMeshComponent::OnRegister()
 
 	Super::OnRegister();
 
+	// Ensure we have an empty list of subinstances on registration. Ready for the initialization below 
+	// to correctly populate that list.
+	SubInstances.Reset();
+
 	// We force an initialization here because we're in one of two cases.
 	// 1) First register, no spawned instance, need to initialize
 	// 2) We're being re-registered, in which case we've went through
@@ -512,16 +520,21 @@ void USkeletalMeshComponent::OnRegister()
 		UClothingSimulationFactory* SimFactory = SimFactoryClass->GetDefaultObject<UClothingSimulationFactory>();
 		ClothingSimulation = SimFactory->CreateSimulation();
 
-		if (ClothingSimulation)
+		if(ClothingSimulation)
 		{
-		    ClothingSimulation->Initialize();
-		    ClothingSimulationContext = ClothingSimulation->CreateContext();
+			ClothingSimulation->Initialize();
+			ClothingSimulationContext = ClothingSimulation->CreateContext();
 
-			if (SkeletalMesh)
-		    {
-			    RecreateClothingActors();
-		    }
-	    }
+			if(SimFactory->SupportsRuntimeInteraction())
+			{
+				ClothingInteractor = SimFactory->CreateInteractor();
+			}
+
+			if(SkeletalMesh)
+			{
+				RecreateClothingActors();
+			}
+		}
 	}
 #endif
 }
@@ -595,9 +608,9 @@ void USkeletalMeshComponent::InitAnim(bool bForceReinit)
 
 		const USkeleton* AnimSkeleton = (AnimScriptInstance)? AnimScriptInstance->CurrentSkeleton : nullptr;
 
-		bool bClearAnimInstance = AnimScriptInstance && !AnimSkeleton;
-		bool bSkeletonMismatch = AnimSkeleton && (AnimScriptInstance->CurrentSkeleton!=SkeletalMesh->Skeleton);
-		bool bSkeletonNotCompatible = AnimSkeleton && !bSkeletonMismatch && (AnimSkeleton->IsCompatibleMesh(SkeletalMesh) == false);
+		const bool bClearAnimInstance = AnimScriptInstance && !AnimSkeleton;
+		const bool bSkeletonMismatch = AnimSkeleton && (AnimScriptInstance->CurrentSkeleton!=SkeletalMesh->Skeleton);
+		const bool bSkeletonNotCompatible = AnimSkeleton && !bSkeletonMismatch && (AnimSkeleton->IsCompatibleMesh(SkeletalMesh) == false);
 
 		if (bBlueprintMismatch || bSkeletonMismatch || bSkeletonNotCompatible || bClearAnimInstance)
 		{
@@ -605,29 +618,40 @@ void USkeletalMeshComponent::InitAnim(bool bForceReinit)
 		}
 
 		// this has to be called before Initialize Animation because it will required RequiredBones list when InitializeAnimScript
-		RecalcRequiredBones(0);
+		RecalcRequiredBones(PredictedLODLevel);
 
 		const bool bInitializedAnimInstance = InitializeAnimScriptInstance(bForceReinit);
-		// Make sure we have a valid pose.
-		if (bInitializedAnimInstance || (AnimScriptInstance == nullptr))
-		{
-			if (bUseRefPoseOnInitAnim)
-			{
-				BoneSpaceTransforms = SkeletalMesh->RefSkeleton.GetRefBonePose();
-				//Mini RefreshBoneTransforms (the bit we actually care about)
-				FillComponentSpaceTransforms(SkeletalMesh, BoneSpaceTransforms, GetEditableComponentSpaceTransforms());
-				bNeedToFlipSpaceBaseBuffers = true; // Have updated space bases so need to flip
-				FlipEditableSpaceBases();
-			}
-			else
-			{
-				TickAnimation(0.f, false);
-				RefreshBoneTransforms();
-			}
 
-			if (bInitializedAnimInstance)
-			{
-				OnAnimInitialized.Broadcast();
+		// Make sure we have a valid pose.
+		// We don't allocate transform data when using MasterPoseComponent, so we have nothing to render.
+		if (!MasterPoseComponent.IsValid())
+		{	
+			if (bInitializedAnimInstance || (AnimScriptInstance == nullptr))
+			{ 
+				// In Editor, animations won't get ticked. So Update once to get accurate representation instead of T-Pose.
+				// Also allow this to be an option to support pre-4.19 games that might need it..
+				const bool bTickAnimationNow =
+					((GetWorld()->WorldType == EWorldType::Editor) && !bUseRefPoseOnInitAnim)
+					|| UAnimationSettings::Get()->bTickAnimationOnSkeletalMeshInit;
+
+				if (bTickAnimationNow)
+				{
+					TickAnimation(0.f, false);
+					RefreshBoneTransforms();
+				}
+				else
+				{
+					BoneSpaceTransforms = SkeletalMesh->RefSkeleton.GetRefBonePose();
+					//Mini RefreshBoneTransforms (the bit we actually care about)
+					FillComponentSpaceTransforms(SkeletalMesh, BoneSpaceTransforms, GetEditableComponentSpaceTransforms());
+					bNeedToFlipSpaceBaseBuffers = true; // Have updated space bases so need to flip
+					FlipEditableSpaceBases();
+				}
+
+				if (bInitializedAnimInstance)
+				{
+					OnAnimInitialized.Broadcast();
+				}
 			}
 		}
 
@@ -915,6 +939,15 @@ void USkeletalMeshComponent::LoadedFromAnotherClass(const FName& OldClassName)
 }
 #endif // WITH_EDITOR
 
+bool USkeletalMeshComponent::ShouldOnlyTickMontages(const float DeltaTime) const
+{
+	// Ignore DeltaSeconds == 0.f, as that is used when we want to force an update followed by RefreshBoneTransforms.
+	// RefreshBoneTransforms will need an updated graph.
+	return (MeshComponentUpdateFlag == EMeshComponentUpdateFlag::OnlyTickMontagesWhenNotRendered)
+		&& !bRecentlyRendered 
+		&& (DeltaTime > 0.f);
+}
+
 void USkeletalMeshComponent::TickAnimation(float DeltaTime, bool bNeedsValidRootMotion)
 {
 	SCOPED_NAMED_EVENT(USkeletalMeshComponent_TickAnimation, FColor::Yellow);
@@ -947,8 +980,7 @@ void USkeletalMeshComponent::TickAnimation(float DeltaTime, bool bNeedsValidRoot
 			If we're called directly for autonomous proxies, TickComponent is not guaranteed to get called.
 			So dispatch all queued events here if we're doing MontageOnly ticking.
 		*/
-		if ((MeshComponentUpdateFlag == EMeshComponentUpdateFlag::OnlyTickMontagesWhenNotRendered)
-			&& !bRecentlyRendered)
+		if (ShouldOnlyTickMontages(DeltaTime))
 		{
 			ConditionallyDispatchQueuedAnimEvents();
 		}
@@ -1705,6 +1737,11 @@ const IClothingSimulation* USkeletalMeshComponent::GetClothingSimulation() const
 	return ClothingSimulation;
 }
 
+UClothingSimulationInteractor* USkeletalMeshComponent::GetClothingSimulationInteractor() const
+{
+	return ClothingInteractor;
+}
+
 void USkeletalMeshComponent::CompleteParallelClothSimulation()
 {
 	if(IsValidRef(ParallelClothTask))
@@ -1737,6 +1774,11 @@ void USkeletalMeshComponent::UpdateClothSimulationContext(float InDeltaTime)
 	if(ClothingSimulation)
 	{
 		ClothingSimulation->FillContext(this, InDeltaTime, ClothingSimulationContext);
+
+		if(ClothingInteractor && ClothingInteractor->IsDirty())
+		{
+			ClothingInteractor->Sync(ClothingSimulation, ClothingSimulationContext);
+		}
 	}
 
 	ClothTeleportMode = EClothingTeleportMode::None;
@@ -1757,10 +1799,10 @@ void USkeletalMeshComponent::WritebackClothingSimulationData()
 {
 	if(ClothingSimulation)
 	{
-		USkeletalMeshComponent* OverrideComponent = nullptr;
+		USkinnedMeshComponent* OverrideComponent = nullptr;
 		if(MasterPoseComponent.IsValid())
 		{
-			OverrideComponent = Cast<USkeletalMeshComponent>(MasterPoseComponent.Get());
+			OverrideComponent = Cast<USkinnedMeshComponent>(MasterPoseComponent.Get());
 
 			// Check if our bone map is actually valid, if not there is no clothing data to build
 			if(MasterBoneMap.Num() == 0)

@@ -2223,7 +2223,7 @@ bool UCookOnTheFlyServer::SaveCookedPackages(TArray<UPackage*>& PackagesToSave, 
 				for (int32 RemainingIndex = I; RemainingIndex < NumPackagesToRequeue; ++RemainingIndex)
 				{
 					FName StandardFilename = GetCachedStandardPackageFileFName(PackagesToSave[RemainingIndex]);
-					CookRequests.EnqueueUnique(FFilePlatformRequest(StandardFilename, AllTargetPlatformNames));
+							CookRequests.EnqueueUnique(FFilePlatformRequest(StandardFilename, SaveTargetPlatformNames));
 				}
 				Result |= COSR_WaitingOnCache;
 
@@ -2708,16 +2708,17 @@ void UCookOnTheFlyServer::OnObjectSaved( UObject* ObjectSaved )
 		return;
 	}
 
-	UPackage *Package = ObjectSaved->GetOutermost();
+	UPackage* Package = ObjectSaved->GetOutermost();
+	if (Package == nullptr || Package == GetTransientPackage())
+	{
+		return;
+	}
 
 	MarkPackageDirtyForCooker(Package);
 
-	FName PackageFFileName = GetCachedStandardPackageFileFName(Package);
-
-	if (PackageFFileName != NAME_None)
-	{
-		ModifiedAssetFilenames.Add(PackageFFileName);
-	}
+	// Register the package filename as modified. We don't use the cache because the file may not exist on disk yet at this point
+	const FString PackageFilename = FPackageName::LongPackageNameToFilename(Package->GetName(), Package->ContainsMap() ? FPackageName::GetMapPackageExtension() : FPackageName::GetAssetPackageExtension());
+	ModifiedAssetFilenames.Add(FName(*PackageFilename));
 }
 
 void UCookOnTheFlyServer::OnObjectUpdated( UObject *Object )
@@ -4615,7 +4616,7 @@ void UCookOnTheFlyServer::CleanSandbox(const bool bIterative)
 
 				FString SandboxDirectory = GetSandboxDirectory(Target->PlatformName()); // GetOutputDirectory(Target->PlatformName());
 				IFileManager::Get().DeleteDirectory(*SandboxDirectory, false, true);
-				
+
 				ClearPlatformCookedData(FName(*Target->PlatformName()));
 
 				IniSettingsOutOfDate(Target);
@@ -4980,33 +4981,35 @@ void UCookOnTheFlyServer::CollectFilesToCook(TArray<FName>& FilesInPath, const T
 		}
 	}
 
-	if (!(FilesToCookFlags & ECookByTheBookOptions::DisableUnsolicitedPackages))
+
+
+	const FString ExternalMountPointName(TEXT("/Game/"));
+	if (IsCookingDLC())
 	{
-		const FString ExternalMountPointName(TEXT("/Game/"));
+		// get the dlc and make sure we cook that directory 
+		FString DLCPath = FPaths::Combine(*GetBaseDirectoryForDLC(), TEXT("Content"));
 
-		if (IsCookingDLC())
+		TArray<FString> Files;
+		IFileManager::Get().FindFilesRecursive(Files, *DLCPath, *(FString(TEXT("*")) + FPackageName::GetAssetPackageExtension()), true, false, false);
+		IFileManager::Get().FindFilesRecursive(Files, *DLCPath, *(FString(TEXT("*")) + FPackageName::GetMapPackageExtension()), true, false, false);
+		for (int32 Index = 0; Index < Files.Num(); Index++)
 		{
-			// get the dlc and make sure we cook that directory 
-			FString DLCPath = FPaths::Combine(*GetBaseDirectoryForDLC(), TEXT("Content"));
+			FString StdFile = Files[Index];
+			FPaths::MakeStandardFilename(StdFile);
+			AddFileToCook(FilesInPath, StdFile);
 
-			TArray<FString> Files;
-			IFileManager::Get().FindFilesRecursive(Files, *DLCPath, *(FString(TEXT("*")) + FPackageName::GetAssetPackageExtension()), true, false, false);
-			IFileManager::Get().FindFilesRecursive(Files, *DLCPath, *(FString(TEXT("*")) + FPackageName::GetMapPackageExtension()), true, false, false);
-			for (int32 Index = 0; Index < Files.Num(); Index++)
+			// this asset may not be in our currently mounted content directories, so try to mount a new one now
+			FString LongPackageName;
+			if (!FPackageName::IsValidLongPackageName(StdFile) && !FPackageName::TryConvertFilenameToLongPackageName(StdFile, LongPackageName))
 			{
-				FString StdFile = Files[Index];
-				FPaths::MakeStandardFilename(StdFile);
-				AddFileToCook(FilesInPath, StdFile);
-
-				// this asset may not be in our currently mounted content directories, so try to mount a new one now
-				FString LongPackageName;
-				if (!FPackageName::IsValidLongPackageName(StdFile) && !FPackageName::TryConvertFilenameToLongPackageName(StdFile, LongPackageName))
-				{
-					FPackageName::RegisterMountPoint(ExternalMountPointName, DLCPath);
-				}
+				FPackageName::RegisterMountPoint(ExternalMountPointName, DLCPath);
 			}
 		}
+	}
 
+
+	if (!(FilesToCookFlags & ECookByTheBookOptions::DisableUnsolicitedPackages))
+	{
 		for (const FString& CurrEntry : CookDirectories)
 		{
 			TArray<FString> Files;

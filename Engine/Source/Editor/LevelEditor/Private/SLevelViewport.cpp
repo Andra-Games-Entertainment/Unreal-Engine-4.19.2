@@ -66,6 +66,8 @@
 #include "Slate/SGameLayerManager.h"
 #include "FoliageType.h"
 #include "IVREditorModule.h"
+#include "ShowFlagMenuCommands.h"
+#include "BufferVisualizationMenuCommands.h"
 
 static const FName LevelEditorName("LevelEditor");
 
@@ -245,6 +247,35 @@ void SLevelViewport::ConstructViewportOverlayContent()
 	.Padding( 5.0f )
 	[
 		SNew(SVerticalBox)
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(2.0f, 1.0f, 2.0f, 1.0f)
+		[
+			SNew(SHorizontalBox)
+			.Visibility(this, &SLevelViewport::GetCurrentScreenPercentageVisibility)
+			// Current screen percentage label
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(2.0f, 1.0f, 2.0f, 1.0f)
+			[
+				SNew(STextBlock)
+				.Text(this, &SLevelViewport::GetCurrentScreenPercentageText, true)
+				.Font(FEditorStyle::GetFontStyle(TEXT("MenuItem.Font")))
+				.ShadowOffset(FVector2D(1, 1))
+			]
+
+			// Current screen percentage
+			+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(4.0f, 1.0f, 2.0f, 1.0f)
+				[
+					SNew(STextBlock)
+					.Text(this, &SLevelViewport::GetCurrentScreenPercentageText, false)
+					.Font(FEditorStyle::GetFontStyle(TEXT("MenuItem.Font")))
+					.ColorAndOpacity(FLinearColor(0.4f, 1.0f, 1.0f))
+					.ShadowOffset(FVector2D(1, 1))
+				]
+		]
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(2.0f, 1.0f, 2.0f, 1.0f)
@@ -1345,16 +1376,7 @@ void SLevelViewport::BindViewCommands( FUICommandList& OutCommandList )
 	FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
 	LevelEditorModule.IterateViewportTypes(ProcessViewportTypeActions);
 
-	// Map Buffer visualization mode actions
-	for (FLevelViewportCommands::TBufferVisualizationModeCommandMap::TConstIterator It = ViewportActions.BufferVisualizationModeCommands.CreateConstIterator(); It; ++It)
-	{
-		const FLevelViewportCommands::FBufferVisualizationRecord& Record = It.Value();
-		OutCommandList.MapAction(
-			Record.Command,
-			FExecuteAction::CreateSP( this, &SLevelViewport::ChangeBufferVisualizationMode, Record.Name ),
-			FCanExecuteAction(),
-			FIsActionChecked::CreateSP( this, &SLevelViewport::IsBufferVisualizationModeSelected, Record.Name ) );
-	}
+	FBufferVisualizationMenuCommands::Get().BindCommands(OutCommandList, Client);
 }
 
 
@@ -1366,20 +1388,7 @@ void SLevelViewport::BindShowCommands( FUICommandList& OutCommandList )
 		LevelViewportCommands.UseDefaultShowFlags,
 		FExecuteAction::CreateSP( this, &SLevelViewport::OnUseDefaultShowFlags, false ) );
 
-	const TArray<FShowFlagData>& ShowFlagData = GetShowFlagMenuItems();
-
-	// Bind each show flag to the same delegate.  We use the delegate payload system to figure out what show flag we are dealing with
-	for( int32 ShowFlag = 0; ShowFlag < ShowFlagData.Num(); ++ShowFlag )
-	{
-		const FShowFlagData& SFData = ShowFlagData[ShowFlag];
-
-		// NOTE: There should be one command per show flag so using ShowFlag as the index to ShowFlagCommands is acceptable
-		OutCommandList.MapAction(
-			LevelViewportCommands.ShowFlagCommands[ ShowFlag ].ShowMenuItem,
-			FExecuteAction::CreateSP( this, &SLevelViewport::ToggleShowFlag, SFData.EngineShowFlagIndex ),
-			FCanExecuteAction(),
-			FIsActionChecked::CreateSP( this, &SLevelViewport::IsShowFlagEnabled, SFData.EngineShowFlagIndex ) );
-	}
+	FShowFlagMenuCommands::Get().BindCommands(OutCommandList, Client);
 
 	// Show Volumes
 	{
@@ -1777,18 +1786,6 @@ bool SLevelViewport::CanToggleGameView() const
 bool SLevelViewport::IsInGameView() const
 {
 	return LevelViewportClient->IsInGameView();
-}
-
-
-void SLevelViewport::ChangeBufferVisualizationMode( FName InName )
-{
-	LevelViewportClient->SetViewMode(VMI_VisualizeBuffer);
-	LevelViewportClient->CurrentBufferVisualizationMode = InName;
-}
-
-bool SLevelViewport::IsBufferVisualizationModeSelected( FName InName ) const
-{
-	return LevelViewportClient->IsViewModeEnabled( VMI_VisualizeBuffer ) && LevelViewportClient->CurrentBufferVisualizationMode == InName;	
 }
 
 void SLevelViewport::OnToggleAllVolumeActors( bool bVisible )
@@ -3270,6 +3267,16 @@ FString SLevelViewport::GetDeviceProfileString( ) const
 	return DeviceProfile;
 }
 
+FText SLevelViewport::GetCurrentScreenPercentageText(bool bDrawOnlyLabel) const
+{
+	if (bDrawOnlyLabel)
+	{
+		return LOCTEXT("ScreenPercentageLabel", "Screen Percentage:");
+	}
+
+	return FText::FromString(FString::Printf(TEXT("%3d%%"), int32(GetLevelViewportClient().GetPreviewScreenPercentage())));
+}
+
 FText SLevelViewport::GetCurrentFeatureLevelPreviewText( bool bDrawOnlyLabel ) const
 {
 	FText LabelName;
@@ -3364,6 +3371,15 @@ EVisibility SLevelViewport::GetCurrentFeatureLevelPreviewTextVisibility() const
 	{
 		return EVisibility::Collapsed;
 	}
+}
+
+EVisibility SLevelViewport::GetCurrentScreenPercentageVisibility() const
+{
+	bool Visible = !IsPlayInEditorViewportActive() &&
+		GetLevelViewportClient().SupportsPreviewResolutionFraction() &&
+		GetLevelViewportClient().GetPreviewScreenPercentage() > 100;
+
+	return Visible ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
 EVisibility SLevelViewport::GetViewportControlsVisibility() const

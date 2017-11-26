@@ -126,8 +126,8 @@ public:
 	FPostProcessPassParameters PostprocessParameter;
 	FShaderResourceParameter EyeAdaptation;
 	FShaderParameter GrainRandomFull;
-	FShaderParameter FringeUVParams;
 	FShaderParameter DefaultEyeExposure;
+	FShaderParameter ScreenPosToScenePixel;
 
 	/** Initialization constructor. */
 	TPostProcessTonemapVS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
@@ -136,8 +136,8 @@ public:
 		PostprocessParameter.Bind(Initializer.ParameterMap);
 		EyeAdaptation.Bind(Initializer.ParameterMap, TEXT("EyeAdaptation"));
 		GrainRandomFull.Bind(Initializer.ParameterMap, TEXT("GrainRandomFull"));
-		FringeUVParams.Bind(Initializer.ParameterMap, TEXT("FringeUVParams"));
 		DefaultEyeExposure.Bind(Initializer.ParameterMap, TEXT("DefaultEyeExposure"));
+		ScreenPosToScenePixel.Bind(Initializer.ParameterMap, TEXT("ScreenPosToScenePixel"));
 	}
 
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
@@ -195,23 +195,14 @@ public:
 		}
 
 		{
-			// for scene color fringe
-			// from percent to fraction
-			float Offset = Context.View.FinalPostProcessSettings.SceneFringeIntensity * 0.01f;
-			//FVector4 Value(1.0f - Offset * 0.5f, 1.0f - Offset, 0.0f, 0.0f);
-
-			// Wavelength of primaries in nm
-			const float PrimaryR = 611.3f;
-			const float PrimaryG = 549.1f;
-			const float PrimaryB = 464.3f;
-
-			// Simple lens chromatic aberration is roughly linear in wavelength
-			float ScaleR = 0.007f * ( PrimaryR - PrimaryB );
-			float ScaleG = 0.007f * ( PrimaryG - PrimaryB );
-			FVector4 Value( 1.0f / ( 1.0f + Offset * ScaleG ), 1.0f / ( 1.0f + Offset * ScaleR ), 0.0f, 0.0f);
-
-			// we only get bigger to not leak in content from outside
-			SetShaderValue(Context.RHICmdList, ShaderRHI, FringeUVParams, Value);
+			FIntPoint ViewportOffset = Context.SceneColorViewRect.Min;
+			FIntPoint ViewportExtent = Context.SceneColorViewRect.Size();
+			FVector4 ScreenPosToScenePixelValue(
+				ViewportExtent.X * 0.5f,
+				-ViewportExtent.Y * 0.5f,
+				ViewportExtent.X * 0.5f - 0.5f + ViewportOffset.X,
+				ViewportExtent.Y * 0.5f - 0.5f + ViewportOffset.Y);
+			SetShaderValue(Context.RHICmdList, ShaderRHI, ScreenPosToScenePixel, ScreenPosToScenePixelValue);
 		}
 	}
 	
@@ -219,7 +210,7 @@ public:
 	virtual bool Serialize(FArchive& Ar) override
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
-		Ar << PostprocessParameter << GrainRandomFull << EyeAdaptation << FringeUVParams << DefaultEyeExposure;
+		Ar << PostprocessParameter << GrainRandomFull << EyeAdaptation << DefaultEyeExposure << ScreenPosToScenePixel;
 
 		return bShaderHasOutdatedParameters;
 	}

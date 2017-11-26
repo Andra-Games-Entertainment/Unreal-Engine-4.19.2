@@ -1933,6 +1933,10 @@ struct ENGINE_API FHitResult
 	UPROPERTY()
 	int32 FaceIndex;
 
+	/** Name of the _my_ bone which took part in hit event (in case of two skeletal meshes colliding). */
+	UPROPERTY()
+	FName MyBoneName;
+
 
 	FHitResult()
 	{
@@ -2290,6 +2294,12 @@ public:
 	UPROPERTY()
 	EUpdateRateShiftBucket ShiftBucket;
 
+	UPROPERTY()
+	int32 SkippedUpdateFrames;
+
+	UPROPERTY()
+	int32 SkippedEvalFrames;
+
 public:
 
 	/** Default constructor. */
@@ -2308,6 +2318,8 @@ public:
 		, BaseNonRenderedUpdateRate(4)
 		, MaxEvalRateForInterpolation(4)
 		, ShiftBucket(EUpdateRateShiftBucket::ShiftBucket0)
+		, SkippedUpdateFrames(0)
+		, SkippedEvalFrames(0)
 	{ 
 		BaseVisibleDistanceFactorThesholds.Add(0.24f);
 		BaseVisibleDistanceFactorThesholds.Add(0.12f);

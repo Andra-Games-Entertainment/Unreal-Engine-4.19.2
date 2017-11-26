@@ -787,6 +787,7 @@ public:
 	static bool IsPreviewPlatformChecked(FName MaterialQualityPlatform, ERHIFeatureLevel::Type PreviewFeatureLevel);
 	static void SetFeatureLevelPreview(ERHIFeatureLevel::Type InFeatureLevel);
 	static bool IsFeatureLevelPreviewChecked(ERHIFeatureLevel::Type InFeatureLevel);
+	static bool IsFeatureLevelPreviewAvailable(ERHIFeatureLevel::Type InFeatureLevel);
 	
 	/**
 	 * Called when the Scene Stats button is clicked.  Invokes the Primitive Stats dialog.
@@ -833,18 +834,6 @@ public:
 	 * Called when the FindInContentBrowser command is executed
 	 */
 	static void FindInContentBrowser_Clicked();
-
-	/** Called when the ViewReferences command is executed */
-	static void ViewReferences_Execute();
-
-	/** If true ViewReferences_Execute can be called */
-	static bool CanViewReferences();
-
-	/** Called when the ViewSizeMap command is executed */
-	static void ViewSizeMap_Execute();
-
-	/** If true ViewSizeMap_Execute can be called */
-	static bool CanViewSizeMap();
 
 	/** Called to when "Edit Asset" is clicked */
 	static void EditAsset_Clicked( const EToolkitMode::Type ToolkitMode, TWeakPtr< class SLevelEditor > LevelEditor, bool bAskMultiple );

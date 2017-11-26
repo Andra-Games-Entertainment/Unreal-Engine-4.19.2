@@ -19,18 +19,20 @@ public:
 
 	virtual void Bind(const FShaderParameterMap& ParameterMap) override
 	{
-		PrevTransformBuffer.Bind(ParameterMap, TEXT("PrevTransformBuffer"));
+		//PrevTransformBuffer.Bind(ParameterMap, TEXT("PrevTransformBuffer"));
 		NiagaraParticleDataFloat.Bind(ParameterMap, TEXT("NiagaraParticleDataFloat"));
 		NiagaraParticleDataInt.Bind(ParameterMap, TEXT("NiagaraParticleDataInt"));
 		SafeComponentBufferSizeParam.Bind(ParameterMap, TEXT("SafeComponentBufferSize"));
+		MeshFacingMode.Bind(ParameterMap, TEXT("MeshFacingMode"));
 	}
 
 	virtual void Serialize(FArchive& Ar) override
 	{
-		Ar << PrevTransformBuffer;
+		//Ar << PrevTransformBuffer;
 		Ar << NiagaraParticleDataFloat;
 		Ar << NiagaraParticleDataInt;
 		Ar << SafeComponentBufferSizeParam;
+		Ar << MeshFacingMode;
 	}
 
 	virtual void SetMesh(FRHICommandList& RHICmdList, FShader* Shader, const FVertexFactory* VertexFactory, const FSceneView& View, const FMeshBatchElement& BatchElement, uint32 DataFlags) const override
@@ -40,20 +42,22 @@ public:
 		FVertexShaderRHIParamRef VertexShaderRHI = Shader->GetVertexShader();
 		SetUniformBufferParameter(RHICmdList, VertexShaderRHI, Shader->GetUniformBufferParameter<FNiagaraMeshUniformParameters>(), NiagaraMeshVF->GetUniformBuffer());
 
-		SetSRVParameter(RHICmdList, VertexShaderRHI, PrevTransformBuffer, NiagaraMeshVF->GetPreviousTransformBufferSRV());
+		//SetSRVParameter(RHICmdList, VertexShaderRHI, PrevTransformBuffer, NiagaraMeshVF->GetPreviousTransformBufferSRV());
 
 		SetSRVParameter(RHICmdList, VertexShaderRHI, NiagaraParticleDataFloat, NiagaraMeshVF->GetFloatDataSRV());
 		SetSRVParameter(RHICmdList, VertexShaderRHI, NiagaraParticleDataInt, NiagaraMeshVF->GetIntDataSRV());
 		SetShaderValue(RHICmdList, VertexShaderRHI, SafeComponentBufferSizeParam, NiagaraMeshVF->GetComponentBufferSize());
+		SetShaderValue(RHICmdList, VertexShaderRHI, MeshFacingMode, NiagaraMeshVF->GetMeshFacingMode());
 	}
 
 private:
 
-	FShaderResourceParameter PrevTransformBuffer;
+	//FShaderResourceParameter PrevTransformBuffer;
 
 	FShaderResourceParameter NiagaraParticleDataFloat;
 	FShaderResourceParameter NiagaraParticleDataInt;
 	FShaderParameter SafeComponentBufferSizeParam;
+	FShaderParameter MeshFacingMode;
 
 };
 
@@ -77,15 +81,15 @@ void FNiagaraMeshVertexFactory::InitRHI()
 				Streams.Add(VertexStream);
 
 				// @todo metal: this will need a valid stride when we get to instanced meshes!
-				Elements.Add(FVertexElement(0, Data.TransformComponent[0].Offset, Data.TransformComponent[0].Type, 8, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instanceing, Data.TransformComponent[0].VertexStreamUsage)));
-				Elements.Add(FVertexElement(0, Data.TransformComponent[1].Offset, Data.TransformComponent[1].Type, 9, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instanceing, Data.TransformComponent[1].VertexStreamUsage)));
-				Elements.Add(FVertexElement(0, Data.TransformComponent[2].Offset, Data.TransformComponent[2].Type, 10, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instanceing, Data.TransformComponent[2].VertexStreamUsage)));
+				Elements.Add(FVertexElement(0, Data.TransformComponent[0].Offset, Data.TransformComponent[0].Type, 8, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instancing, Data.TransformComponent[0].VertexStreamUsage)));
+				Elements.Add(FVertexElement(0, Data.TransformComponent[1].Offset, Data.TransformComponent[1].Type, 9, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instancing, Data.TransformComponent[1].VertexStreamUsage)));
+				Elements.Add(FVertexElement(0, Data.TransformComponent[2].Offset, Data.TransformComponent[2].Type, 10, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instancing, Data.TransformComponent[2].VertexStreamUsage)));
 
-				Elements.Add(FVertexElement(0, Data.SubUVs.Offset, Data.SubUVs.Type, 11, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instanceing, Data.SubUVs.VertexStreamUsage)));
-				Elements.Add(FVertexElement(0, Data.SubUVLerpAndRelTime.Offset, Data.SubUVLerpAndRelTime.Type, 12, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instanceing, Data.SubUVLerpAndRelTime.VertexStreamUsage)));
+				Elements.Add(FVertexElement(0, Data.SubUVs.Offset, Data.SubUVs.Type, 11, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instancing, Data.SubUVs.VertexStreamUsage)));
+				Elements.Add(FVertexElement(0, Data.SubUVLerpAndRelTime.Offset, Data.SubUVLerpAndRelTime.Type, 12, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instancing, Data.SubUVLerpAndRelTime.VertexStreamUsage)));
 
-				Elements.Add(FVertexElement(0, Data.ParticleColorComponent.Offset, Data.ParticleColorComponent.Type, 14, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instanceing, Data.ParticleColorComponent.VertexStreamUsage)));
-				Elements.Add(FVertexElement(0, Data.VelocityComponent.Offset, Data.VelocityComponent.Type, 15, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instanceing, Data.VelocityComponent.VertexStreamUsage)));
+				Elements.Add(FVertexElement(0, Data.ParticleColorComponent.Offset, Data.ParticleColorComponent.Type, 14, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instancing, Data.ParticleColorComponent.VertexStreamUsage)));
+				Elements.Add(FVertexElement(0, Data.VelocityComponent.Offset, Data.VelocityComponent.Type, 15, DynamicVertexStride, EnumHasAnyFlags(EVertexStreamUsage::Instancing, Data.VelocityComponent.VertexStreamUsage)));
 			}
 
 			// Stream 1 - Dynamic parameter
@@ -187,6 +191,7 @@ void FNiagaraMeshVertexFactory::SetDynamicParameterBuffer(const FVertexBuffer* I
 	}
 }
 
+/*
 uint8* FNiagaraMeshVertexFactory::LockPreviousTransformBuffer(uint32 ParticleCount)
 {
 	const static uint32 ElementSize = sizeof(FVector4);
@@ -217,10 +222,11 @@ FShaderResourceViewRHIParamRef FNiagaraMeshVertexFactory::GetPreviousTransformBu
 {
 	return PrevTransformBuffer.SRV;
 }
+*/
 
 bool FNiagaraMeshVertexFactory::ShouldCache(EShaderPlatform Platform, const class FMaterial* Material, const class FShaderType* ShaderType)
 {
-	return (Material->IsUsedWithNiagaraMeshParticles() || Material->IsSpecialEngineMaterial());
+	return (!IsMobilePlatform(Platform) && !IsSwitchPlatform(Platform) && (Material->IsUsedWithNiagaraMeshParticles() || Material->IsSpecialEngineMaterial()));
 }
 
 void FNiagaraMeshVertexFactory::SetData(const FDataType& InData)

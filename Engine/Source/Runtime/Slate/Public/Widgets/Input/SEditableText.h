@@ -140,6 +140,9 @@ public:
 		/** Whether to select all text when pressing enter to commit changes */
 		SLATE_ATTRIBUTE( bool, SelectAllTextOnCommit )
 
+		/** Callback delegate to have first chance handling of the OnKeyChar event */
+		SLATE_EVENT(FOnKeyChar, OnKeyCharHandler)
+
 		/** Callback delegate to have first chance handling of the OnKeyDown event */
 		SLATE_EVENT(FOnKeyDown, OnKeyDownHandler)
 
@@ -214,6 +217,9 @@ public:
 	/** See the AllowContextMenu attribute */
 	void SetAllowContextMenu(const TAttribute< bool >& InAllowContextMenu);
 
+	/** Set the VirtualKeyboardDismissAction attribute */
+	void SetVirtualKeyboardDismissAction(TAttribute< EVirtualKeyboardDismissAction > InVirtualKeyboardDismissAction);
+
 	/**
 	 * Sets the font used to draw the text
 	 *
@@ -265,6 +271,15 @@ public:
 
 	/** See Justification attribute */
 	void SetJustification(const TAttribute<ETextJustify::Type>& InJustification);
+	/**
+	 * Sets the OnKeyCharHandler to provide first chance handling of the OnKeyChar event
+	 *
+	 * @param InOnKeyCharHandler			Delegate to call during OnKeyChar event
+	 */
+	void SetOnKeyCharHandler(FOnKeyChar InOnKeyCharHandler)
+	{
+		OnKeyCharHandler = InOnKeyCharHandler;
+	}
 
 	/**
 	 * Sets the OnKeyDownHandler to provide first chance handling of the OnKeyDown event
@@ -433,6 +448,9 @@ protected:
 
 	/** The iterator to use to detect word boundaries */
 	mutable TSharedPtr<IBreakIterator> WordBreakIterator;
+
+	/** Callback delegate to have first chance handling of the OnKeyChar event */
+	FOnKeyChar OnKeyCharHandler;
 
 	/** Callback delegate to have first chance handling of the OnKeyDown event */
 	FOnKeyDown OnKeyDownHandler;

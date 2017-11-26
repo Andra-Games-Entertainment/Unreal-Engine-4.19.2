@@ -208,6 +208,7 @@ struct FStatUnitData
 	TArray<float> GameThreadTimes;
 	TArray<float> GPUFrameTimes;
 	TArray<float> FrameTimes;
+	TArray<float> ResolutionFractions;
 #endif //!UE_BUILD_SHIPPING
 
 	FStatUnitData()
@@ -227,6 +228,11 @@ struct FStatUnitData
 		GameThreadTimes.AddZeroed(NumberOfSamples);
 		GPUFrameTimes.AddZeroed(NumberOfSamples);
 		FrameTimes.AddZeroed(NumberOfSamples);
+		ResolutionFractions.Reserve(NumberOfSamples);
+		for (int32 i = 0; i < NumberOfSamples; i++)
+		{
+			ResolutionFractions.Add(-1.0f);
+		}
 #endif //!UE_BUILD_SHIPPING
 	}
 
@@ -448,7 +454,7 @@ public:
 
 	//~ Begin FRenderTarget Interface.
 	virtual FIntPoint GetSizeXY() const override { return FIntPoint(SizeX, SizeY); }
-
+	FIntPoint GetInitialPositionXY() const { return FIntPoint(InitialPositionX, InitialPositionY); }
 	// Accessors.
 	FViewportClient* GetClient() const { return ViewportClient; }
 
@@ -613,6 +619,12 @@ protected:
 
 	/** The RHI viewport. */
 	FViewportRHIRef ViewportRHI;
+
+	/** The initial position of the viewport. */
+	uint32 InitialPositionX;
+
+	/** The initial position of the viewport. */
+	uint32 InitialPositionY;
 
 	/** The width of the viewport. */
 	uint32 SizeX;
@@ -976,7 +988,7 @@ public:
 	/**
 	 * @return The DPI Scale of this viewport
 	 */
-	virtual float GetDPIScale() { return 1.0f; }
+	virtual float GetDPIScale() const { return 1.0f; }
 };
 
 /** Tracks the viewport client that should process the stat command, can be NULL */
@@ -992,10 +1004,6 @@ public:
 	FCommonViewportClient()
 		: CachedDPIScale(1.0f)
 		, bShouldUpdateDPIScale(true)
-#if WITH_EDITOR
-		, EditorScreenPercentage(100)
-		, bShouldUpdateScreenPercentage(true)
-#endif
 	{}
 
 	virtual ~FCommonViewportClient()
@@ -1010,15 +1018,13 @@ public:
 	/** Tells this viewport to update editor dpi scale when needed */
 	ENGINE_API void RequestUpdateDPIScale();
 
-#if WITH_EDITOR
-	/** @return the current screen percentage to be used for scene rendering in this client */
-	ENGINE_API TOptional<float> GetEditorScreenPercentage();
-#endif
+	/** @return the current resolution fraction to be used for scene rendering in this client. */
+	ENGINE_API float GetDPIDerivedResolutionFraction() const;
 
 	/**
 	 * @return The DPI Scale of this viewport
 	 */
-	ENGINE_API virtual float GetDPIScale() override;
+	ENGINE_API virtual float GetDPIScale() const override;
 
 	ENGINE_API void DrawHighResScreenshotCaptureRegion(FCanvas& Canvas);
 
@@ -1027,15 +1033,8 @@ protected:
 	virtual float UpdateViewportClientWindowDPIScale() const { return 1.0; }
 
 private:
-	float CachedDPIScale;
-	bool bShouldUpdateDPIScale;
-#if WITH_EDITOR
-	/** Screen percentage to apply to the scene view in editor only (to adjust for DPI scale). 
-	 * Note: This is still used in game viewports for PIE
-	 */
-	TOptional<float> EditorScreenPercentage;
-	bool bShouldUpdateScreenPercentage;
-#endif	
+	mutable float CachedDPIScale;
+	mutable bool bShouldUpdateDPIScale;
 };
 
 

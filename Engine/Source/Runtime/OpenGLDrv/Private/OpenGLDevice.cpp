@@ -833,10 +833,10 @@ static void InitRHICapabilitiesForGL()
 	GMinClipZ = 0.0f;
 	GProjectionSignY = 1.0f;
 
-	// Disable texture streaming on ES2 unless we have the GL_APPLE_copy_texture_levels extension
-	if (GMaxRHIFeatureLevel == ERHIFeatureLevel::ES2 && !FOpenGL::SupportsCopyTextureLevels())
+	// Disable texture streaming on devices with ES3.1 or lower, unless we have the GL_APPLE_copy_texture_levels extension or support for glCopyImageSubData
+	if (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES3_1)
 	{
-		GRHISupportsTextureStreaming = false;
+		GRHISupportsTextureStreaming = FOpenGL::SupportsCopyTextureLevels() || FOpenGL::SupportsCopyImage();
 	}
 	else
 	{
@@ -944,13 +944,14 @@ static void InitRHICapabilitiesForGL()
 #if !PLATFORM_DESKTOP
 		// ES2-based cases
 		GLuint BGRA8888 = (FOpenGL::SupportsBGRA8888() && !FOpenGL::SupportsSRGB()) ? GL_BGRA_EXT : GL_RGBA;
+		GLuint SizedBGRA8888 = (FOpenGL::SupportsBGRA8888() && !FOpenGL::SupportsSRGB()) ? GL_BGRA_EXT : GL_RGBA8;
 		const bool bNeedsBGRASwizzle = (BGRA8888 == GL_RGBA);
 		GLuint RGBA8 = FOpenGL::SupportsRGBA8() ? GL_RGBA8_OES : GL_RGBA;
 
 	#if PLATFORM_ANDROID
-		SetupTextureFormat(PF_B8G8R8A8, FOpenGLTextureFormat(BGRA8888, GL_SRGB8_ALPHA8, BGRA8888, GL_UNSIGNED_BYTE, false, bNeedsBGRASwizzle));
+		SetupTextureFormat(PF_B8G8R8A8, FOpenGLTextureFormat(BGRA8888, GL_SRGB8_ALPHA8, SizedBGRA8888, GL_SRGB8_ALPHA8, BGRA8888, GL_UNSIGNED_BYTE, false, bNeedsBGRASwizzle));
 		SetupTextureFormat(PF_R8G8B8A8_UINT, FOpenGLTextureFormat(GL_RGBA8, GL_RGBA8, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, false, false));
-#else
+	#else
 		SetupTextureFormat(PF_B8G8R8A8, FOpenGLTextureFormat(GL_RGBA, GL_SRGB_ALPHA_EXT, GL_BGRA8_EXT, GL_SRGB8_ALPHA8_EXT, BGRA8888, GL_UNSIGNED_BYTE, false, false));
 	#endif
 		SetupTextureFormat(PF_R8G8B8A8, FOpenGLTextureFormat(RGBA8, GL_SRGB8_ALPHA8, GL_RGBA8, GL_SRGB8_ALPHA8, GL_RGBA, GL_UNSIGNED_BYTE, false, false));
@@ -1000,7 +1001,7 @@ static void InitRHICapabilitiesForGL()
 		else
 		{
 			// @todo android: This is cheating by not setting a stencil anywhere, need that! And Shield is still rendering black scene
-			SetupTextureFormat(PF_DepthStencil, FOpenGLTextureFormat(GL_DEPTH_COMPONENT, GL_NONE, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, false, false));
+			SetupTextureFormat(PF_DepthStencil, FOpenGLTextureFormat(DepthFormat, GL_NONE, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, false, false));
 		}
 #endif // !PLATFORM_DESKTOP
 	}
@@ -1424,6 +1425,53 @@ static void CheckTextureCubeLodSupport()
 #endif
 }
 
+static void CheckRoundFunction()
+{
+#if PLATFORM_ANDROID
+	FOpenGL::bRequiresRoundFunctionHack = false;
+	if (IsES2Platform(GMaxRHIShaderPlatform))
+	{
+		UE_LOG(LogRHI, Display, TEXT("Testing for round() function availability"));
+		FOpenGL::bIsCheckingShaderCompilerHacks = true;
+
+		static const ANSICHAR TestVertexProgram[] = "\n"
+			"#version 100\n"
+			"attribute vec4 in_ATTRIBUTE0;\n"
+			"void main()\n"
+			"{\n"
+			"   float value = round(0.5);\n"
+			"	gl_Position.xyzw = in_ATTRIBUTE0;\n"
+			"}\n";
+
+		FShaderCode VertexShaderCode;
+		{
+			FOpenGLCodeHeader Header;
+			Header.FrequencyMarker = 0x5653;
+			Header.GlslMarker = 0x474c534c;
+
+			FMemoryWriter Writer(VertexShaderCode.GetWriteAccess(), true);
+			Writer << Header;
+			Writer.Serialize((void*)TestVertexProgram, sizeof(TestVertexProgram));
+			Writer.Close();
+		}
+
+		// Try to compile test shaders
+		TRefCountPtr<FOpenGLVertexShader> VertexShader = (FOpenGLVertexShader*)(RHICreateVertexShader(VertexShaderCode.GetReadAccess()).GetReference());
+		if (!VerifyCompiledShader(VertexShader->Resource, TestVertexProgram, false))
+		{
+			UE_LOG(LogRHI, Warning, TEXT("Using the round() function hack, because the vertex shader for round function test failed to compile."));
+			FOpenGL::bRequiresRoundFunctionHack = true;
+			FOpenGL::bIsCheckingShaderCompilerHacks = false;
+			return;
+		}
+
+		FOpenGL::bIsCheckingShaderCompilerHacks = false;
+
+		UE_LOG(LogRHI, Warning, TEXT("Disabling the need for the round() function hack"));
+	}
+#endif
+}
+
 void FOpenGLDynamicRHI::Init()
 {
 	check(!GIsRHIInitialized);
@@ -1491,6 +1539,7 @@ void FOpenGLDynamicRHI::Init()
 
 	CheckTextureCubeLodSupport();
 	CheckVaryingLimit();
+	CheckRoundFunction();
 }
 
 void FOpenGLDynamicRHI::Shutdown()

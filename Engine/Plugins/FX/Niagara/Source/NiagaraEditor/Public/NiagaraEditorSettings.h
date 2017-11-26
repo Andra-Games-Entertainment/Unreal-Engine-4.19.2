@@ -8,7 +8,7 @@
 #include "NiagaraEditorSettings.generated.h"
 
 
-UCLASS(config = Engine, defaultconfig, meta=(DisplayName="Niagara"))
+UCLASS(config = Niagara, defaultconfig, meta=(DisplayName="Niagara"))
 class UNiagaraEditorSettings : public UDeveloperSettings
 {
 public:
@@ -16,15 +16,27 @@ public:
 		
 	/** System to duplicate as the base of all new System assets created. */
 	UPROPERTY(config, EditAnywhere, Category = Niagara)
-	FStringAssetReference DefaultSystem;
+	FSoftObjectPath DefaultSystem;
 
 	/** Emitter to duplicate as the base of all new emitter assets created. */
 	UPROPERTY(config, EditAnywhere, Category = Niagara)
-	FStringAssetReference DefaultEmitter;
+	FSoftObjectPath DefaultEmitter;
 
 	/** Niagara script to duplicate as the base of all new script assets created. */
 	UPROPERTY(config, EditAnywhere, Category = Niagara)
-	FStringAssetReference DefaultScript;
+	FSoftObjectPath DefaultScript;
+
+	/** Niagara script to duplicate as the base of all new script assets created. */
+	UPROPERTY(config, EditAnywhere, Category = Niagara)
+	FStringAssetReference DefaultDynamicInputScript;
+
+	/** Niagara script to duplicate as the base of all new script assets created. */
+	UPROPERTY(config, EditAnywhere, Category = Niagara)
+	FStringAssetReference DefaultFunctionScript;
+
+	/** Niagara script to duplicate as the base of all new script assets created. */
+	UPROPERTY(config, EditAnywhere, Category = Niagara)
+	FStringAssetReference DefaultModuleScript;
 
 	/** Shortcut key bindings that if held down while doing a mouse click, will spawn the specified type of Niagara node.*/
 	UPROPERTY(config, EditAnywhere, Category = Niagara)

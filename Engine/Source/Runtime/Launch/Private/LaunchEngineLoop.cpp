@@ -129,6 +129,7 @@
 	#include "Engine/DemoNetDriver.h"
 	#include "LongGPUTask.h"
 	#include "RenderUtils.h"
+	#include "DynamicResolutionState.h"
 
 #if !UE_SERVER
 	#include "AppMediaTimeSource.h"
@@ -931,18 +932,6 @@ int32 FEngineLoop::PreInit(const TCHAR* CmdLine)
 		return -1;
 	}
 
-	// Check for special instruction cpu support if needed
-	if (FPlatformMisc::NeedsNonoptionalCPUFeaturesCheck())
-	{
-		bool bHasNonoptionalCPUFeatures = FPlatformMisc::HasNonoptionalCPUFeatures();
-		// If it's not supported, we'll crash later so better to return an error
-		if (!bHasNonoptionalCPUFeatures)
-		{
-			FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("RequiresNonoptionalCPUFeatures", "Error: This application requires a CPU that supports the specific instruction set(s)"));
-			return -1;
-		}
-	}
-
 #if WITH_ENGINE
 	FCoreUObjectDelegates::PostGarbageCollectConditionalBeginDestroy.AddStatic(DeferredPhysResourceCleanup);
 #endif
@@ -990,10 +979,14 @@ int32 FEngineLoop::PreInit(const TCHAR* CmdLine)
 	GLog->EnableBacklog(true);
 
 	// Initialize std out device as early as possible if requested in the command line
+#if PLATFORM_DESKTOP
+	// consoles don't typically have stdout, and FOutputDeviceDebug is responsible for echoing logs to the
+	// terminal
 	if (FParse::Param(FCommandLine::Get(), TEXT("stdout")))
 	{
 		InitializeStdOutDevice();
 	}
+#endif
 
 #if !UE_BUILD_SHIPPING
 	if (FPlatformProperties::SupportsQuit())
@@ -1870,12 +1863,12 @@ int32 FEngineLoop::PreInit(const TCHAR* CmdLine)
 		// Make sure all UObject classes are registered and default properties have been initialized
 		ProcessNewlyLoadedUObjects();
 #if WITH_EDITOR
-		if(FPIEPreviewDeviceProfileSelectorModule::IsRequestingPreviewDevice())
+		if(FPIEPreviewDeviceModule::IsRequestingPreviewDevice())
 		{
-			FPIEPreviewDeviceProfileSelectorModule* PIEPreviewDeviceProfileSelectorModule = FModuleManager::LoadModulePtr<FPIEPreviewDeviceProfileSelectorModule>("PIEPreviewDeviceProfileSelector");
-			if (PIEPreviewDeviceProfileSelectorModule)
+			auto PIEPreviewDeviceModule = FModuleManager::LoadModulePtr<IPIEPreviewDeviceModule>("PIEPreviewDeviceProfileSelector");
+			if (PIEPreviewDeviceModule)
 			{
-				PIEPreviewDeviceProfileSelectorModule->ApplyPreviewDeviceState();
+				PIEPreviewDeviceModule->ApplyPreviewDeviceState();
 			}
 		}
 #endif
@@ -3166,6 +3159,14 @@ void FEngineLoop::Tick()
 			RHICmdList.BeginFrame();
 		});
 
+		#if !UE_SERVER && WITH_ENGINE
+		if (!GIsEditor && GEngine->GameViewport && GEngine->GameViewport->GetWorld() && GEngine->GameViewport->GetWorld()->IsCameraMoveable())
+		{
+			// When not in editor, we emit dynamic resolution's begin frame right after RHI's.
+			GEngine->EmitDynamicResolutionEvent(EDynamicResolutionStateEvent::BeginFrame);
+		}
+		#endif
+
 		FCoreDelegates::OnBeginFrame.Broadcast();
 
 		// flush debug output which has been buffered by other threads
@@ -3470,6 +3471,13 @@ void FEngineLoop::Tick()
 #endif
 
 		FCoreDelegates::OnEndFrame.Broadcast();
+
+		#if !UE_SERVER && WITH_ENGINE
+		{
+			// We emit dynamic resolution's end frame right before RHI's. GEngine is going to ignore it if no BeginFrame was done.
+			GEngine->EmitDynamicResolutionEvent(EDynamicResolutionStateEvent::EndFrame);
+		}
+		#endif
 
 		// end of RHI frame
 		ENQUEUE_UNIQUE_RENDER_COMMAND(EndFrame,

@@ -4,6 +4,21 @@
 #include "SWebBrowser.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Text/STextBlock.h"
+#include "TaskGraphInterfaces.h"
+#include "UObject/ConstructorHelpers.h"
+
+#if WITH_EDITOR
+#include "Materials/MaterialInterface.h"
+#include "Materials/MaterialExpressionMaterialFunctionCall.h"
+#include "Materials/MaterialExpressionTextureSample.h"
+#include "Materials/MaterialExpressionTextureSampleParameter2D.h"
+#include "Materials/MaterialFunction.h"
+#include "Materials/Material.h"
+#include "Factories/MaterialFactoryNew.h"
+#include "AssetRegistryModule.h"
+#include "WebBrowserTexture.h"
+#include "PackageHelperFunctions.h"
+#endif
 
 #define LOCTEXT_NAMESPACE "WebBrowser"
 
@@ -14,6 +29,16 @@ UWebBrowser::UWebBrowser(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	bIsVariable = true;
+	struct FConstructorStatics
+	{
+		ConstructorHelpers::FObjectFinder<UObject>			DefaultTextureMaterial;
+		FConstructorStatics()
+			: DefaultTextureMaterial(TEXT("/WebBrowserWidget/WebTexture_M"))
+		{}
+	};
+	static FConstructorStatics ConstructorStatics;
+
+	DefaultMaterial = (UMaterial*)ConstructorStatics.DefaultTextureMaterial.Object;
 }
 
 void UWebBrowser::LoadURL(FString NewURL)
@@ -85,7 +110,8 @@ TSharedRef<SWidget> UWebBrowser::RebuildWidget()
 			.InitialURL(InitialURL)
 			.ShowControls(false)
 			.SupportsTransparency(bSupportsTransparency)
-			.OnUrlChanged(BIND_UOBJECT_DELEGATE(FOnTextChanged, HandleOnUrlChanged));
+			.OnUrlChanged(BIND_UOBJECT_DELEGATE(FOnTextChanged, HandleOnUrlChanged))
+			.OnBeforePopup(BIND_UOBJECT_DELEGATE(FOnBeforePopupDelegate, HandleOnBeforePopup));
 
 		return WebBrowserWidget.ToSharedRef();
 	}
@@ -106,6 +132,33 @@ void UWebBrowser::HandleOnUrlChanged(const FText& InText)
 	OnUrlChanged.Broadcast(InText);
 }
 
+bool UWebBrowser::HandleOnBeforePopup(FString URL, FString Frame)
+{
+	if (OnBeforePopup.IsBound())
+	{
+		if (IsInGameThread())
+		{
+			OnBeforePopup.Broadcast(URL, Frame);
+		}
+		else
+		{
+			// Retry on the GameThread.
+			TWeakObjectPtr<UWebBrowser> WeakThis = this;
+			FFunctionGraphTask::CreateAndDispatchWhenReady([WeakThis, URL, Frame]()
+			{
+				if (WeakThis.IsValid())
+				{
+					WeakThis->HandleOnBeforePopup(URL, Frame);
+				}
+			}, TStatId(), nullptr, ENamedThreads::GameThread);
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 #if WITH_EDITOR
 
 const FText UWebBrowser::GetPaletteCategory()
@@ -114,6 +167,11 @@ const FText UWebBrowser::GetPaletteCategory()
 }
 
 #endif
+
+UMaterial* UWebBrowser::GetDefaultMaterial() const
+{
+	return DefaultMaterial;
+}
 
 /////////////////////////////////////////////////////
 

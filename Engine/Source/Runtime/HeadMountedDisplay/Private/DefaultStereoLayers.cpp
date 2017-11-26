@@ -228,7 +228,7 @@ void FDefaultStereoLayers::PostRenderView_RenderThread(FRHICommandListImmediate&
 	FMatrix TrackerMatrix = FTranslationMatrix(-HmdLocation) * FInverseRotationMatrix(HmdOrientation.Rotator()) * EyeMatrix;
 
 	FLayerRenderParams RenderParams{
-		InView.ViewRect, // Viewport
+		InView.UnscaledViewRect, // Viewport
 		{
 			ViewProjectionMatrix,				// WorldLocked,
 			TrackerMatrix * ProjectionMatrix,	// TrackerLocked,

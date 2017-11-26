@@ -985,6 +985,12 @@ void FLandscapeComponentSceneProxy::GetLightRelevance(const FLightSceneProxy* Li
 	}
 }
 
+SIZE_T FLandscapeComponentSceneProxy::GetTypeHash() const
+{
+	static size_t UniquePointer;
+	return reinterpret_cast<size_t>(&UniquePointer);
+}
+
 FLightInteraction FLandscapeComponentSceneProxy::FLandscapeLCI::GetInteraction(const class FLightSceneProxy* LightSceneProxy) const
 {
 	// ask base class
@@ -1342,7 +1348,7 @@ float FLandscapeComponentSceneProxy::CalcDesiredLOD(const FSceneView& View, cons
 		}
 		else
 		{
-			float Scale = 1.0f / (View.ViewRect.Width() * View.ViewMatrices.GetProjectionMatrix().M[0][0]);
+			float Scale = 1.0f / (View.UnscaledViewRect.Width() * View.ViewMatrices.GetProjectionMatrix().M[0][0]);
 
 			// The "/ 5.0f" is totally arbitrary
 			switch (LODFalloff)
@@ -2693,6 +2699,17 @@ public:
 			// UE-44519, masked material with landscape layers requires FHitProxy shaders.
 			FName(TEXT("FHitProxyVS")),
 			FName(TEXT("FHitProxyPS")),
+
+			FName(TEXT("TBasePassVSFSimpleStationaryLightVolumetricLightmapShadowsLightingPolicy")),
+			FName(TEXT("TBasePassPSFSimpleStationaryLightSingleSampleShadowsLightingPolicy")),
+			FName(TEXT("TBasePassPSFSimpleStationaryLightSingleSampleShadowsLightingPolicySkylight")),
+			FName(TEXT("TBasePassVSFSimpleStationaryLightSingleSampleShadowsLightingPolicy")),
+			FName(TEXT("TBasePassPSFSimpleStationaryLightPrecomputedShadowsLightingPolicy")),
+			FName(TEXT("TBasePassPSFSimpleStationaryLightPrecomputedShadowsLightingPolicySkylight")),
+			FName(TEXT("TBasePassVSFSimpleStationaryLightPrecomputedShadowsLightingPolicy")),
+			FName(TEXT("TBasePassPSFSimpleLightmapOnlyLightingPolicy")),
+			FName(TEXT("TBasePassPSFSimpleLightmapOnlyLightingPolicySkylight")),
+			FName(TEXT("TBasePassVSFSimpleLightmapOnlyLightingPolicy")),
 		};
 		return AllowedShaderTypes;
 	}
@@ -3157,6 +3174,13 @@ FLandscapeMeshProxySceneProxy::FLandscapeMeshProxySceneProxy(UStaticMeshComponen
 		new(ProxyNeighborInfos) FLandscapeNeighborInfo(InComponent->GetWorld(), InGuid, ComponentBase, nullptr, InProxyLOD, 0);
 	}
 }
+
+SIZE_T FLandscapeMeshProxySceneProxy::GetTypeHash() const
+{
+	static size_t UniquePointer;
+	return reinterpret_cast<size_t>(&UniquePointer);
+}
+
 
 void FLandscapeMeshProxySceneProxy::CreateRenderThreadResources()
 {

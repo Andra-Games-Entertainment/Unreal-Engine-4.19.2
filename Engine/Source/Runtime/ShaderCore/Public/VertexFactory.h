@@ -20,7 +20,7 @@ class FMaterial;
 enum class EVertexStreamUsage : uint8
 {
 	Default			= 0 << 0,
-	Instanceing		= 1 << 0,
+	Instancing		= 1 << 0,
 	Overridden		= 1 << 1,
 	ManualFetch		= 1 << 2
 };
@@ -284,7 +284,7 @@ extern SHADERCORE_API FVertexFactoryType* FindVertexFactoryType(FName TypeName);
 #define DECLARE_VERTEX_FACTORY_TYPE(FactoryClass) \
 	public: \
 	static FVertexFactoryType StaticType; \
-	virtual FVertexFactoryType* GetType() const override { return &StaticType; }
+	virtual FVertexFactoryType* GetType() const override;
 
 /**
  * A macro for implementing the static vertex factory type object, and specifying parameters used by the type.
@@ -305,7 +305,8 @@ extern SHADERCORE_API FVertexFactoryType* FindVertexFactoryType(FName TypeName);
 		FactoryClass::ShouldCache, \
 		FactoryClass::ModifyCompilationEnvironment, \
 		FactoryClass::SupportsTessellationShaders \
-		);
+		); \
+		FVertexFactoryType* FactoryClass::GetType() const { return &StaticType; }
 
 /** Encapsulates a dependency on a vertex factory type and saved state from that vertex factory type. */
 class FVertexFactoryTypeDependency
@@ -433,7 +434,8 @@ public:
 	bool SupportsManualVertexFetch(ERHIFeatureLevel::Type InFeatureLevel) const 
 	{ 
 		check(InFeatureLevel != ERHIFeatureLevel::Num);
-		return bSupportsManualVertexFetch && !(InFeatureLevel == ERHIFeatureLevel::ES2) && !IsES2Platform(GMaxRHIShaderPlatform) && !IsMetalPlatform(GMaxRHIShaderPlatform); 
+		static const auto MetalCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Metal.ManualVertexFetch"));
+		return bSupportsManualVertexFetch && !(InFeatureLevel == ERHIFeatureLevel::ES2) && !IsES2Platform(GMaxRHIShaderPlatform) && (!IsMetalPlatform(GMaxRHIShaderPlatform) || (MetalCVar && MetalCVar->GetInt() != 0 && IsPCPlatform(GMaxRHIShaderPlatform)));
 	}
 
 protected:

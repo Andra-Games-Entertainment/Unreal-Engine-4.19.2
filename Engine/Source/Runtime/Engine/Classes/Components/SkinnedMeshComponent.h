@@ -16,6 +16,9 @@ class FPrimitiveSceneProxy;
 class FColorVertexBuffer;
 class FSkinWeightVertexBuffer;
 class FSkeletalMeshRenderData;
+class FSkeletalMeshLODRenderData;
+struct FSkelMeshRenderSection;
+class FPositionVertexBuffer;
 
 DECLARE_DELEGATE_OneParam(FOnAnimUpdateRateParamsCreated, FAnimUpdateRateParameters*)
 
@@ -180,6 +183,9 @@ class ENGINE_API USkinnedMeshComponent : public UMeshComponent
 {
 	GENERATED_UCLASS_BODY()
 
+	/** Access granted to the render state recreator in order to trigger state rebuild */
+	friend class FSkinnedMeshComponentRecreateRenderStateContext;
+
 	/** The skeletal mesh used by this component. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mesh")
 	class USkeletalMesh* SkeletalMesh;
@@ -252,19 +258,21 @@ public:
 	TArray<float> MorphTargetWeights;
 
 #if WITH_EDITORONLY_DATA
-	/** Index of the chunk to preview... If set to -1, all chunks will be rendered */
-	UPROPERTY(transient)
-	int32 ChunkIndexPreview;
-
+private:
 	/** Index of the section to preview... If set to -1, all section will be rendered */
-	UPROPERTY(transient)
 	int32 SectionIndexPreview;
 
 	/** Index of the material to preview... If set to -1, all section will be rendered */
-	UPROPERTY(transient)
 	int32 MaterialIndexPreview;
 
+	/** The section currently selected in the Editor. Used for highlighting */
+	int32 SelectedEditorSection;
+
+	/** The Material currently selected. need to remember this index for reimporting cloth */
+	int32 SelectedEditorMaterial;
 #endif // WITH_EDITORONLY_DATA
+
+public:
 	//
 	// Physics.
 	//
@@ -368,6 +376,12 @@ public:
 	/** If true, when updating bounds from a PhysicsAsset, consider _all_ BodySetups, not just those flagged with bConsiderForBounds. */
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=SkeletalMesh)
 	uint8 bConsiderAllBodiesForBounds:1;
+
+	/** If true, this component uses its parents LOD when attached if available
+	* ForcedLOD can override this change. By default, it will use parent LOD.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = Rendering)
+	uint32 bSyncAttachParentLOD : 1;
 
 
 	/** Whether or not we can highlight selected sections - this should really only be done in the editor */
@@ -597,14 +611,28 @@ public:
 	 */
 	void SetForceWireframe(bool InForceWireframe);
 
-	/**
-	*	Sets the value of the SectionIndexPreview flag and reattaches the component as necessary.
-	*
-	*	@param	InSectionIndexPreview		New value of SectionIndexPreview.
-	*/
+#if WITH_EDITOR
+	/** Return value of SectionIndexPreview  */
+	int32 GetSectionPreview() const { return SectionIndexPreview;  }
+	/** Sets the value of the SectionIndexPreview option. */
 	void SetSectionPreview(int32 InSectionIndexPreview);
+
+	/** Return value of MaterialIndexPreview  */
+	int32 GetMaterialPreview() const { return MaterialIndexPreview; }
+	/** Sets the value of the MaterialIndexPreview option. */
 	void SetMaterialPreview(int32 InMaterialIndexPreview);
 
+	/** Return value of SelectedEditorSection  */
+	int32 GetSelectedEditorSection() const { return SelectedEditorSection; }
+	/** Sets the value of the SelectedEditorSection option. */
+	void SetSelectedEditorSection(int32 NewSelectedEditorSection);
+
+	/** Return value of SelectedEditorMaterial  */
+	int32 GetSelectedEditorMaterial() const { return SelectedEditorMaterial; }
+	/** Sets the value of the SelectedEditorMaterial option. */
+	void SetSelectedEditorMaterial(int32 NewSelectedEditorMaterial);
+
+#endif // WITH_EDITOR
 	/**
 	 * Function returns whether or not CPU skinning should be applied
 	 * Allows the editor to override the skinning state for editor tools
@@ -621,20 +649,39 @@ public:
 	 */
 	virtual void PostInitMeshObject(class FSkeletalMeshObject*) {}
 
-	/** 
-	 * Simple, CPU evaluation of a vertex's skinned position (returned in component space) 
+	/**
+	* Simple, CPU evaluation of a vertex's skinned position (returned in component space)
+	*
+	* @param VertexIndex Vertex Index. If compressed, this will be slow.
+	* @param Model The Model to use.
+	* @param SkinWeightBuffer The SkinWeightBuffer to use.
+	* @param CachedRefToLocals Cached RefToLocal matrices.
+	*/
+	static FVector GetSkinnedVertexPosition(USkinnedMeshComponent* Component, int32 VertexIndex, const FSkeletalMeshLODRenderData& LODDatal, FSkinWeightVertexBuffer& SkinWeightBuffer);
+
+	/**
+	 * Simple, CPU evaluation of a vertex's skinned position (returned in component space)
 	 *
-	 * @param VertexIndex Vertex Index. If compressed, this will be slow. 
-	 */
-	virtual FVector GetSkinnedVertexPosition(int32 VertexIndex) const;
+	 * @param VertexIndex Vertex Index. If compressed, this will be slow.
+	 * @param Model The Model to use.
+	 * @param SkinWeightBuffer The SkinWeightBuffer to use.
+	 * @param CachedRefToLocals Cached RefToLocal matrices.
+	*/
+	static FVector GetSkinnedVertexPosition(USkinnedMeshComponent* Component, int32 VertexIndex, const FSkeletalMeshLODRenderData& LODData, FSkinWeightVertexBuffer& SkinWeightBuffer, TArray<FMatrix>& CachedRefToLocals);
 
 	/**
 	* CPU evaluation of the positions of all vertices (returned in component space)
 	*
 	* @param OutPositions buffer to place positions into
+	* @param CachedRefToLocals Cached RefToLocal matrices.
+	* @param Model The Model to use.
+	* @param SkinWeightBuffer The SkinWeightBuffer to use.
 	*/
-	virtual void ComputeSkinnedPositions(TArray<FVector> & OutPositions) const;
+	static void ComputeSkinnedPositions(USkinnedMeshComponent* Component, TArray<FVector> & OutPositions, TArray<FMatrix>& CachedRefToLocals, const FSkeletalMeshLODRenderData& LODData, const FSkinWeightVertexBuffer& SkinWeightBuffer);
 
+	/** Caches the RefToLocal matrices. */
+	void CacheRefToLocalMatrices(TArray<FMatrix>& OutRefToLocal) const;
+	
 	/**
 	* Returns color of the vertex.
 	*
@@ -1054,14 +1101,22 @@ public:
 	bool IsBoneHiddenByName( FName BoneName );
 
 	/**
-	 *  Show/Hide Material - technical correct name for this is Section, but seems Material is mostly used
-	 *  This disable rendering of certain Material ID (Section)
+	 *	Allows hiding of a particular material (by ID) on this instance of a SkeletalMesh.
 	 *
-	 * @param MaterialID - id of the material to match a section on and to show/hide
-	 * @param bShow - true to show the section, otherwise hide it
-	 * @param LODIndex - index of the lod entry since material mapping is unique to each LOD
+	 * @param MaterialID - Index of the material show/hide
+	 * @param bShow - True to show the material, false to hide it
+	 * @param LODIndex - Index of the LOD to modify material visibility within
 	 */
+	UFUNCTION(BlueprintCallable, Category = "Components|SkinnedMesh")
 	void ShowMaterialSection(int32 MaterialID, bool bShow, int32 LODIndex);
+
+	/** Clear any material visibility modifications made by ShowMaterialSection */
+	UFUNCTION(BlueprintCallable, Category = "Components|SkinnedMesh")
+	void ShowAllMaterialSections(int32 LODIndex);
+
+	/** Returns whether a specific material section is currently hidden on this component (by using ShowMaterialSection) */
+	UFUNCTION(BlueprintCallable, Category = "Components|SkinnedMesh")
+	bool IsMaterialSectionShown(int32 MaterialID, int32 LODIndex);
 
 	/** 
 	 * Return PhysicsAsset for this SkeletalMeshComponent
@@ -1084,12 +1139,6 @@ public:
 
 	/** Animation Update Rate optimization parameters. */
 	struct FAnimUpdateRateParameters* AnimUpdateRateParams;
-
-	/** Updates AnimUpdateRateParams, used by SkinnedMeshComponents.
-	* 
-	* @param bRecentlyRendered : true if at least one SkinnedMeshComponent on this Actor has been rendered in the last second.
-	* @param MaxDistanceFactor : Largest SkinnedMeshComponent of this Actor drawn on screen. */
-	void AnimUpdateRateSetParams(uint8 UpdateRateShift, float DeltaTime, const bool & bInRecentlyRendered, const float& InMaxDistanceFactor, const bool & bPlayingRootMotion);
 
 	virtual bool IsPlayingRootMotion() const { return false; }
 	virtual bool IsPlayingNetworkedRootMotionMontage() const { return false; }
@@ -1142,3 +1191,15 @@ public:
 		}
 	}
 };
+
+
+/** Simple, CPU evaluation of a vertex's skinned position helper function */
+template <bool bExtraBoneInfluencesT, bool bCachedMatrices>
+FVector GetTypedSkinnedVertexPosition(
+	const USkinnedMeshComponent* SkinnedComp,
+	const FSkelMeshRenderSection& Section,
+	const FPositionVertexBuffer& PositionVertexBuffer,
+	const FSkinWeightVertexBuffer& SkinWeightVertexBuffer,
+	const int32 VertIndex,
+	const TArray<FMatrix> & RefToLocals = TArray<FMatrix>()
+);

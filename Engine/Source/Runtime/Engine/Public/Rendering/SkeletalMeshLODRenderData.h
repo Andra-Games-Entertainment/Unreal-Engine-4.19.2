@@ -12,6 +12,7 @@
 #include "SkeletalMeshTypes.h"
 #include "BoneIndices.h"
 #include "StaticMeshResources.h"
+#include "GPUSkinVertexFactory.h"
 
 #if WITH_EDITOR
 class FSkeletalMeshLODModel;
@@ -33,9 +34,6 @@ struct FSkelMeshRenderSection
 
 	/** This section will cast shadow */
 	bool bCastShadow;
-
-	/** This Section can be disabled for cloth simulation and corresponding Cloth Section will be enabled*/
-	bool bDisabled;
 
 	/** The offset into the LOD's vertex buffer of this section's vertices. */
 	uint32 BaseVertexIndex;
@@ -59,13 +57,16 @@ struct FSkelMeshRenderSection
 	/** Clothing data for this section, clothing is only present if ClothingData.IsValid() returns true */
 	FClothingSectionData ClothingData;
 
+    /** Index Buffer containting all duplicated vertices in the section and a buffer containing which indices into the index buffer are relevant per vertex **/
+    FVertexBufferAndSRV DuplicatedVerticesIndexBuffer;
+    FVertexBufferAndSRV LengthAndIndexDuplicatedVerticesIndexBuffer;
+
 	FSkelMeshRenderSection()
 		: MaterialIndex(0)
 		, BaseIndex(0)
 		, NumTriangles(0)
 		, bRecomputeTangent(false)
 		, bCastShadow(true)
-		, bDisabled(false)
 		, BaseVertexIndex(0)
 		, NumVertices(0)
 		, MaxBoneInfluences(4)

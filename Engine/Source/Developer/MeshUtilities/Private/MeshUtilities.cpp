@@ -598,7 +598,7 @@ static void SkinnedMeshToRawMeshes(USkinnedMeshComponent* InSkinnedMeshComponent
 		for (int32 SectionIndex = 0; SectionIndex < NumSections; SectionIndex++)
 		{
 			const FSkelMeshRenderSection& SkelMeshSection = LODData.RenderSections[SectionIndex];
-			if (!SkelMeshSection.bDisabled)
+			if (InSkinnedMeshComponent->IsMaterialSectionShown(SkelMeshSection.MaterialIndex, LODIndexRead))
 			{
 				// Build 'wedge' info
 				const int32 NumWedges = SkelMeshSection.NumTriangles * 3;
@@ -4537,10 +4537,51 @@ private:
 bool FMeshUtilities::BuildSkeletalMesh(FSkeletalMeshLODModel& LODModel, const FReferenceSkeleton& RefSkeleton, const TArray<FVertInfluence>& Influences, const TArray<FMeshWedge>& Wedges, const TArray<FMeshFace>& Faces, const TArray<FVector>& Points, const TArray<int32>& PointToOriginalMap, const MeshBuildOptions& BuildOptions, TArray<FText> * OutWarningMessages, TArray<FName> * OutWarningNames)
 {
 #if WITH_EDITORONLY_DATA
+
+	auto UpdateOverlappingVertices = [](FSkeletalMeshLODModel& InLODModel)
+	{
+		// clear first
+		for (int32 SectionIdx = 0; SectionIdx < InLODModel.Sections.Num(); SectionIdx++)
+		{
+			FSkelMeshSection& CurSection = InLODModel.Sections[SectionIdx];
+			CurSection.OverlappingVertices.Reset();
+		}
+
+		for (int32 SectionIdx = 0; SectionIdx < InLODModel.Sections.Num(); SectionIdx++)
+		{
+			FSkelMeshSection& CurSection = InLODModel.Sections[SectionIdx];
+			const int32 NumSoftVertices = CurSection.SoftVertices.Num();
+			for (int32 SrcVertIndex = 0; SrcVertIndex < NumSoftVertices; ++SrcVertIndex)
+			{
+				FSoftSkinVertex& SrcVert = CurSection.SoftVertices[SrcVertIndex];
+
+				for (int32 IterVertIndex = SrcVertIndex + 1; IterVertIndex < NumSoftVertices; ++IterVertIndex)
+				{
+					FSoftSkinVertex& IterVert = CurSection.SoftVertices[IterVertIndex];
+					if (PointsEqual(SrcVert.Position, IterVert.Position))
+					{
+						// if so, we add to overlapping vert
+						TArray<int32>& SrcValueArray = CurSection.OverlappingVertices.FindOrAdd(SrcVertIndex);
+						SrcValueArray.Add(IterVertIndex);
+
+						TArray<int32>& IterValueArray = CurSection.OverlappingVertices.FindOrAdd(IterVertIndex);
+						IterValueArray.Add(SrcVertIndex);
+					}
+				}
+			}
+		}
+	};
+
 	// Temporarily supporting both import paths
 	if (!BuildOptions.bUseMikkTSpace)
 	{
-		return BuildSkeletalMesh_Legacy(LODModel, RefSkeleton, Influences, Wedges, Faces, Points, PointToOriginalMap, BuildOptions.OverlappingThresholds, BuildOptions.bComputeNormals, BuildOptions.bComputeTangents, OutWarningMessages, OutWarningNames);
+		bool bBuildSuccess = BuildSkeletalMesh_Legacy(LODModel, RefSkeleton, Influences, Wedges, Faces, Points, PointToOriginalMap, BuildOptions.OverlappingThresholds, BuildOptions.bComputeNormals, BuildOptions.bComputeTangents, OutWarningMessages, OutWarningNames);
+		if (bBuildSuccess)
+		{
+			UpdateOverlappingVertices(LODModel);
+		}
+
+		return bBuildSuccess;
 	}
 
 	SkeletalMeshBuildData BuildData(
@@ -4569,6 +4610,7 @@ bool FMeshUtilities::BuildSkeletalMesh(FSkeletalMeshLODModel& LODModel, const FR
 	// Build the skeletal model from chunks.
 	Builder.BeginSlowTask();
 	BuildSkeletalModelFromChunks(BuildData.LODModel, BuildData.RefSkeleton, BuildData.Chunks, BuildData.PointToOriginalMap);
+	UpdateOverlappingVertices(BuildData.LODModel);
 	Builder.EndSlowTask();
 
 	// Only show these warnings if in the game thread.  When importing morph targets, this function can run in another thread and these warnings dont prevent the mesh from importing
@@ -5111,6 +5153,19 @@ static bool NonOpaqueMaterialPredicate(UStaticMeshComponent* InMesh)
 
 void FMeshUtilities::RecomputeTangentsAndNormalsForRawMesh(bool bRecomputeTangents, bool bRecomputeNormals, const FMeshBuildSettings& InBuildSettings, FRawMesh &OutRawMesh) const
 {
+	// Compute any missing tangents.
+	if (bRecomputeNormals || bRecomputeTangents)
+	{
+		float ComparisonThreshold = InBuildSettings.bRemoveDegenerates ? THRESH_POINTS_ARE_SAME : 0.0f;
+		TMultiMap<int32, int32> OverlappingCorners;
+		FindOverlappingCorners(OverlappingCorners, OutRawMesh, ComparisonThreshold);
+
+		RecomputeTangentsAndNormalsForRawMesh( bRecomputeTangents, bRecomputeNormals, InBuildSettings, OverlappingCorners, OutRawMesh );
+	}
+}
+
+void FMeshUtilities::RecomputeTangentsAndNormalsForRawMesh(bool bRecomputeTangents, bool bRecomputeNormals, const FMeshBuildSettings& InBuildSettings, const TMultiMap<int32, int32>& InOverlappingCorners, FRawMesh &OutRawMesh) const
+{
 	const int32 NumWedges = OutRawMesh.WedgeIndices.Num();
 
 	// Dump normals and tangents if we are recomputing them.
@@ -5131,10 +5186,6 @@ void FMeshUtilities::RecomputeTangentsAndNormalsForRawMesh(bool bRecomputeTangen
 	// Compute any missing tangents.
 	if (bRecomputeNormals || bRecomputeTangents)
 	{
-		float ComparisonThreshold = InBuildSettings.bRemoveDegenerates ? THRESH_POINTS_ARE_SAME : 0.0f;
-		TMultiMap<int32, int32> OverlappingCorners;
-		FindOverlappingCorners(OverlappingCorners, OutRawMesh, ComparisonThreshold);
-
 		// Static meshes always blend normals of overlapping corners.
 		uint32 TangentOptions = ETangentOptions::BlendOverlappingNormals;
 		if (InBuildSettings.bRemoveDegenerates)
@@ -5142,13 +5193,14 @@ void FMeshUtilities::RecomputeTangentsAndNormalsForRawMesh(bool bRecomputeTangen
 			// If removing degenerate triangles, ignore them when computing tangents.
 			TangentOptions |= ETangentOptions::IgnoreDegenerateTriangles;
 		}
+
 		if (InBuildSettings.bUseMikkTSpace)
 		{
-			ComputeTangents_MikkTSpace(OutRawMesh, OverlappingCorners, TangentOptions);
+			ComputeTangents_MikkTSpace(OutRawMesh, InOverlappingCorners, TangentOptions);
 		}
 		else
 		{
-			ComputeTangents(OutRawMesh, OverlappingCorners, TangentOptions);
+			ComputeTangents(OutRawMesh, InOverlappingCorners, TangentOptions);
 		}
 	}
 

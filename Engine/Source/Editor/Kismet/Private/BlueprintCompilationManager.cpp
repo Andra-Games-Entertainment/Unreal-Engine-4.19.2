@@ -322,7 +322,7 @@ struct FReinstancingJob
 	TSharedPtr<FBlueprintCompileReinstancer> Reinstancer;
 	TSharedPtr<FKismetCompilerContext> Compiler;
 };
-
+	
 void FBlueprintCompilationManagerImpl::FlushCompilationQueueImpl(TArray<UObject*>* ObjLoaded, bool bSuppressBroadcastCompiled, TArray<UBlueprint*>* BlueprintsCompiled)
 {
 	TGuardValue<bool> GuardTemplateNameFlag(GCompilingBlueprint, true);
@@ -606,6 +606,7 @@ void FBlueprintCompilationManagerImpl::FlushCompilationQueueImpl(TArray<UObject*
 					ensure(!SkeletonToRelink->GetSuperClass()->HasAnyClassFlags(CLASS_NewerVersionExists));
 
 					SkeletonToRelink->Bind();
+					SkeletonToRelink->ClearFunctionMapsCaches();
 					SkeletonToRelink->StaticLink(true);
 				}
 
@@ -653,6 +654,7 @@ void FBlueprintCompilationManagerImpl::FlushCompilationQueueImpl(TArray<UObject*
 					}
 					
 					Data.BP->bBeingCompiled = false;
+					Data.BP->CurrentMessageLog = nullptr;
 					if(UPackage* Package = Data.BP->GetOutermost())
 					{
 						Package->SetDirtyFlag(Data.bPackageWasDirty);
@@ -1831,7 +1833,6 @@ UClass* FBlueprintCompilationManagerImpl::FastGenerateSkeletonClass(UBlueprint* 
 			{
 				bCallInEditor = CustomEvent->bCallInEditor;
 			}
-
 			MakeEventFunction(
 				CompilerContext.GetEventStubFunctionName(Event), 
 				(EFunctionFlags)Event->FunctionFlags, 
@@ -2144,7 +2145,6 @@ bool FBlueprintCompilationManager::IsGeneratedClassLayoutReady()
 	}
 	return BPCMImpl->IsGeneratedClassLayoutReady();
 }
-
 
 bool FBlueprintCompilationManager::GetDefaultValue(const UClass* ForClass, const UProperty* Property, FString& OutDefaultValueAsString)
 {

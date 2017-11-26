@@ -151,6 +151,17 @@ private:
 	float OnGetFOVValue() const;
 
 	/**
+	* @return The widget containing the screen percentage.
+	*/
+	TSharedRef<SWidget> GenerateScreenPercentageMenu() const;
+
+	/** Called by the ScreenPercentage slider */
+	int32 OnGetScreenPercentageValue() const;
+
+	/** Called by the ScreenPercentage slider */
+	bool OnScreenPercentageIsEnabled() const;
+
+	/**
 	 * @return The widget containing the far view plane slider.
 	 */
 	TSharedRef<SWidget> GenerateFarViewPlaneMenu() const;
@@ -170,6 +181,9 @@ protected:
 
 	void CreateViewMenuExtensions(FMenuBuilder& MenuBuilder);
 
+	/** Extension allowing derived classes to add to the options menu.*/	
+	virtual void ExtendOptionsMenu(FMenuBuilder& OptionsMenuBuilder) const {}
+
 protected:
 	// Returns the info provider for this viewport
 	ICommonEditorViewportToolbarInfoProvider& GetInfoProvider() const;
@@ -183,6 +197,9 @@ protected:
 
 	/** Called when the FOV slider is adjusted in the perspective viewport */
 	virtual void OnFOVValueChanged(float NewValue) const;
+
+	/** Called when the ScreenPercentage slider is adjusted in the viewport */
+	void OnScreenPercentageValueChanged(int32 NewValue);
 
 private:
 	/** The viewport that we are in */

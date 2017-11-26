@@ -659,7 +659,8 @@ void FMacPlatformMisc::NormalizePath(FString& InPath)
 }
 
 FMacPlatformMisc::FGPUDescriptor::FGPUDescriptor()
-: PCIDevice(0)
+: RegistryID(0)
+, PCIDevice(0)
 , GPUName(nil)
 , GPUMetalBundle(nil)
 , GPUOpenGLBundle(nil)
@@ -673,7 +674,8 @@ FMacPlatformMisc::FGPUDescriptor::FGPUDescriptor()
 }
 
 FMacPlatformMisc::FGPUDescriptor::FGPUDescriptor(FGPUDescriptor const& Other)
-: PCIDevice(0)
+: RegistryID(0)
+, PCIDevice(0)
 , GPUName(nil)
 , GPUMetalBundle(nil)
 , GPUOpenGLBundle(nil)
@@ -703,6 +705,8 @@ FMacPlatformMisc::FGPUDescriptor& FMacPlatformMisc::FGPUDescriptor::operator=(FG
 {
 	if(this != &Other)
 	{
+		RegistryID = Other.RegistryID;
+		
 		if(Other.PCIDevice)
 		{
 			IOObjectRetain((io_registry_entry_t)Other.PCIDevice);
@@ -891,6 +895,9 @@ TArray<FMacPlatformMisc::FGPUDescriptor> const& FMacPlatformMisc::GetGPUDescript
 									if (IOMatchCategory && CFGetTypeID(IOMatchCategory) == CFStringGetTypeID() && CFStringCompare(IOMatchCategory, IOAcceleratorRef, 0) == kCFCompareEqualTo)
 									{
 										BundleID = (CFStringRef)IORegistryEntrySearchCFProperty(ChildEntry, kIOServicePlane, CFBundleIdentifier, kCFAllocatorDefault, 0);
+										
+										kern_return_t Result = IORegistryEntryGetRegistryEntryID(ChildEntry, &Desc.RegistryID);
+										check(Result == kIOReturnSuccess);
 									}
 									if (IOMatchCategory)
 									{
@@ -1633,8 +1640,8 @@ void FMacCrashContext::GenerateWindowsErrorReport(char const* WERPath, bool bIsE
 		WriteLine(ReportFile, TEXT("</Parameter2>"));
 		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<DeploymentName>%s</DeploymentName>"), FApp::GetDeploymentName()));
 		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<IsEnsure>%s</IsEnsure>"), bIsEnsure ? TEXT("1") : TEXT("0")));
-		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<IsAssert>%s</IsAssert>"), FDebug::bHasAsserted ? TEXT("1") : TEXT("0")));
-		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<CrashType>%s</CrashType>"), FGenericCrashContext::GetCrashTypeString(bIsEnsure, FDebug::bHasAsserted, GIsGPUCrashed)));
+		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<IsAssert>%s</IsAssert>"), FDebug::HasAsserted() ? TEXT("1") : TEXT("0")));
+		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<CrashType>%s</CrashType>"), FGenericCrashContext::GetCrashTypeString(bIsEnsure, FDebug::HasAsserted(), GIsGPUCrashed)));
 		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<BuildVersion>%s</BuildVersion>"), FApp::GetBuildVersion()));
 		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<EngineModeEx>%s</EngineModeEx>"), FGenericCrashContext::EngineModeExString()));
 
