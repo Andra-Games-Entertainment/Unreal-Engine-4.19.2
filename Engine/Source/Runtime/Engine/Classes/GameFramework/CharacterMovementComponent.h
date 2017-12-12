@@ -24,6 +24,9 @@ class FDebugDisplayInfo;
 class FNetworkPredictionData_Server_Character;
 class FSavedMove_Character;
 class UPrimitiveComponent;
+class UCharacterMovementComponent;
+
+DECLARE_DELEGATE_RetVal_TwoParams(FTransform, FOnProcessRootMotion, const FTransform&, UCharacterMovementComponent*)
 
 /** Data about the floor for walking movement, used by CharacterMovementComponent. */
 USTRUCT(BlueprintType)
@@ -476,6 +479,13 @@ public:
 	/** Flag indicating the client correction was larger than NetworkLargeClientCorrectionThreshold. */
 	uint32 bNetworkLargeClientCorrection:1;
 
+	/**
+	 * Whether we skip prediction on frames where a proxy receives a network update. This can avoid expensive prediction on those frames,
+	 * with the side-effect of predicting with a frame of additional latency.
+	 */
+	UPROPERTY(Category="Character Movement (Networking)", EditDefaultsOnly)
+	uint32 bNetworkSkipProxyPredictionOnNetUpdate:1;
+
 public:
 
 	/** true to update CharacterOwner and UpdatedComponent after movement ends */
@@ -749,7 +759,7 @@ public:
 	ENetworkSmoothingMode NetworkSmoothingMode;
 
 	/**
-	 * Minimum time on the server between acknowledinging good client moves. This can save on bandwidth. Set to 0 to disable throttling.
+	 * Minimum time on the server between acknowledging good client moves. This can save on bandwidth. Set to 0 to disable throttling.
 	 */
 	UPROPERTY(Category="Character Movement (Networking)", EditDefaultsOnly, meta=(ClampMin="0.0", UIMin="0.0"))
 	float NetworkMinTimeBetweenClientAckGoodMoves;
@@ -1329,7 +1339,7 @@ public:
 	virtual float GetModifiedMaxAcceleration() const;
 	
 	/** @return Maximum acceleration for the current state, based on MaxAcceleration and any additional modifiers. */
-	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DeprecatedFunction, DisplayName="GetModifiedMaxAcceleration", DeprecationMessage="GetModifiedMaxAcceleration() is deprecated, apply your own modifiers to GetMaxAcceleration() if desired."))
+	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DeprecatedFunction, DisplayName="GetModifiedMaxAcceleration", ScriptName="GetModifiedMaxAcceleration", DeprecationMessage="GetModifiedMaxAcceleration() is deprecated, apply your own modifiers to GetMaxAcceleration() if desired."))
 	virtual float K2_GetModifiedMaxAcceleration() const;
 
 	/** @return Maximum acceleration for the current state. */
@@ -1639,7 +1649,7 @@ public:
 	FORCEINLINE float GetWalkableFloorAngle() const { return WalkableFloorAngle; }
 
 	/** Get the max angle in degrees of a walkable surface for the character. */
-	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DisplayName = "GetWalkableFloorAngle"))
+	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DisplayName = "GetWalkableFloorAngle", ScriptName = "GetWalkableFloorAngle"))
 	float K2_GetWalkableFloorAngle() const;
 
 	/** Set the max angle in degrees of a walkable surface for the character. Also computes WalkableFloorZ. */
@@ -1650,7 +1660,7 @@ public:
 	FORCEINLINE float GetWalkableFloorZ() const { return WalkableFloorZ; }
 
 	/** Get the Z component of the normal of the steepest walkable surface for the character. Any lower than this and it is not walkable. */
-	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DisplayName = "GetWalkableFloorZ"))
+	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DisplayName = "GetWalkableFloorZ", ScriptName = "GetWalkableFloorZ"))
 	float K2_GetWalkableFloorZ() const;
 
 	/** Set the Z component of the normal of the steepest walkable surface for the character. Also computes WalkableFloorAngle. */
@@ -1790,7 +1800,7 @@ public:
 	* @param CapsuleLocation		Location where the capsule sweep should originate
 	* @param FloorResult			Result of the floor check
 	*/
-	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DisplayName="FindFloor"))
+	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DisplayName="FindFloor", ScriptName="FindFloor"))
 	void K2_FindFloor(FVector CapsuleLocation, FFindFloorResult& FloorResult) const;
 
 	/**
@@ -1819,7 +1829,7 @@ public:
 	* @param SweepRadius			The radius to use for sweep tests. Should be <= capsule radius.
 	* @param FloorResult			Result of the floor check
 	*/
-	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DisplayName="ComputeFloorDistance"))
+	UFUNCTION(BlueprintCallable, Category="Pawn|Components|CharacterMovement", meta=(DisplayName="ComputeFloorDistance", ScriptName="ComputeFloorDistance"))
 	void K2_ComputeFloorDist(FVector CapsuleLocation, float LineDistance, float SweepDistance, float SweepRadius, FFindFloorResult& FloorResult) const;
 
 	/**
@@ -2288,6 +2298,15 @@ public:
 	{
 		return RootMotionParams.bHasRootMotion;
 	}
+
+	// Takes component space root motion and converts it to world space
+	FTransform ConvertLocalRootMotionToWorld(const FTransform& InLocalRootMotion);
+
+	// Delegate for modifying root motion pre conversion from component space to world space.
+	FOnProcessRootMotion ProcessRootMotionPreConvertToWorld;
+	
+	// Delegate for modifying root motion post conversion from component space to world space.
+	FOnProcessRootMotion ProcessRootMotionPostConvertToWorld;
 
 	/** Simulate Root Motion physics on Simulated Proxies */
 	void SimulateRootMotion(float DeltaSeconds, const FTransform& LocalRootMotionTransform);

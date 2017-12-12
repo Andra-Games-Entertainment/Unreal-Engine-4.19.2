@@ -31,6 +31,8 @@ typedef TFunction<bool (double RemainingTime)> FExternalReadCallback;
 
 #define DEVIRTUALIZE_FLinkerLoad_Serialize (!WITH_EDITORONLY_DATA)
 
+// Helper macro to make serializing a bitpacked boolean in an archive easier
+#define FArchive_Serialize_BitfieldBool(ARCHIVE, BITFIELD_BOOL) { bool TEMP_BITFIELD_BOOL = BITFIELD_BOOL; ARCHIVE << TEMP_BITFIELD_BOOL; BITFIELD_BOOL = TEMP_BITFIELD_BOOL; }
 
 /**
  * TCheckedObjPtr
@@ -1165,6 +1167,14 @@ public:
 	}
 
 	/**
+	 * Whether or not this archive is serializing data being sent/received by the netcode
+	 */
+	FORCEINLINE bool IsNetArchive()
+	{
+		return ArIsNetArchive;
+	}
+
+	/**
 	 * Checks whether the archive is used for cooking.
 	 *
 	 * @return true if the archive is used for cooking, false otherwise.
@@ -1428,6 +1438,9 @@ public:
 
 	/** Whether this archive is saving/loading game state */
 	uint8 ArIsSaveGame : 1;
+
+	/** Whether or not this archive is sending/receiving network data */
+	uint8 ArIsNetArchive : 1;
 
 	/** Set TRUE to use the custom property list attribute for serialization. */
 	uint8 ArUseCustomPropertyList : 1;

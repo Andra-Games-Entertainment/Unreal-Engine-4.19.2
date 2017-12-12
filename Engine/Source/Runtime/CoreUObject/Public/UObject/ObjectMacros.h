@@ -97,6 +97,9 @@ enum ESaveFlags
 	SAVE_Unversioned	= 0x00000020,	// Save all versions as zero. Upon load this is changed to the current version. This is only reasonable to use with full cooked builds for distribution.
 	SAVE_CutdownPackage	= 0x00000040,	// Saving cutdown packages in a temp location WITHOUT renaming the package.
 	SAVE_KeepEditorOnlyCookedPackages = 0x00000080,  // keep packages which are marked as editor only even though we are cooking
+	SAVE_Concurrent		= 0x00000100,	// We are save packages in multiple threads at once and should not call non-threadsafe functions or rely on globals. GIsSavingPackage should be set and PreSave/Postsave functions should be called before/after the entire concurrent save.
+	SAVE_DiffOnly       = 0x00000200, // Serializes the package to a special memory archive that performs a diff with an existing file on disk
+	SAVE_DiffCallstack  = 0x00000400, // Serializes the package to a special memory archive that compares all differences against a file on disk and dumps relevant callstacks
 };
 
 //
@@ -1006,6 +1009,9 @@ namespace UM
 		/// [ClassMetadata] [PropertyMetadata] [FunctionMetadata] The name to display for this class, property, or function instead of auto-generating it from the name.
 		DisplayName,
 
+		/// [ClassMetadata] [PropertyMetadata] [FunctionMetadata] The name to use for this class, property, or function when exporting it to a scripting language.
+		ScriptName,
+
 		/// [ClassMetadata] Specifies that this class is an acceptable base class for creating blueprints.
 		IsBlueprintBase,
 
@@ -1087,6 +1093,12 @@ namespace UM
 		/// [ClassMetadata] [PropertyMetadata] [FunctionMetadata] The name to display for this class, property, or function instead of auto-generating it from the name.
 		// DisplayName, (Commented out so as to avoid duplicate name with version in the Class section, but still show in the property section)
 
+		/// [ClassMetadata] [PropertyMetadata] [FunctionMetadata] The name to use for this class, property, or function when exporting it to a scripting language.
+		//ScriptName, (Commented out so as to avoid duplicate name with version in the Class section, but still show in the property section)
+
+		/// [PropertyMetadata] [FunctionMetadata] Flag set on a property or function to prevent it being exported to a scripting language.
+		ScriptNoExport,
+
 		/// [PropertyMetadata] Indicates that the property is an asset type and it should display the thumbnail of the selected asset.
 		DisplayThumbnail,	
 	
@@ -1162,13 +1174,13 @@ namespace UM
 		/// [PropertyMetadata] Used by FDirectoryPath properties. Indicates that the directory dialog will output a path relative to the game content directory when setting the property.
 		RelativeToGameContentDir,
 
-		// [PropertyMetadata] Used by struct properties. Indicates that the inner properties will not be shown inside an expandable struct, but promoted up a level.
+		/// [PropertyMetadata] Used by struct properties. Indicates that the inner properties will not be shown inside an expandable struct, but promoted up a level.
 		ShowOnlyInnerProperties,
 
 		/// [PropertyMetadata] Used for Subclass and SoftClass properties. Shows the picker as a tree view instead of as a list
 		ShowTreeView,
 
-		// [PropertyMetadata] Used by numeric properties. Indicates how rapidly the value will grow when moving an unbounded slider.
+		/// [PropertyMetadata] Used by numeric properties. Indicates how rapidly the value will grow when moving an unbounded slider.
 		SliderExponent,
 
 		/// [PropertyMetadata] Used for float and integer properties.  Specifies the lowest that the value slider should represent.
@@ -1258,6 +1270,12 @@ namespace UM
 
 		/// [ClassMetadata] [PropertyMetadata] [FunctionMetadata] The name to display for this class, property, or function instead of auto-generating it from the name.
 		// DisplayName, (Commented out so as to avoid duplicate name with version in the Class section, but still show in the function section)
+
+		/// [ClassMetadata] [PropertyMetadata] [FunctionMetadata] The name to use for this class, property, or function when exporting it to a scripting language.
+		//ScriptName, (Commented out so as to avoid duplicate name with version in the Class section, but still show in the function section)
+
+		/// [PropertyMetadata] [FunctionMetadata] Flag set on a property or function to prevent it being exported to a scripting language.
+		//ScriptNoExport, (Commented out so as to avoid duplicate name with version in the Property section, but still show in the function section)
 
 		/// [FunctionMetadata] For BlueprintCallable functions indicates that the parameter pin should be hidden from the user's view.
 		HidePin,

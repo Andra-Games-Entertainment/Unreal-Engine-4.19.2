@@ -32,6 +32,7 @@
 #include "Tests/TestMessageInterface.h"
 #include "Tests/TestVoice.h"
 #include "Tests/TestExternalUIInterface.h"
+#include "Tests/TestPresenceInterface.h"
 
 UAudioComponent* CreateVoiceAudioComponent(uint32 SampleRate, int32 NumChannels)
 {
@@ -46,6 +47,18 @@ UAudioComponent* CreateVoiceAudioComponent(uint32 SampleRate, int32 NumChannels)
 			SoundStreaming->Duration = INDEFINITELY_LOOPING_DURATION;
 			SoundStreaming->SoundGroup = SOUNDGROUP_Voice;
 			SoundStreaming->bLooping = false;
+
+			// Turn off async generation in old audio engine on mac.
+			#if PLATFORM_MAC
+			if (!AudioDevice->IsAudioMixerEnabled())
+			{
+				SoundStreaming->bCanProcessAsync = false;
+			}
+			else
+			#endif // #if PLATFORM_MAC
+			{
+				SoundStreaming->bCanProcessAsync = true;
+			}
 
 			AudioComponent = AudioDevice->CreateComponent(SoundStreaming);
 			if (AudioComponent)
@@ -446,6 +459,13 @@ static bool OnlineExec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 					{
 						// This class deletes itself once done
 						(new FTestLeaderboardInterface(SubName))->Test(InWorld);
+						bWasHandled = true;
+					}
+					else if (FParse::Command(&Cmd, TEXT("PRESENCE")))
+					{
+						// Takes a user id/name of a non-friend user for the sole usage of querying out
+						// Pass nothing if the platform doesn't support it
+						(new FTestPresenceInterface(SubName))->Test(InWorld, FParse::Token(Cmd, false));
 						bWasHandled = true;
 					}
 					else if (FParse::Command(&Cmd, TEXT("VOICE")))

@@ -40,6 +40,40 @@
 #include "ProfilingDebugging/CookStats.h"
 #include "AnimPhysObjectVersion.h"
 
+/** Helper for enum output... */
+#ifndef CASE_ENUM_TO_TEXT
+#define CASE_ENUM_TO_TEXT(txt) case txt: return TEXT(#txt);
+#endif
+
+namespace Lex
+{
+	const TCHAR* ToString(ECollisionTraceFlag Enum)
+	{
+		switch (Enum)
+		{
+			FOREACH_ENUM_ECOLLISIONTRACEFLAG(CASE_ENUM_TO_TEXT)
+		}
+		return TEXT("<Unknown ECollisionTraceFlag>");
+	}
+
+	const TCHAR* ToString(EPhysicsType Enum)
+	{
+		switch (Enum)
+		{
+			FOREACH_ENUM_EPHYSICSTYPE(CASE_ENUM_TO_TEXT)
+		}
+		return TEXT("<Unknown EPhysicsType>");
+	}
+
+	const TCHAR* ToString(EBodyCollisionResponse::Type Enum)
+	{
+		switch (Enum)
+		{
+			FOREACH_ENUM_EBODYCOLLISIONRESPONSE(CASE_ENUM_TO_TEXT)
+		}
+		return TEXT("<Unknown EBodyCollisionResponse>");
+	}
+}
 
 
 FCookBodySetupInfo::FCookBodySetupInfo() :
@@ -120,11 +154,6 @@ static TAutoConsoleVariable<float> CVarMaxContactOffset(
 	ECVF_Default);
 
 
-SIZE_T FBodySetupUVInfo::GetResourceSize() const
-{
-	return GetResourceSizeBytes();
-}
-
 void FBodySetupUVInfo::GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize) const
 {
 	CumulativeResourceSize.AddDedicatedSystemMemoryBytes(IndexBuffer.GetAllocatedSize());
@@ -138,14 +167,6 @@ void FBodySetupUVInfo::GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize
 	CumulativeResourceSize.AddDedicatedSystemMemoryBytes(VertUVs.GetAllocatedSize());
 }
 
-SIZE_T FBodySetupUVInfo::GetResourceSizeBytes() const
-{
-	FResourceSizeEx ResSize;
-	GetResourceSizeEx(ResSize);
-	return ResSize.GetTotalMemoryBytes();
-}
-
-
 DEFINE_LOG_CATEGORY(LogPhysics);
 UBodySetup::UBodySetup(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -158,7 +179,9 @@ UBodySetup::UBodySetup(const FObjectInitializer& ObjectInitializer)
 	bGenerateMirroredCollision = true;
 	bGenerateNonMirroredCollision = true;
 	DefaultInstance.SetObjectType(ECC_PhysicsBody);
+#if WITH_EDITORONLY_DATA
 	BuildScale_DEPRECATED = 1.0f;
+#endif
 	BuildScale3D = FVector(1.0f, 1.0f, 1.0f);
 	SetFlags(RF_Transactional);
 	bSharedCookedData = false;
@@ -1164,7 +1187,7 @@ void UBodySetup::Serialize(FArchive& Ar)
 			TArray<FName> ActualFormatsToSave;
 			ActualFormatsToSave.Add(Format);
 
-			Ar << bHasCookedCollisionData;
+			FArchive_Serialize_BitfieldBool(Ar, bHasCookedCollisionData);
 
 			FFormatContainer* UseCookedFormatData = bUseRuntimeOnlyCookedData ? &CookedFormatDataRuntimeOnlyOptimization : &CookedFormatData;
 			UseCookedFormatData->Serialize(Ar, this, &ActualFormatsToSave, !bSharedCookedData);
@@ -1174,7 +1197,9 @@ void UBodySetup::Serialize(FArchive& Ar)
 		{
 			if (Ar.UE4Ver() >= VER_UE4_STORE_HASCOOKEDDATA_FOR_BODYSETUP)
 			{
-				Ar << bHasCookedCollisionData;
+				bool bTemp = bHasCookedCollisionData;
+				Ar << bTemp;
+				bHasCookedCollisionData = bTemp;
 			}
 			CookedFormatData.Serialize(Ar, this);
 		}
@@ -1197,10 +1222,12 @@ void UBodySetup::PostLoad()
 		Outer->ConditionalPostLoad();
 	}
 
+#if WITH_EDITORONLY_DATA
 	if ( GetLinkerUE4Version() < VER_UE4_BUILD_SCALE_VECTOR )
 	{
 		BuildScale3D = FVector( BuildScale_DEPRECATED );
 	}
+#endif
 
 	DefaultInstance.FixupData(this);
 

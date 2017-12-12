@@ -8,6 +8,7 @@
 #include "Misc/Paths.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/LocalTimestampDirectoryVisitor.h"
+#include "Misc/OutputDeviceRedirector.h"
 #include "Curl/CurlHttpThread.h"
 #include "Curl/CurlHttp.h"
 #include "Http.h"
@@ -377,6 +378,21 @@ void FCurlHttpManager::InitCurl()
 			}
 		}
 	}
+#elif PLATFORM_ANDROID
+	// Look for the default machine wide proxy setting
+	if (ProxyAddress.Len() == 0)
+	{
+		extern int32 AndroidThunkCpp_GetMetaDataInt(const FString& Key);
+		extern FString AndroidThunkCpp_GetMetaDataString(const FString& Key);
+
+		FString ProxyHost = AndroidThunkCpp_GetMetaDataString(TEXT("ue4.http.proxy.proxyHost"));
+		int32 ProxyPort = AndroidThunkCpp_GetMetaDataInt(TEXT("ue4.http.proxy.proxyPort"));
+
+		if (ProxyPort != -1 && !ProxyHost.IsEmpty())
+		{
+			ProxyAddress = FString::Printf(TEXT("%s:%d"), *ProxyHost, ProxyPort);
+		}
+	}
 #endif
 
 	if (ProxyAddress.Len() > 0)
@@ -524,16 +540,20 @@ void FCurlHttpManager::InitCurl()
 	}
 
 	TCHAR Home[256] = TEXT("");
-	if (FParse::Value(FCommandLine::Get(), TEXT("MULTIHOME="), Home, ARRAY_COUNT(Home)))
+	if (FParse::Value(FCommandLine::Get(), TEXT("MULTIHOMEHTTP="), Home, ARRAY_COUNT(Home)))
 	{
 		ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
-
 		if (SocketSubsystem)
 		{
-			// Check for the local addr to route requests through (respects MULTIHOME cmd line option)
-			bool bCanBindAll;
-			TSharedRef<FInternetAddr> HostAddr = SocketSubsystem->GetLocalHostAddr(*GLog, bCanBindAll);
-			CurlRequestOptions.LocalHostAddr = HostAddr->ToString(false);
+			TSharedRef<FInternetAddr> HostAddr = SocketSubsystem->CreateInternetAddr();
+			HostAddr->SetAnyAddress();
+
+			bool bIsValid = false;
+			HostAddr->SetIp(Home, bIsValid);
+			if (bIsValid)
+			{
+				CurlRequestOptions.LocalHostAddr = FString(Home);
+			}
 		}
 	}
 

@@ -412,29 +412,46 @@ void USkeletalMeshComponent::BlendInPhysics(FTickFunction& ThisTickFunction)
 		else
 		{
 			PerformBlendPhysicsBones(RequiredBones, BoneSpaceTransforms);
-			PostBlendPhysics();
+			FinalizeAnimationUpdate();
 		}
 	}
 }
 
-void USkeletalMeshComponent::PostBlendPhysics()
+DECLARE_CYCLE_STAT(TEXT("STAT_FinalizeAnimationUpdate_UpdateChildTransforms"), STAT_FinalizeAnimationUpdate_UpdateChildTransforms, STATGROUP_Anim);
+DECLARE_CYCLE_STAT(TEXT("STAT_FinalizeAnimationUpdate_UpdateOverlaps"), STAT_FinalizeAnimationUpdate_UpdateOverlaps, STATGROUP_Anim);
+DECLARE_CYCLE_STAT(TEXT("STAT_FinalizeAnimationUpdate_UpdateBounds"), STAT_FinalizeAnimationUpdate_UpdateBounds, STATGROUP_Anim);
+
+void USkeletalMeshComponent::FinalizeAnimationUpdate()
 {
-	SCOPE_CYCLE_COUNTER(STAT_UpdateLocalToWorldAndOverlaps);
+	SCOPE_CYCLE_COUNTER(STAT_FinalizeAnimationUpdate);
 	
 	// Flip bone buffer and send 'post anim' notification
 	FinalizeBoneTransform();
 
-	// Update Child Transform - The above function changes bone transform, so will need to update child transform
-	UpdateChildTransforms();
+	{
+		SCOPE_CYCLE_COUNTER(STAT_FinalizeAnimationUpdate_UpdateChildTransforms);
 
-	// animation often change overlap. 
-	UpdateOverlaps();
+		// Update Child Transform - The above function changes bone transform, so will need to update child transform
+		// But only children attached to us via a socket.
+		UpdateChildTransforms(EUpdateTransformFlags::OnlyUpdateIfUsingSocket);
+	}
+
+	{
+		SCOPE_CYCLE_COUNTER(STAT_FinalizeAnimationUpdate_UpdateOverlaps);
+
+		// animation often change overlap. 
+		UpdateOverlaps();
+	}
 
 	// Cached local bounds are now out of date
 	InvalidateCachedBounds();
 
-	// update bounds
-	UpdateBounds();
+	{
+		SCOPE_CYCLE_COUNTER(STAT_FinalizeAnimationUpdate_UpdateBounds);
+
+		// update bounds
+		UpdateBounds();
+	}
 
 	// Need to send new bounds to 
 	MarkRenderTransformDirty();
@@ -447,7 +464,7 @@ void USkeletalMeshComponent::CompleteParallelBlendPhysics()
 {
 	Exchange(AnimEvaluationContext.BoneSpaceTransforms, AnimEvaluationContext.bDoInterpolation ? CachedBoneSpaceTransforms : BoneSpaceTransforms);
 		
-	PostBlendPhysics();
+	FinalizeAnimationUpdate();
 
 	ParallelAnimationEvaluationTask.SafeRelease();
 	ParallelBlendPhysicsCompletionTask.SafeRelease();
@@ -597,6 +614,8 @@ void USkeletalMeshComponent::UpdateKinematicBonesToAnim(const TArray<FTransform>
 							RigidActor->setGlobalPose(PNewPose);
 						}
 
+						if (!PhysicsAsset->SkeletalBodySetups[i]->bSkipScaleFromAnimation)
+						{
 						// now update scale
 						// if uniform, we'll use BoneTranform
 						if (MeshScale3D.IsUniform())
@@ -614,6 +633,7 @@ void USkeletalMeshComponent::UpdateKinematicBonesToAnim(const TArray<FTransform>
 							BodyInst->UpdateBodyScale(MeshScale3D);
 						}
 					}
+				}
 				}
 				else
 				{

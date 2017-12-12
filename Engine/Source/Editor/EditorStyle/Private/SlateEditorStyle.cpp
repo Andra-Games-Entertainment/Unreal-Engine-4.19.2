@@ -1365,8 +1365,8 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 		Set( "Level.NotVisibleHighlightIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_invisible_hi_16px", Icon16x16 ) );
 		Set( "Level.LightingScenarioIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_LightingScenario_16px", Icon16x16 ) );
 		Set( "Level.LightingScenarioNotIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_LightingScenarioNot_16px", Icon16x16 ) );
-		Set( "Level.LockedIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_Locked_16px", Icon16x16 ) );
-		Set( "Level.LockedHighlightIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_Locked_hi_16px", Icon16x16 ) );
+		Set( "Level.LockedIcon16x", new IMAGE_BRUSH("Icons/icon_locked_16px", Icon16x16) );
+		Set( "Level.LockedHighlightIcon16x", new IMAGE_BRUSH("Icons/icon_locked_highlight_16px", Icon16x16) );
 		Set( "Level.UnlockedIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_unlocked_16px", Icon16x16 ) );
 		Set( "Level.UnlockedHighlightIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_unlocked_hi_16px", Icon16x16 ) );
 		Set( "Level.ReadOnlyLockedIcon16x", new IMAGE_BRUSH( "Icons/icon_levels_LockedReadOnly_16px", Icon16x16 ) );
@@ -1977,6 +1977,8 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 		Set( "SequenceRecorder.Common.RemoveRecording", new IMAGE_BRUSH( "SequenceRecorder/icon_RemoveRecording_40x", Icon40x40 ) );
 		Set( "SequenceRecorder.Common.RemoveAllRecordings.Small", new IMAGE_BRUSH( "SequenceRecorder/icon_RemoveRecording_40x", Icon20x20 ) );
 		Set( "SequenceRecorder.Common.RemoveAllRecordings", new IMAGE_BRUSH( "SequenceRecorder/icon_RemoveRecording_40x", Icon40x40 ) );
+		Set( "SequenceRecorder.Common.RecordingActive", new IMAGE_BRUSH( "Common/SmallCheckBox_Checked", Icon14x14 ) );
+		Set( "SequenceRecorder.Common.RecordingInactive", new IMAGE_BRUSH( "Common/SmallCheckBox", Icon14x14 ) );
 	}
 
 	// Foliage Edit Mode
@@ -2569,6 +2571,7 @@ void FSlateEditorStyle::FStyle::SetupGeneralStyles()
 		Set( "ViewportMenu.SubMenuIndicator", new IMAGE_BRUSH( "Common/SubmenuArrow", Icon8x8) );
 		Set( "ViewportMenu.SToolBarComboButtonBlock.Padding", FMargin(0));
 		Set( "ViewportMenu.SToolBarButtonBlock.Padding", FMargin(0));
+		Set( "ViewportMenu.SToolBarButtonBlock.Button.Padding", FMargin(0));
 		Set( "ViewportMenu.SToolBarCheckComboButtonBlock.Padding", FMargin(0));
 		Set( "ViewportMenu.SToolBarButtonBlock.CheckBox.Padding", FMargin(4.0f) );
 		Set( "ViewportMenu.SToolBarComboButtonBlock.ComboButton.Color", FLinearColor(0.f,0.f,0.f,0.75f) );
@@ -5601,9 +5604,12 @@ void FSlateEditorStyle::FStyle::SetupPersonaStyle()
 
 		Set( "PlayWorld.ShowCurrentStatement", new IMAGE_BRUSH( "Icons/icon_findnode_40x", Icon40x40 ) );
 		Set( "PlayWorld.ShowCurrentStatement.Small", new IMAGE_BRUSH( "Icons/icon_findnode_40x", Icon20x20 ) );
-		Set( "PlayWorld.StepInto", new IMAGE_BRUSH( "Icons/icon_step_40x", Icon40x40 ) );
-		Set( "PlayWorld.StepInto.Small", new IMAGE_BRUSH( "Icons/icon_step_40x", Icon20x20 ) );
-		Set( "PlayWorld.StepOver", new IMAGE_BRUSH( "Old/Kismet2/Debugger_StepOver", Icon40x40 ) );
+		Set( "PlayWorld.StepOut", new IMAGE_BRUSH("Icons/icon_DebugStepOut_40x", Icon40x40));
+		Set( "PlayWorld.StepOut.Small", new IMAGE_BRUSH("Icons/icon_DebugStepOut_40x", Icon20x20));
+		Set( "PlayWorld.StepInto", new IMAGE_BRUSH( "Icons/icon_DebugStepIn_40x", Icon40x40 ) );
+		Set( "PlayWorld.StepInto.Small", new IMAGE_BRUSH( "Icons/icon_DebugStepIn_40x", Icon20x20 ) );
+		Set( "PlayWorld.StepOver", new IMAGE_BRUSH( "Icons/icon_DebugStepOver_40x", Icon40x40 ) );
+		Set( "PlayWorld.StepOver.Small", new IMAGE_BRUSH("Icons/icon_DebugStepOver_40x", Icon20x20));
 	}
 
 
@@ -5624,12 +5630,13 @@ void FSlateEditorStyle::FStyle::SetupPersonaStyle()
 		Set( "Kismet.DebuggerOverlay.Breakpoint.Disabled", new IMAGE_BRUSH( "Old/Kismet2/Breakpoint_Disabled", Icon32x32 ) );
 		Set( "Kismet.DebuggerOverlay.Breakpoint.EnabledAndInvalid", new IMAGE_BRUSH( "Old/Kismet2/Breakpoint_Invalid", Icon32x32 ) );
 		Set( "Kismet.DebuggerOverlay.Breakpoint.EnabledAndValid", new IMAGE_BRUSH( "Old/Kismet2/Breakpoint_Valid", Icon32x32 ) );
-		Set( "Kismet.DebuggerOverlay.Breakpoint.DisabledCollapsed", new IMAGE_BRUSH( "Old/Kismet2/Breakpoint_Disabled_Collapsed", Icon32x32 ) );
-		Set( "Kismet.DebuggerOverlay.Breakpoint.EnabledAndInvalidCollapsed", new IMAGE_BRUSH( "Old/Kismet2/Breakpoint_Invalid_Collapsed", Icon32x32 ) );
-		Set( "Kismet.DebuggerOverlay.Breakpoint.EnabledAndValidCollapsed", new IMAGE_BRUSH( "Old/Kismet2/Breakpoint_Valid_Collapsed", Icon32x32 ) );
 
 		Set( "Kismet.DebuggerOverlay.InstructionPointer", new IMAGE_BRUSH( "Old/Kismet2/IP_Normal", FVector2D(128,96)) );
 		Set( "Kismet.DebuggerOverlay.InstructionPointerBreakpoint", new IMAGE_BRUSH( "Old/Kismet2/IP_Breakpoint", FVector2D(128,96)) );
+
+		Set ("Kismet.CallStackViewer.CurrentStackFrame", new IMAGE_BRUSH( "Old/Kismet2/DebuggerArrow", Icon12x12 ));
+		Set( "Kismet.CallStackViewer.CurrentStackFrameColor", FLinearColor(0.728f, 0.364f, 0.003f) );
+		Set( "Kismet.CallStackViewer.LastStackFrameNavigatedToColor", FLinearColor( 0.4f, 0.5f, 0.7f, 1.0f ) );
 	}
 
 	// Asset context menu
@@ -5652,6 +5659,229 @@ void FSlateEditorStyle::FStyle::SetupPersonaStyle()
 		Set("BlendSpaceKey.Drop", SelectionColor_Inactive);
 		Set("BlendSpaceKey.Invalid", LogColor_Error);
 		Set("BlendSpaceKey.Preview", LogColor_Command);
+	}
+
+	// Custom menu style for recent commands list
+	{
+		Set( "PinnedCommandList.Background", new BOX_BRUSH( "Common/RoundedSelection_16x", FMargin(4.0f/16.0f), FLinearColor( 0.2f, 0.2f, 0.2f, 0.2f ) ) );
+		Set( "PinnedCommandList.Icon", new IMAGE_BRUSH( "Icons/icon_tab_toolbar_16px", Icon16x16 ) );
+		Set( "PinnedCommandList.Expand", new IMAGE_BRUSH( "Icons/toolbar_expand_16x", Icon16x16) );
+		Set( "PinnedCommandList.SubMenuIndicator", new IMAGE_BRUSH( "Common/SubmenuArrow", Icon8x8 ) );
+		Set( "PinnedCommandList.SToolBarComboButtonBlock.Padding", FMargin(4.0f));
+		Set( "PinnedCommandList.SToolBarButtonBlock.Padding", FMargin(4.0f));
+		Set( "PinnedCommandList.SToolBarCheckComboButtonBlock.Padding", FMargin(4.0f));
+		Set( "PinnedCommandList.SToolBarButtonBlock.CheckBox.Padding", FMargin(0.0f) );
+		Set( "PinnedCommandList.SToolBarComboButtonBlock.ComboButton.Color", DefaultForeground );
+
+		Set( "PinnedCommandList.Block.IndentedPadding", FMargin( 0.0f, 0.0f, 0.0f, 0.0f ) );
+		Set( "PinnedCommandList.Block.Padding", FMargin( 0.0f, 0.0f, 0.0f, 0.0f ) );
+
+		Set( "PinnedCommandList.Separator", new BOX_BRUSH( "Old/Button", 4.0f/32.0f ) );
+		Set( "PinnedCommandList.Separator.Padding", FMargin( 0.5f ) );
+
+		Set( "PinnedCommandList.Label", FTextBlockStyle(NormalText) .SetFont( DEFAULT_FONT( "Regular", 9 ) ) );
+		Set( "PinnedCommandList.EditableText", FEditableTextBoxStyle(NormalEditableTextBoxStyle) .SetFont( DEFAULT_FONT( "Regular", 9 ) ) );
+		Set( "PinnedCommandList.Keybinding", FTextBlockStyle(NormalText) .SetFont( DEFAULT_FONT( "Regular", 8 ) ) );
+
+		Set( "PinnedCommandList.Heading", FTextBlockStyle(NormalText)
+			.SetFont(DEFAULT_FONT( "Regular", 8))
+			.SetColorAndOpacity(FLinearColor(0.4f, 0.4, 0.4f, 1.0f)));
+
+		/* Set images for various SCheckBox states associated with menu check box items... */
+		const FCheckBoxStyle BasicMenuCheckBoxStyle = FCheckBoxStyle()
+			.SetUncheckedImage( IMAGE_BRUSH( "Common/SmallCheckBox", Icon14x14 ) )
+			.SetUncheckedHoveredImage( IMAGE_BRUSH( "Common/SmallCheckBox_Hovered", Icon14x14 ) )
+			.SetUncheckedPressedImage( IMAGE_BRUSH( "Common/SmallCheckBox_Hovered", Icon14x14, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetCheckedImage( IMAGE_BRUSH( "Common/SmallCheckBox_Checked", Icon14x14 ) )
+			.SetCheckedHoveredImage( IMAGE_BRUSH( "Common/SmallCheckBox_Checked_Hovered", Icon14x14 ) )
+			.SetCheckedPressedImage( IMAGE_BRUSH( "Common/SmallCheckBox_Checked_Hovered", Icon14x14, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetUndeterminedImage( IMAGE_BRUSH( "Common/CheckBox_Undetermined", Icon14x14 ) )
+			.SetUndeterminedHoveredImage( IMAGE_BRUSH( "Common/CheckBox_Undetermined_Hovered", Icon14x14 ) )
+			.SetUndeterminedPressedImage( IMAGE_BRUSH( "Common/CheckBox_Undetermined_Hovered", Icon14x14, FLinearColor( 0.5f, 0.5f, 0.5f ) ) );
+ 
+		/* ...and add the new style */
+		Set( "PinnedCommandList.CheckBox", BasicMenuCheckBoxStyle );
+						
+		/* Read-only checkbox that appears next to a menu item */
+		/* Set images for various SCheckBox states associated with read-only menu check box items... */
+		const FCheckBoxStyle BasicMenuCheckStyle = FCheckBoxStyle()
+			.SetUncheckedImage( IMAGE_BRUSH( "Icons/Empty_14x", Icon14x14 ) )
+			.SetUncheckedHoveredImage( IMAGE_BRUSH( "Icons/Empty_14x", Icon14x14 ) )
+			.SetUncheckedPressedImage( IMAGE_BRUSH( "Common/SmallCheckBox_Hovered", Icon14x14 ) )
+			.SetCheckedImage( IMAGE_BRUSH( "Common/SmallCheck", Icon14x14 ) )
+			.SetCheckedHoveredImage( IMAGE_BRUSH( "Common/SmallCheck", Icon14x14 ) )
+			.SetCheckedPressedImage( IMAGE_BRUSH( "Common/SmallCheck", Icon14x14 ) )
+			.SetUndeterminedImage( IMAGE_BRUSH( "Icons/Empty_14x", Icon14x14 ) )
+			.SetUndeterminedHoveredImage( FSlateNoResource() )
+			.SetUndeterminedPressedImage( FSlateNoResource() );
+
+		/* ...and add the new style */
+		Set( "PinnedCommandList.Check", BasicMenuCheckStyle );
+
+		/* This radio button is actually just a check box with different images */
+		/* Set images for various Menu radio button (SCheckBox) states... */
+		const FCheckBoxStyle BasicMenuRadioButtonStyle = FCheckBoxStyle()
+			.SetUncheckedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetUncheckedHoveredImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetUncheckedPressedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetCheckedImage( IMAGE_BRUSH( "Common/RadioButton_Selected_16x", Icon16x16 ) )
+			.SetCheckedHoveredImage( IMAGE_BRUSH( "Common/RadioButton_Selected_16x", Icon16x16, SelectionColor ) )
+			.SetCheckedPressedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, SelectionColor_Pressed ) )
+			.SetUndeterminedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetUndeterminedHoveredImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, SelectionColor ) )
+			.SetUndeterminedPressedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, SelectionColor_Pressed ) );
+
+		/* ...and set new style */
+		Set( "PinnedCommandList.RadioButton", BasicMenuRadioButtonStyle );
+
+		/* Create style for "Menu.ToggleButton" widget ... */
+		const FCheckBoxStyle MenuToggleButtonCheckBoxStyle = FCheckBoxStyle()
+			.SetCheckBoxType( ESlateCheckBoxType::ToggleButton )
+			.SetUncheckedImage( FSlateNoResource() )
+			.SetUncheckedPressedImage( BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor_Pressed ) )
+			.SetUncheckedHoveredImage( BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor ) )
+			.SetCheckedImage( BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor_Pressed ) )
+			.SetCheckedHoveredImage( BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor_Pressed ) )
+			.SetCheckedPressedImage( BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor ) );
+		/* ... and add new style */
+		Set( "PinnedCommandList.ToggleButton", MenuToggleButtonCheckBoxStyle );
+
+		const FButtonStyle NoBorder = FButtonStyle()
+			.SetNormal(FSlateNoResource())
+			.SetHovered(FSlateNoResource())
+			.SetPressed(FSlateNoResource())
+			.SetNormalPadding(FMargin(0,0,0,1))
+			.SetPressedPadding(FMargin(0,1,0,0));
+
+		Set( "PinnedCommandList.Button", FButtonStyle( NoBorder )
+			.SetNormal ( FSlateNoResource() )
+			.SetPressed( BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor_Pressed ) )
+			.SetHovered( BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor ) )
+			.SetNormalPadding( FMargin(0,1) )
+			.SetPressedPadding( FMargin(0,2,0,0) )
+		);
+
+		Set( "PinnedCommandList.Button.Checked", new BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor_Pressed ) );
+		Set( "PinnedCommandList.Button.Checked_Hovered", new BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor_Pressed ) );
+		Set( "PinnedCommandList.Button.Checked_Pressed", new BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor ) );
+
+		/* The style of a menu bar button when it has a sub menu open */
+		Set( "PinnedCommandList.Button.SubMenuOpen", new BORDER_BRUSH( "Common/Selection", FMargin(4.f/16.f), FLinearColor(0.10f, 0.10f, 0.10f) ) );
+	}
+
+	{
+		Set( "ViewportPinnedCommandList.Background", new FSlateNoResource() );
+		Set( "ViewportPinnedCommandList.Icon", new IMAGE_BRUSH( "Icons/icon_tab_toolbar_16px", Icon16x16 ) );
+		Set( "ViewportPinnedCommandList.Expand", new IMAGE_BRUSH( "Icons/toolbar_expand_16x", Icon16x16) );
+		Set( "ViewportPinnedCommandList.SubMenuIndicator", new IMAGE_BRUSH( "Common/SubmenuArrow", Icon8x8 ) );
+		Set( "ViewportPinnedCommandList.SToolBarComboButtonBlock.Padding", FMargin(4.0f));
+		Set( "ViewportPinnedCommandList.SToolBarButtonBlock.Padding", FMargin(4.0f));
+		Set( "ViewportPinnedCommandList.SToolBarCheckComboButtonBlock.Padding", FMargin(4.0f));
+		Set( "ViewportPinnedCommandList.SToolBarButtonBlock.CheckBox.Padding", FMargin(0.0f) );
+		Set( "ViewportPinnedCommandList.SToolBarComboButtonBlock.ComboButton.Color", DefaultForeground );
+
+		Set( "ViewportPinnedCommandList.Block.IndentedPadding", FMargin( 0.0f, 0.0f, 0.0f, 0.0f ) );
+		Set( "ViewportPinnedCommandList.Block.Padding", FMargin( 0.0f, 0.0f, 0.0f, 0.0f ) );
+
+		Set( "ViewportPinnedCommandList.Separator", new BOX_BRUSH( "Old/Button", 4.0f/32.0f ) );
+		Set( "ViewportPinnedCommandList.Separator.Padding", FMargin( 0.5f ) );
+
+		Set( "ViewportPinnedCommandList.Label", FTextBlockStyle(NormalText) .SetFont( DEFAULT_FONT( "Bold", 9 ) ).SetColorAndOpacity(FLinearColor::Black) );
+		Set( "ViewportPinnedCommandList.EditableText", FEditableTextBoxStyle(NormalEditableTextBoxStyle) .SetFont( DEFAULT_FONT( "Roboto-Bold", 9 ) ).SetForegroundColor(FLinearColor::Black) );
+		Set( "ViewportPinnedCommandList.Keybinding", FTextBlockStyle(NormalText) .SetFont( DEFAULT_FONT( "Regular", 8 ) ).SetColorAndOpacity(FLinearColor::Gray) );
+
+		Set( "ViewportPinnedCommandList.Heading", FTextBlockStyle(NormalText)
+			.SetFont(DEFAULT_FONT( "Regular", 8))
+			.SetColorAndOpacity(FLinearColor(0.4f, 0.4, 0.4f, 1.0f)));
+
+		/* Set images for various SCheckBox states associated with menu check box items... */
+		const FCheckBoxStyle BasicMenuCheckBoxStyle = FCheckBoxStyle()
+			.SetUncheckedImage( IMAGE_BRUSH( "Common/SmallCheckBox", Icon14x14, FLinearColor::Black ) )
+			.SetUncheckedHoveredImage( IMAGE_BRUSH( "Common/SmallCheckBox_Hovered", Icon14x14, FLinearColor::Black ) )
+			.SetUncheckedPressedImage( IMAGE_BRUSH( "Common/SmallCheckBox_Hovered", Icon14x14, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetCheckedImage( IMAGE_BRUSH( "Common/SmallCheckBox_Checked", Icon14x14, FLinearColor::Black ) )
+			.SetCheckedHoveredImage( IMAGE_BRUSH( "Common/SmallCheckBox_Checked_Hovered", Icon14x14, FLinearColor::Black ) )
+			.SetCheckedPressedImage( IMAGE_BRUSH( "Common/SmallCheckBox_Checked_Hovered", Icon14x14, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetUndeterminedImage( IMAGE_BRUSH( "Common/CheckBox_Undetermined", Icon14x14, FLinearColor::Black ) )
+			.SetUndeterminedHoveredImage( IMAGE_BRUSH( "Common/CheckBox_Undetermined_Hovered", Icon14x14, FLinearColor::Black ) )
+			.SetUndeterminedPressedImage( IMAGE_BRUSH( "Common/CheckBox_Undetermined_Hovered", Icon14x14, FLinearColor( 0.5f, 0.5f, 0.5f ) ) )
+			.SetPadding(FMargin(2.0f))
+			.SetForegroundColor(FLinearColor::Black);
+ 
+		/* ...and add the new style */
+		Set( "ViewportPinnedCommandList.CheckBox", BasicMenuCheckBoxStyle );
+						
+		/* Read-only checkbox that appears next to a menu item */
+		/* Set images for various SCheckBox states associated with read-only menu check box items... */
+		const FCheckBoxStyle BasicMenuCheckStyle = FCheckBoxStyle()
+			.SetUncheckedImage( IMAGE_BRUSH( "Icons/Empty_14x", Icon14x14, FLinearColor::Black ) )
+			.SetUncheckedHoveredImage( IMAGE_BRUSH( "Icons/Empty_14x", Icon14x14, FLinearColor::Black ) )
+			.SetUncheckedPressedImage( IMAGE_BRUSH( "Common/SmallCheckBox_Hovered", Icon14x14, FLinearColor::Black ) )
+			.SetCheckedImage( IMAGE_BRUSH( "Common/SmallCheck", Icon14x14, FLinearColor::Black ) )
+			.SetCheckedHoveredImage( IMAGE_BRUSH( "Common/SmallCheck", Icon14x14, FLinearColor::Black ) )
+			.SetCheckedPressedImage( IMAGE_BRUSH( "Common/SmallCheck", Icon14x14, FLinearColor::Black ) )
+			.SetUndeterminedImage( IMAGE_BRUSH( "Icons/Empty_14x", Icon14x14, FLinearColor::Black ) )
+			.SetUndeterminedHoveredImage( FSlateNoResource() )
+			.SetUndeterminedPressedImage( FSlateNoResource() )
+			.SetPadding(FMargin(2.0f))
+			.SetForegroundColor(FLinearColor::Black);
+
+		/* ...and add the new style */
+		Set( "ViewportPinnedCommandList.Check", BasicMenuCheckStyle );
+
+		/* This radio button is actually just a check box with different images */
+		/* Set images for various Menu radio button (SCheckBox) states... */
+		const FCheckBoxStyle BasicMenuRadioButtonStyle = FCheckBoxStyle()
+			.SetUncheckedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16 ) )
+			.SetUncheckedHoveredImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16 ) )
+			.SetUncheckedPressedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16 ) )
+			.SetCheckedImage( IMAGE_BRUSH( "Common/RadioButton_Selected_16x", Icon16x16 ) )
+			.SetCheckedHoveredImage( IMAGE_BRUSH( "Common/RadioButton_Selected_16x", Icon16x16, SelectionColor ) )
+			.SetCheckedPressedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, SelectionColor_Pressed ) )
+			.SetUndeterminedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16 ) )
+			.SetUndeterminedHoveredImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, SelectionColor ) )
+			.SetUndeterminedPressedImage( IMAGE_BRUSH( "Common/RadioButton_Unselected_16x", Icon16x16, SelectionColor_Pressed ) )
+			.SetPadding(FMargin(2.0f))
+			.SetForegroundColor(FLinearColor::Black);
+
+		/* ...and set new style */
+		Set( "ViewportPinnedCommandList.RadioButton", BasicMenuRadioButtonStyle );
+
+		/* Create style for "Menu.ToggleButton" widget ... */
+		const FCheckBoxStyle MenuToggleButtonCheckBoxStyle = FCheckBoxStyle()
+			.SetCheckBoxType( ESlateCheckBoxType::ToggleButton )
+			.SetUncheckedImage( FSlateNoResource() )
+			.SetUncheckedPressedImage( BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor_Pressed ) )
+			.SetUncheckedHoveredImage( BOX_BRUSH( "Common/RoundedSelection_16x", 4.0f/16.0f, SelectionColor ) )
+			.SetCheckedImage( BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor_Pressed ) )
+			.SetCheckedHoveredImage( BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor_Pressed ) )
+			.SetCheckedPressedImage( BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor ) )
+			.SetPadding(FMargin(2.0f))
+			.SetForegroundColor(FLinearColor::Black);
+		/* ... and add new style */
+		Set( "ViewportPinnedCommandList.ToggleButton", MenuToggleButtonCheckBoxStyle );
+
+		const FButtonStyle NoBorder = FButtonStyle()
+			.SetNormal(FSlateNoResource())
+			.SetHovered(FSlateNoResource())
+			.SetPressed(FSlateNoResource())
+			.SetNormalPadding(FMargin(2,2,2,3))
+			.SetPressedPadding(FMargin(2,3,2,2));
+
+		Set( "ViewportPinnedCommandList.Button", FButtonStyle( NoBorder )
+			.SetNormal(BOX_BRUSH( "Common/SmallRoundedButton", FMargin(7.f/16.f), FLinearColor(1,1,1,0.75f)))
+			.SetHovered(BOX_BRUSH( "Common/SmallRoundedButton", FMargin(7.f/16.f), FLinearColor(1,1,1, 1.0f)))
+			.SetPressed(BOX_BRUSH( "Common/SmallRoundedButton", FMargin(7.f/16.f)))
+			.SetNormalPadding( FMargin(2,3) )
+			.SetPressedPadding( FMargin(2,4,2,2) )
+		);
+
+		Set( "ViewportPinnedCommandList.Button.Checked", new BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor_Pressed ) );
+		Set( "ViewportPinnedCommandList.Button.Checked_Hovered", new BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor_Pressed ) );
+		Set( "ViewportPinnedCommandList.Button.Checked_Pressed", new BOX_BRUSH( "Common/RoundedSelection_16x",  4.0f/16.0f, SelectionColor ) );
+
+		/* The style of a menu bar button when it has a sub menu open */
+		Set( "ViewportPinnedCommandList.Button.SubMenuOpen", new BORDER_BRUSH( "Common/Selection", FMargin(4.f/16.f), FLinearColor(0.10f, 0.10f, 0.10f) ) );
 	}
 #endif // WITH_EDITOR
 }

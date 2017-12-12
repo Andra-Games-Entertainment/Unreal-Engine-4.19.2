@@ -309,8 +309,7 @@ void ULandscapeComponent::Serialize(FArchive& Ar)
 
 	if (Ar.UE4Ver() >= VER_UE4_LANDSCAPE_PLATFORMDATA_COOKING && !HasAnyFlags(RF_ClassDefaultObject))
 	{
-		bCooked = Ar.IsCooking();
-		// Save a bool indicating whether this is cooked data
+		bCooked = Ar.IsCooking() || (FPlatformProperties::RequiresCookedData() && Ar.IsSaving());
 		// This is needed when loading cooked data, to know to serialize differently
 		Ar << bCooked;
 	}
@@ -367,7 +366,7 @@ void ULandscapeComponent::GetResourceSizeEx(FResourceSizeEx& CumulativeResourceS
 {
 	Super::GetResourceSizeEx(CumulativeResourceSize);
 
-	CumulativeResourceSize.AddUnknownMemoryBytes(GrassData->GetAllocatedSize());
+	CumulativeResourceSize.AddDedicatedSystemMemoryBytes(GrassData->GetAllocatedSize());
 }
 
 #if WITH_EDITOR
@@ -717,6 +716,9 @@ ALandscapeProxy::ALandscapeProxy(const FObjectInitializer& ObjectInitializer)
 		VisibilityLayer->AddToRoot();
 	}
 #endif
+
+	static uint32 FrameOffsetForTickIntervalInc = 0;
+	FrameOffsetForTickInterval = FrameOffsetForTickIntervalInc++;
 }
 
 ALandscape::ALandscape(const FObjectInitializer& ObjectInitializer)
@@ -1819,11 +1821,14 @@ ALandscapeProxy* ULandscapeInfo::GetLandscapeProxy() const
 	// so it doesn't really matter which proxy we return here
 
 	// prefer LandscapeActor in case it is loaded
-	ALandscape* Landscape = LandscapeActor.Get();
-	if (Landscape != nullptr &&
-		Landscape->GetRootComponent()->IsRegistered())
+	if (LandscapeActor.IsValid())
 	{
-		return Landscape;
+		ALandscape* Landscape = LandscapeActor.Get();
+		if (Landscape != nullptr &&
+			Landscape->GetRootComponent()->IsRegistered())
+		{
+			return Landscape;
+		}
 	}
 
 	// prefer current level proxy 
@@ -2380,7 +2385,9 @@ void ULandscapeComponent::SerializeStateHashes(FArchive& Ar)
 {
 	if (MaterialInstances[0])
 	{
-		Ar << MaterialInstances[0]->GetMaterial()->StateId;
+		UMaterialInterface::TMicRecursionGuard RecursionGuard;
+		FGuid LocalStateId = MaterialInstances[0]->GetMaterial_Concurrent(RecursionGuard)->StateId;
+		Ar << LocalStateId;
 	}
 
 	FGuid HeightmapGuid = HeightmapTexture->Source.GetId();

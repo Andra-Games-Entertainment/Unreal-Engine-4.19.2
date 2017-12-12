@@ -210,7 +210,7 @@ void FAssetRegistryState::InitializeFromExisting(const TMap<FName, FAssetData*>&
 					FAssetPackageData* NewData = CreateOrGetAssetPackageData(Pair.Key);
 					*NewData = *Pair.Value;
 				}
-				else if (CachedAssetsByPackageName.Find(Pair.Key) || bIsScriptPackage)
+				else if (CachedAssetsByPackageName.Find(Pair.Key))
 				{
 					FAssetPackageData* NewData = CreateOrGetAssetPackageData(Pair.Key);
 					*NewData = *Pair.Value;
@@ -253,7 +253,7 @@ void FAssetRegistryState::PruneAssetData(const TSet<FName>& RequiredPackages, co
 		{
 			RemoveAssetData(AssetData);
 		}
-		else if (bFilterAssetDataWithNoTags && AssetData->TagsAndValues.Num() == 0)
+		else if (bFilterAssetDataWithNoTags && AssetData->TagsAndValues.Num() == 0 && !FPackageName::IsLocalizedPackage(AssetData->PackageName.ToString()))
 		{
 			RemoveAssetData(AssetData);
 		}
@@ -1051,17 +1051,23 @@ void FAssetRegistryState::UpdateAssetData(FAssetData* AssetData, const FAssetDat
 		for (auto TagIt = AssetData->TagsAndValues.CreateConstIterator(); TagIt; ++TagIt)
 		{
 			const FName FNameKey = TagIt.Key();
-			TArray<FAssetData*>* OldTagAssets = CachedAssetsByTag.Find(FNameKey);
 
-			OldTagAssets->Remove(AssetData);
+			if (!NewAssetData.TagsAndValues.Contains(FNameKey))
+			{
+				TArray<FAssetData*>* OldTagAssets = CachedAssetsByTag.Find(FNameKey);
+				OldTagAssets->RemoveSingleSwap(AssetData);
+			}
 		}
 
 		for (auto TagIt = NewAssetData.TagsAndValues.CreateConstIterator(); TagIt; ++TagIt)
 		{
 			const FName FNameKey = TagIt.Key();
-			TArray<FAssetData*>& NewTagAssets = CachedAssetsByTag.FindOrAdd(FNameKey);
 
-			NewTagAssets.Add(AssetData);
+			if (!AssetData->TagsAndValues.Contains(FNameKey))
+			{
+				TArray<FAssetData*>& NewTagAssets = CachedAssetsByTag.FindOrAdd(FNameKey);
+				NewTagAssets.Add(AssetData);
+			}
 		}
 	}
 

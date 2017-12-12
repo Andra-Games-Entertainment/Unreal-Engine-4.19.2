@@ -941,6 +941,9 @@ public:
 	void PostEvaluateAnimation();
 	void UninitializeAnimation();
 
+	/** Called on the CDO to pre-init cached UFunctions */
+	void PreInitializeRootNode();
+
 	// the below functions are the native overrides for each phase
 	// Native initialization override point
 	virtual void NativeInitializeAnimation();
@@ -956,6 +959,9 @@ public:
 	virtual void NativePostEvaluateAnimation();
 	// Native Uninitialize override point
 	virtual void NativeUninitializeAnimation();
+
+	// Executed when begin play is called on the owning component
+	virtual void NativeBeginPlay();
 
 	// Sets up a native transition delegate between states with PrevStateName and NextStateName, in the state machine with name MachineName.
 	// Note that a transition already has to exist for this to succeed
@@ -1027,10 +1033,17 @@ public:
 	bool HasMorphTargetCurves() const;
 
 	/** 
-	 * Retrieve animation curve list by Curve Flags, it will return list of {UID, value} 
-	 * It will clear the OutCurveList before adding
+	 * Append the type of curve to the OutCurveList specified by Curve Flags
 	 */
-	void GetAnimationCurveList(EAnimCurveType Type, TMap<FName, float>& OutCurveList) const;
+	void AppendAnimationCurveList(EAnimCurveType Type, TMap<FName, float>& InOutCurveList) const;
+
+
+	DEPRECATED(4.19, "This function is deprecated. Use AppendAnimationCurveList instead.")
+	void GetAnimationCurveList(EAnimCurveType Type, TMap<FName, float>& InOutCurveList) const;
+	/**
+	 *	Return the list of curves that are specified by type 
+	 */
+	const TMap<FName, float>& GetAnimationCurveList(EAnimCurveType Type) const;
 
 #if WITH_EDITORONLY_DATA
 	// Maximum playback position ever reached (only used when debugging in Persona)

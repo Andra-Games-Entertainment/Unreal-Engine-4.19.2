@@ -163,6 +163,8 @@ TComPtr<IMFTopology> FWmfMediaTracks::CreateTopology()
 		return NULL;
 	}
 
+	UE_LOG(LogWmfMedia, Verbose, TEXT("Tracks %p: Created playback topology %p (media source %p)"), this, Topology.Get(), MediaSource.Get());
+
 	return Topology;
 }
 
@@ -196,7 +198,7 @@ void FWmfMediaTracks::Initialize(IMFMediaSource* InMediaSource, const FString& U
 {
 	Shutdown();
 
-	UE_LOG(LogWmfMedia, Verbose, TEXT("Tracks: %p: Initializing tracks"), this);
+	UE_LOG(LogWmfMedia, Verbose, TEXT("Tracks: %p: Initializing (media source %p)"), this, InMediaSource);
 
 	FScopeLock Lock(&CriticalSection);
 
@@ -215,7 +217,7 @@ void FWmfMediaTracks::Initialize(IMFMediaSource* InMediaSource, const FString& U
 
 		if (FAILED(Result))
 		{
-			UE_LOG(LogWmfMedia, Verbose, TEXT("Tracks %p: Failed to create presentation descriptor: %s"), *WmfMedia::ResultToString(Result));
+			UE_LOG(LogWmfMedia, Verbose, TEXT("Tracks %p: Failed to create presentation descriptor: %s"), this, *WmfMedia::ResultToString(Result));
 			return;
 		}
 	}
@@ -236,6 +238,8 @@ void FWmfMediaTracks::Initialize(IMFMediaSource* InMediaSource, const FString& U
 
 	// initialization successful
 	MediaSource = InMediaSource;
+	SourceUrl = Url;
+
 	PresentationDescriptor = NewPresentationDescriptor;
 
 	// add streams (Media Foundation reports them in reverse order)
@@ -254,10 +258,22 @@ void FWmfMediaTracks::Initialize(IMFMediaSource* InMediaSource, const FString& U
 	}
 }
 
+void FWmfMediaTracks::ReInitialize()
+{
+	if (MediaSource != NULL)
+	{
+		TComPtr<IMFMediaSource> lMediaSource = WmfMedia::ResolveMediaSource(nullptr, SourceUrl, false);
+		int32 lTrack = GetSelectedTrack(EMediaTrackType::Video);
+		int32 lFormat = GetTrackFormat(EMediaTrackType::Video, lTrack);
+		Initialize(lMediaSource, SourceUrl);
+		SetTrackFormat(EMediaTrackType::Video, lTrack, lFormat);
+		SelectTrack(EMediaTrackType::Video, lTrack);
+	}
+}
 
 void FWmfMediaTracks::Shutdown()
 {
-	UE_LOG(LogWmfMedia, Verbose, TEXT("Tracks: %p: Shutting down tracks"), this);
+	UE_LOG(LogWmfMedia, Verbose, TEXT("Tracks: %p: Shutting down (media source %p)"), this, MediaSource.Get());
 
 	FScopeLock Lock(&CriticalSection);
 
@@ -279,7 +295,7 @@ void FWmfMediaTracks::Shutdown()
 	if (MediaSource != NULL)
 	{
 		MediaSource->Shutdown();
-		MediaSource = NULL;
+		MediaSource.Reset();
 	}
 
 	PresentationDescriptor.Reset();
@@ -1381,7 +1397,15 @@ bool FWmfMediaTracks::AddStreamToTracks(uint32 StreamIndex, bool IsVideoDevice, 
 					else
 					{
 						BufferDim.X = Align(OutputDim.X, 16);
-						BufferDim.Y = Align(OutputDim.Y, 16) * 3 / 2;
+
+						if ((SubType == MFVideoFormat_H264) || (SubType == MFVideoFormat_H264_ES))
+						{
+							BufferDim.Y = Align(OutputDim.Y, 16) * 3 / 2;
+						}
+						else
+						{
+							BufferDim.Y = OutputDim.Y * 3 / 2;
+						}
 					}
 
 					BufferStride = BufferDim.X;
@@ -1389,7 +1413,7 @@ bool FWmfMediaTracks::AddStreamToTracks(uint32 StreamIndex, bool IsVideoDevice, 
 				}
 				else
 				{
-					long SampleStride = ::MFGetAttributeUINT32(OutputType, MF_MT_DEFAULT_STRIDE, 0);
+					long SampleStride = ::MFGetAttributeUINT32(MediaType, MF_MT_DEFAULT_STRIDE, 0);
 
 					if (OutputSubType == MFVideoFormat_RGB32)
 					{
@@ -1397,7 +1421,7 @@ bool FWmfMediaTracks::AddStreamToTracks(uint32 StreamIndex, bool IsVideoDevice, 
 
 						if (SampleStride == 0)
 						{
-							::MFGetStrideForBitmapInfoHeader(OutputSubType.Data1, OutputDim.X, &SampleStride);
+							::MFGetStrideForBitmapInfoHeader(SubType.Data1, OutputDim.X, &SampleStride);
 						}
 
 						if (SampleStride == 0)
@@ -1747,7 +1771,6 @@ void FWmfMediaTracks::HandleMediaSamplerVideoSample(const uint8* Buffer, uint32 
 		return; // invalid track index
 	}
 
-	// create & add sample to queue
 	const FTrack& Track = VideoTracks[SelectedVideoTrack];
 	const FFormat* Format = GetVideoFormat(SelectedVideoTrack, Track.SelectedFormat);
 
@@ -1761,6 +1784,20 @@ void FWmfMediaTracks::HandleMediaSamplerVideoSample(const uint8* Buffer, uint32 
 		return; // invalid buffer size (can happen during format switch)
 	}
 
+	// WMF doesn't report durations for some formats
+	if (Duration.IsZero())
+	{
+		float FrameRate = Format->Video.FrameRate;
+
+		if (FrameRate <= 0.0f)
+		{
+			FrameRate = 30.0f;
+		}
+
+		Duration = FTimespan((int64)((float)ETimespan::TicksPerSecond / FrameRate));
+	}
+
+	// create & add sample to queue
 	const TSharedRef<FWmfMediaTextureSample, ESPMode::ThreadSafe> TextureSample = VideoSamplePool->AcquireShared();
 
 	if (TextureSample->Initialize(

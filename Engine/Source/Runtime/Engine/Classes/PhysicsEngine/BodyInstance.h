@@ -200,21 +200,53 @@ struct ENGINE_API FBodyInstance
 	/** When we are a body within a SkeletalMeshComponent, we cache the index of the bone we represent, to speed up sync'ing physics to anim. */
 	int16 InstanceBoneIndex;
 
-	/** Current scale of physics - used to know when and how physics must be rescaled to match current transform of OwnerComponent. */
-	FVector Scale3D;
-
 	/** Physics scene index for the synchronous scene. */
 	int16 SceneIndexSync;
 
 	/** Physics scene index for the asynchronous scene. */
 	int16 SceneIndexAsync;
 
+private:
+	/** Enum indicating what type of object this should be considered as when it moves */
+	UPROPERTY(EditAnywhere, Category=Custom)
+	TEnumAsByte<enum ECollisionChannel> ObjectType;
+
+public:
+	/** Current scale of physics - used to know when and how physics must be rescaled to match current transform of OwnerComponent. */
+	FVector Scale3D;
+
 	/////////
 	// COLLISION SETTINGS
 
+#if WITH_EDITORONLY_DATA
 	/** Types of objects that this physics objects will collide with. */
 	UPROPERTY() 
 	struct FCollisionResponseContainer ResponseToChannels_DEPRECATED;
+#endif // WITH_EDITORONLY_DATA
+
+private:
+
+	/** Collision Profile Name **/
+	UPROPERTY(EditAnywhere, Category=Custom)
+	FName CollisionProfileName;
+
+	/** Custom Channels for Responses*/
+	UPROPERTY(EditAnywhere, Category = Custom)
+	struct FCollisionResponse CollisionResponses;
+
+	/** Extra mask for filtering. Look at declaration for logic */
+	FMaskFilter MaskFilter;
+
+	/**
+	* Type of collision enabled.
+	* 
+	*	No Collision      : Will not create any representation in the physics engine. Cannot be used for spatial queries (raycasts, sweeps, overlaps) or simulation (rigid body, constraints). Best performance possible (especially for moving objects)
+	*	Query Only        : Only used for spatial queries (raycasts, sweeps, and overlaps). Cannot be used for simulation (rigid body, constraints). Useful for character movement and things that do not need physical simulation. Performance gains by keeping data out of simulation tree.
+	*	Physics Only      : Only used only for physics simulation (rigid body, constraints). Cannot be used for spatial queries (raycasts, sweeps, overlaps). Useful for jiggly bits on characters that do not need per bone detection. Performance gains by keeping data out of query tree
+	*	Collision Enabled : Can be used for both spatial queries (raycasts, sweeps, overlaps) and simulation (rigid body, constraints).
+	*/
+	UPROPERTY(EditAnywhere, Category=Custom)
+	TEnumAsByte<ECollisionEnabled::Type> CollisionEnabled;
 
 public:
 	// Current state of the physx body for tracking deferred addition and removal.
@@ -227,29 +259,6 @@ public:
 	/** Locks physical movement along specified axis.*/
 	UPROPERTY(EditAnywhere, Category = Physics, meta = (DisplayName = "Mode"))
 	TEnumAsByte<EDOFMode::Type> DOFMode;
-
-private:
-	/**
-	 * Type of collision enabled.
-	 * 
-	 *	No Collision      : Will not create any representation in the physics engine. Cannot be used for spatial queries (raycasts, sweeps, overlaps) or simulation (rigid body, constraints). Best performance possible (especially for moving objects)
-	 *	Query Only        : Only used for spatial queries (raycasts, sweeps, and overlaps). Cannot be used for simulation (rigid body, constraints). Useful for character movement and things that do not need physical simulation. Performance gains by keeping data out of simulation tree.
-	 *	Physics Only      : Only used only for physics simulation (rigid body, constraints). Cannot be used for spatial queries (raycasts, sweeps, overlaps). Useful for jiggly bits on characters that do not need per bone detection. Performance gains by keeping data out of query tree
-	 *	Collision Enabled : Can be used for both spatial queries (raycasts, sweeps, overlaps) and simulation (rigid body, constraints).
-	 */
-	UPROPERTY(EditAnywhere, Category=Custom)
-	TEnumAsByte<ECollisionEnabled::Type> CollisionEnabled;
-
-	/** Collision Profile Name **/
-	UPROPERTY(EditAnywhere, Category=Custom)
-	FName CollisionProfileName;
-
-	/** Custom Channels for Responses*/
-	UPROPERTY(EditAnywhere, Category = Custom)
-	struct FCollisionResponse CollisionResponses;
-
-	/** Extra mask for filtering. Look at declaration for logic */
-	FMaskFilter MaskFilter;
 
 public:
 
@@ -357,14 +366,13 @@ protected:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bOverrideMaxDepenetrationVelocity", ClampMin = "0.0", UIMin = "0.0"))
 	float MaxDepenetrationVelocity;
 
-	/** The body setup holding the default body instance and its collision profile. */
-	TWeakObjectPtr<UBodySetup> ExternalCollisionProfileBodySetup;
-
-	
 	/**Mass of the body in KG. By default we compute this based on physical material and mass scale.
 	*@see bOverrideMass to set this directly */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Physics, meta = (editcondition = "bOverrideMass", ClampMin = "0.001", UIMin = "0.001", DisplayName = "MassInKg"))
 	float MassInKgOverride;
+
+	/** The body setup holding the default body instance and its collision profile. */
+	TWeakObjectPtr<UBodySetup> ExternalCollisionProfileBodySetup;
 
 public:
 
@@ -397,11 +405,6 @@ public:
 	/** Per-instance scaling of inertia (bigger number means  it'll be harder to rotate) */
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category = Physics)
 	FVector InertiaTensorScale;
-
-private:
-	/** Enum indicating what type of object this should be considered as when it moves */
-	UPROPERTY(EditAnywhere, Category=Custom)
-	TEnumAsByte<enum ECollisionChannel> ObjectType;
 
 public:
 	/** Use the collision profile found in the given BodySetup's default BodyInstance */
@@ -820,6 +823,9 @@ public:
 	/** Enables/disables whether this body is affected by gravity. */
 	void SetEnableGravity(bool bGravityEnabled);
 
+	/** Enable/disable Continuous Collidion Detection feature */
+	void SetUseCCD(bool bInUseCCD);
+
 	/** Custom projection for physics (callback to update component transform based on physics data) */
 	FCalculateCustomProjection OnCalculateCustomProjection;
 
@@ -851,7 +857,7 @@ public:
 	DEPRECATED(4.18, "Use GetUnrealWorldAngularVelocityInRadians instead - be sure to convert the return value to degrees if required.")
 	inline FVector GetUnrealWorldAngularVelocity() const
 	{
-		return FMath::DegreesToRadians(GetUnrealWorldAngularVelocityInRadians());
+		return FMath::RadiansToDegrees(GetUnrealWorldAngularVelocityInRadians());
 	}
 
 	/** Get current angular velocity in world space from physics body. */

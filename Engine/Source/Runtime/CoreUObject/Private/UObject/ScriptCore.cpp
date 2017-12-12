@@ -175,6 +175,25 @@ void FBlueprintCoreDelegates::SetScriptMaximumLoopIterations( const int32 Maximu
 	}
 }
 
+void PrintScriptCallStackImpl()
+{
+#if DO_BLUEPRINT_GUARD
+	FBlueprintExceptionTracker& BlueprintExceptionTracker = FBlueprintExceptionTracker::Get();
+	if( BlueprintExceptionTracker.ScriptStack.Num() > 0 )
+	{
+		FString ScriptStack = TEXT( "\n\nScript Stack:\n" );
+		for (int32 FrameIdx = BlueprintExceptionTracker.ScriptStack.Num() - 1; FrameIdx >= 0; --FrameIdx)
+		{
+			ScriptStack += BlueprintExceptionTracker.ScriptStack[FrameIdx]->GetStackDescription() + TEXT( "\n" );
+		}
+
+		UE_LOG( LogOutputDevice, Warning, TEXT( "%s" ), *ScriptStack );
+	}
+#endif
+}
+
+extern CORE_API void (*GPrintScriptCallStackFn)();
+
 //////////////////////////////////////////////////////////////////////////
 // FEditorScriptExecutionGuard
 FEditorScriptExecutionGuard::FEditorScriptExecutionGuard()
@@ -185,6 +204,8 @@ FEditorScriptExecutionGuard::FEditorScriptExecutionGuard()
 	if( GIsEditor && !FApp::IsGame() )
 	{
 		GInitRunaway();
+		
+		GPrintScriptCallStackFn = &PrintScriptCallStackImpl;
 	}
 }
 
@@ -343,7 +364,7 @@ FString FFrame::GetScriptCallstack()
 	{
 		for (int32 i = BlueprintExceptionTracker.ScriptStack.Num() - 1; i >= 0; --i)
 		{
-			ScriptStack += TEXT("\t") + BlueprintExceptionTracker.ScriptStack[i].GetStackDescription() + TEXT("\n");
+			ScriptStack += TEXT("\t") + BlueprintExceptionTracker.ScriptStack[i]->GetStackDescription() + TEXT("\n");
 		}
 	}
 	else
@@ -355,6 +376,11 @@ FString FFrame::GetScriptCallstack()
 #endif
 
 	return ScriptStack;
+}
+
+FString FFrame::GetStackDescription() const
+{
+	return Node->GetOuter()->GetName() + TEXT(".") + Node->GetName();
 }
 
 //
@@ -670,12 +696,12 @@ IMPLEMENT_VM_FUNCTION(EX_CallMath, execCallMathFunction);
 void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 {
 #if PER_FUNCTION_SCRIPT_STATS
-	const bool bShouldTrackFunction = FThreadStats::IsCollectingData();
+	const bool bShouldTrackFunction = Stats::IsThreadCollectingData();
 	FScopeCycleCounterUObject FunctionScope(bShouldTrackFunction ? Function : nullptr);
 #endif // PER_FUNCTION_SCRIPT_STATS
 
-#if STATS
-	const bool bShouldTrackObject = FThreadStats::IsCollectingData();
+#if STATS || ENABLE_STATNAMEDEVENTS
+	const bool bShouldTrackObject = Stats::IsThreadCollectingData();
 	FScopeCycleCounterUObject ContextScope(bShouldTrackObject ? this : nullptr);
 #endif
 
@@ -899,12 +925,12 @@ DEFINE_FUNCTION(UObject::ProcessInternal)
 	UFunction* Function = (UFunction*)Stack.Node;
 
 #if PER_FUNCTION_SCRIPT_STATS
-	const bool bShouldTrackFunction = FThreadStats::IsCollectingData();
+	const bool bShouldTrackFunction = Stats::IsThreadCollectingData();
 	FScopeCycleCounterUObject FunctionScope(bShouldTrackFunction ? Function : nullptr);
 #endif // PER_FUNCTION_SCRIPT_STATS
 
-#if STATS
-	const bool bShouldTrackObject = FThreadStats::IsCollectingData();
+#if STATS || ENABLE_STATNAMEDEVENTS
+	const bool bShouldTrackObject = Stats::IsThreadCollectingData();
 	FScopeCycleCounterUObject ContextScope(bShouldTrackObject ? P_THIS : nullptr);
 #endif
 
@@ -1201,12 +1227,12 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms )
 #endif // TOTAL_OVERHEAD_SCRIPT_STATS
 
 #if PER_FUNCTION_SCRIPT_STATS
-	const bool bShouldTrackFunction = FThreadStats::IsCollectingData();
+	const bool bShouldTrackFunction = Stats::IsThreadCollectingData();
 	FScopeCycleCounterUObject FunctionScope(bShouldTrackFunction ? Function : nullptr);
 #endif // PER_FUNCTION_SCRIPT_STATS
 
-#if STATS
-	const bool bShouldTrackObject = FThreadStats::IsCollectingData();
+#if STATS || ENABLE_STATNAMEDEVENTS
+	const bool bShouldTrackObject = Stats::IsThreadCollectingData();
 	FScopeCycleCounterUObject ContextScope(bShouldTrackObject ? this : nullptr);
 #endif
 

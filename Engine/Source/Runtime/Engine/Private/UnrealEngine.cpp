@@ -204,6 +204,7 @@
 #include "ProfilingDebugging/LoadTimeTracker.h"
 #include "ObjectKey.h"
 #include "AssetRegistryModule.h"
+#include "CsvProfiler.h"
 
 #if !UE_BUILD_SHIPPING
 	#include "IPluginManager.h"
@@ -1283,7 +1284,7 @@ void UEngine::Init(IEngineLoop* InEngineLoop)
 	FNetworkVersion::bHasCachedNetworkChecksum = false;
 	FNetworkVersion::ProjectVersion = ProjectSettings.ProjectVersion;
 
-#if !(UE_BUILD_SHIPPING)
+#if !(UE_BUILD_SHIPPING) || ENABLE_PGO_PROFILE
 	// Optionally Exec an exec file
 	FString Temp;
 	if( FParse::Value(FCommandLine::Get(), TEXT("EXEC="), Temp) )
@@ -1326,7 +1327,7 @@ void UEngine::Init(IEngineLoop* InEngineLoop)
 	{
 		new(GEngine->DeferredCommands) FString(TEXT("r.vsync 0"));
 	}
-#endif // !(UE_BUILD_SHIPPING)
+#endif // !(UE_BUILD_SHIPPING) || ENABLE_PGO_PROFILE
 
 	if (GetDerivedDataCache())
 	{
@@ -1418,12 +1419,18 @@ void UEngine::Init(IEngineLoop* InEngineLoop)
 	EngineStats.Add(FEngineStatFuncs(TEXT("STAT_UnitTime"), TEXT("STATCAT_Engine"), FText::GetEmpty(), NULL, &UEngine::ToggleStatUnitTime));
 	EngineStats.Add(FEngineStatFuncs(TEXT("STAT_Raw"), TEXT("STATCAT_Engine"), FText::GetEmpty(), NULL, &UEngine::ToggleStatRaw));
 #endif
-
+	
 	// Let any listeners know about the new stats
 	for (int32 StatIdx = 0; StatIdx < EngineStats.Num(); StatIdx++)
 	{
 		const FEngineStatFuncs& EngineStat = EngineStats[StatIdx];
 		NewStatDelegate.Broadcast(EngineStat.CommandName, EngineStat.CategoryName, EngineStat.DescriptionString);
+	}
+
+	// Command line option for enabling named events
+	if (FParse::Param(FCommandLine::Get(), TEXT("statnamedevents")))
+	{
+		GCycleStatsShouldEmitNamedEvents = 1;
 	}
 
 	// Record the analytics for any attached HMD devices
@@ -1744,12 +1751,14 @@ void UEngine::UpdateTimeAndHandleMaxTickRate()
 		}
 
 		SET_FLOAT_STAT(STAT_GameTickWantedWaitTime,WaitTime * 1000.f);
-		double AdditionalWaitTimeInMs = (ActualWaitTime - static_cast<double>(WaitTime)) * 1000.0;
+		double AdditionalWaitTime = ActualWaitTime - static_cast<double>(WaitTime);
+		double AdditionalWaitTimeInMs = AdditionalWaitTime * 1000.0;
 		SET_FLOAT_STAT(STAT_GameTickAdditionalWaitTime,FMath::Max<float>(static_cast<float>(AdditionalWaitTimeInMs),0.f));
 
 		// Update logical delta time based on logical current time
 		FApp::SetDeltaTime(FApp::GetCurrentTime() - LastRealTime);
 		FApp::SetIdleTime(ActualWaitTime);
+		FApp::SetIdleTimeOvershoot(FMath::Max(0.0, AdditionalWaitTime)); // don't report a negative value.
 
 		// Negative delta time means something is wrong with the system. Error out so user can address issue.
 		if( FApp::GetDeltaTime() < 0 )
@@ -1834,6 +1843,15 @@ void UEngine::ParseCommandline()
 	{
 		bDisableAILogging = false;
 	}
+
+#if !UE_BUILD_SHIPPING
+	uint64 MaxAllocVal = 0;
+
+	if (FParse::Value(FCommandLine::Get(), TEXT("MaxAlloc="), MaxAllocVal))
+	{
+		FMalloc::MaxSingleAlloc = MaxAllocVal;
+	}
+#endif
 }
 
 
@@ -2563,9 +2581,9 @@ bool UEngine::InitializeHMDDevice()
 					}
 
 					if (!bMatchesExplicitDevice)
-					{
-						continue;
-					}
+				{
+					continue;
+				}
 				}
 
 				if(HMDModule->IsHMDConnected())
@@ -2858,7 +2876,7 @@ struct FSortedParticleSet
 		, ModuleSize(0)
 		, ComponentSize(0)
 		, ComponentCount(0)
-		, ComponentResourceSize(EResourceSizeMode::Inclusive)
+		, ComponentResourceSize(EResourceSizeMode::EstimatedTotal)
 		, ComponentTrueResourceSize(EResourceSizeMode::Exclusive)
 	{
 	}
@@ -4278,11 +4296,11 @@ bool UEngine::HandleListTexturesCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 			SortedTexture.MaxAllowedSizeX, SortedTexture.MaxAllowedSizeY, (SortedTexture.MaxAllowedSize + 512) / 1024, 
 			*AuthoredBiasString,
 			SortedTexture.CurSizeX, SortedTexture.CurSizeY, (SortedTexture.CurrentSize + 512) / 1024,
-			GetPixelFormatString(SortedTexture.Format),
-			bValidTextureGroup ? *TextureGroupNames[SortedTexture.LODGroup] : TEXT("INVALID"),
-			*SortedTexture.Name,
-			SortedTexture.bIsStreaming ? TEXT("YES") : TEXT("NO"),
-			SortedTexture.UsageCount);
+				GetPixelFormatString(SortedTexture.Format),
+				bValidTextureGroup ? *TextureGroupNames[SortedTexture.LODGroup] : TEXT("INVALID"),
+				*SortedTexture.Name,
+				SortedTexture.bIsStreaming ? TEXT("YES") : TEXT("NO"),
+				SortedTexture.UsageCount);
 
 		if (bValidTextureGroup)
 		{
@@ -4448,7 +4466,7 @@ bool UEngine::HandleListParticleSystemsCommand( const TCHAR* Cmd, FOutputDevice&
 		FArchiveCountMem Count( Tree );
 		int32 RootSize = Count.GetMax();
 
-		SortedSets.Add(FSortedParticleSet(Description, RootSize, RootSize, 0, 0, 0, FResourceSizeEx(EResourceSizeMode::Inclusive), FResourceSizeEx(EResourceSizeMode::Exclusive)));
+		SortedSets.Add(FSortedParticleSet(Description, RootSize, RootSize, 0, 0, 0, FResourceSizeEx(EResourceSizeMode::EstimatedTotal), FResourceSizeEx(EResourceSizeMode::Exclusive)));
 		SortMap.Add(Tree,SortedSets.Num() - 1);
 	}
 
@@ -4478,7 +4496,7 @@ bool UEngine::HandleListParticleSystemsCommand( const TCHAR* Cmd, FOutputDevice&
 			Set.ComponentSize += ComponentCount.GetMax();
 
 			// Save this for adding to the total
-			FResourceSizeEx CompResSize = FResourceSizeEx(EResourceSizeMode::Inclusive);
+			FResourceSizeEx CompResSize = FResourceSizeEx(EResourceSizeMode::EstimatedTotal);
 			Comp->GetResourceSizeEx(CompResSize);
 
 			Set.ComponentResourceSize += CompResSize;
@@ -4740,8 +4758,8 @@ bool UEngine::HandleParticleMeshUsageCommand( const TCHAR* Cmd, FOutputDevice& A
 	{
 		FORCEINLINE bool operator()( UStaticMesh& A, UStaticMesh& B ) const
 		{
-			const SIZE_T ResourceSizeA = A.GetResourceSizeBytes(EResourceSizeMode::Inclusive);
-			const SIZE_T ResourceSizeB = B.GetResourceSizeBytes(EResourceSizeMode::Inclusive);
+			const SIZE_T ResourceSizeA = A.GetResourceSizeBytes(EResourceSizeMode::EstimatedTotal);
+			const SIZE_T ResourceSizeB = B.GetResourceSizeBytes(EResourceSizeMode::EstimatedTotal);
 			return ResourceSizeB < ResourceSizeA;
 		}
 	};
@@ -4754,7 +4772,7 @@ bool UEngine::HandleParticleMeshUsageCommand( const TCHAR* Cmd, FOutputDevice& A
 	for( int32 StaticMeshIndex=0; StaticMeshIndex<UniqueReferencedMeshes.Num(); StaticMeshIndex++ )
 	{
 		UStaticMesh* StaticMesh	= UniqueReferencedMeshes[StaticMeshIndex];
-		const SIZE_T StaticMeshResourceSize = StaticMesh->GetResourceSizeBytes(EResourceSizeMode::Inclusive);
+		const SIZE_T StaticMeshResourceSize = StaticMesh->GetResourceSizeBytes(EResourceSizeMode::EstimatedTotal);
 		TotalSize += StaticMeshResourceSize;
 	}
 
@@ -4768,7 +4786,7 @@ bool UEngine::HandleParticleMeshUsageCommand( const TCHAR* Cmd, FOutputDevice& A
 		TArray<UParticleSystem*> ParticleSystems;
 		StaticMeshToParticleSystemMap.MultiFind( StaticMesh, ParticleSystems );
 
-		const SIZE_T StaticMeshResourceSize = StaticMesh->GetResourceSizeBytes(EResourceSizeMode::Inclusive);
+		const SIZE_T StaticMeshResourceSize = StaticMesh->GetResourceSizeBytes(EResourceSizeMode::EstimatedTotal);
 
 		// Log meshes including resource size and referencing particle systems.
 		Ar.Logf(TEXT("%5i KByte  %s"), StaticMeshResourceSize / 1024, *StaticMesh->GetFullName());
@@ -7305,7 +7323,11 @@ static TAutoConsoleVariable<float> CVarMaxFPS(
 // CauseHitches cvar
 static TAutoConsoleVariable<int32> CVarCauseHitches(
 	TEXT("CauseHitches"),0,
-	TEXT("Causes a 200ms hitch every second."));
+	TEXT("Causes a 200ms hitch every second. Size of the hitch is controlled by CauseHitchesHitchMS"));
+
+static TAutoConsoleVariable<int32> CVarCauseHitchesMS(
+	TEXT("CauseHitchesHitchMS"), 200,
+	TEXT("Controls the size of the hitch caused by CauseHitches in ms."));
 
 static TAutoConsoleVariable<int32> CVarUnsteadyFPS(
 	TEXT("t.UnsteadyFPS"),0,
@@ -7376,11 +7398,12 @@ float UEngine::GetMaxTickRate(float DeltaTime, bool bAllowFrameRateSmoothing) co
 	{
 		static float RunningHitchTimer = 0.f;
 		RunningHitchTimer += DeltaTime;
-		if (RunningHitchTimer > 1.f)
+		float SleepTime = float(CVarCauseHitchesMS.GetValueOnGameThread()) / 1000.0f;
+		if (RunningHitchTimer > 1.f + SleepTime)
 		{
 			// hitch!
 			UE_LOG(LogEngine, Display, TEXT("Hitching by request!"));
-			FPlatformProcess::Sleep(0.2f);
+			FPlatformProcess::Sleep(SleepTime);
 			RunningHitchTimer = 0.f;
 		}
 	}
@@ -8663,6 +8686,19 @@ void DrawStatsHUD( UWorld* World, FViewport* Viewport, FCanvas* Canvas, UCanvas*
 		}
 #endif // STATS
 
+#if CSV_PROFILER
+		if ( FCsvProfiler::Get()->IsCapturing() )
+		{
+			SmallTextItem.SetColor(FLinearColor(0.0f, 1.0f, 0.0f, 1.0f));
+			FString ProfilerScreenText = FString::Printf(TEXT("CsvProfiler frame: %d"), FCsvProfiler::Get()->GetCaptureFrameNumber() );
+			SmallTextItem.Text = FText::FromString(ProfilerScreenText);
+
+			MessageY += 250.0f;
+			Canvas->DrawItem(SmallTextItem, FVector2D(MessageX, MessageY));
+			MessageY += FontSizeY;
+		}
+#endif
+
 		// Only output disable message if there actually were any
 		if (MessageY != MessageStartY)
 		{
@@ -9392,41 +9428,152 @@ UNetDriver* UEngine::FindNamedNetDriver(const UPendingNetGame* InPendingNetGame,
 	return FindNamedNetDriver_Local(GetWorldContextFromPendingNetGameChecked(InPendingNetGame).ActiveNetDrivers, NetDriverName);
 }
 
-UNetDriver* CreateNetDriver_Local(UEngine *Engine, FWorldContext &Context, FName NetDriverDefinition)
+UNetDriver* CreateNetDriver_Local(UEngine* Engine, FWorldContext& Context, FName NetDriverDefinition)
 {
-	UNetDriver* NetDriver = nullptr;
-	for (int32 Index = 0; Index < Engine->NetDriverDefinitions.Num(); Index++)
-	{
-		FNetDriverDefinition& NetDriverDef = Engine->NetDriverDefinitions[Index];
-		if (NetDriverDef.DefName == NetDriverDefinition)
+	UNetDriver* ReturnVal = nullptr;
+	FNetDriverDefinition* Definition = nullptr;
+	auto FindNetDriverDefPred =
+		[NetDriverDefinition](const FNetDriverDefinition& CurDef)
 		{
-			// find the class to load
-			UClass* NetDriverClass = StaticLoadClass(UNetDriver::StaticClass(), NULL, *NetDriverDef.DriverClassName.ToString(), NULL, LOAD_Quiet, NULL);
+			return CurDef.DefName == NetDriverDefinition;
+		};
 
-			// if it fails, then fall back to standard fallback
-			if (NetDriverClass == nullptr || !NetDriverClass->GetDefaultObject<UNetDriver>()->IsAvailable())
+#if !UE_BUILD_SHIPPING
+	/**
+	 * Commandline override for the net driver.
+	 *
+	 * Format: (NOTE: Use quotes whenever the ',' character is used)
+	 *	Override the main/game net driver (most common usage):
+	 *		-NetDriverOverrides=DriverClassName
+	 *
+	 *	Override a specific/named net driver:
+	 *		-NetDriverOverrides="DefName,DriverClassName"
+	 *
+	 *	Override a specific driver, including fallback driver:
+	 *		-NetDriverOverrides="DefName,DriverClassName,DriverClassNameFallback"
+	 *
+	 *	Override multiple net drivers:
+	 *		-NetDriverOverrides="DriverClassName;DefName2,DriverClassName2"
+	 *
+	 *
+	 * Example:
+	 *	Use HTML5 for the main game net driver:
+	 *		-NetDriverOverrides=/Script/HTML5Networking.WebSocketNetDriver
+	 *
+	 *	Use HTML5 for the main game net driver, and the party beacon net driver
+	 *		-NetDriverOverrides="/Script/HTML5Networking.WebSocketNetDriver;BeaconNetDriver,/Script/HTML5Networking.WebSocketNetDriver"
+	 */
+
+	static TArray<FNetDriverDefinition> NetDriverOverrides = TArray<FNetDriverDefinition>();
+	FString OverrideCmdLine;
+
+	if (NetDriverOverrides.Num() == 0 && FParse::Value(FCommandLine::Get(), TEXT("NetDriverOverrides="), OverrideCmdLine))
+	{
+		TArray<FString> OverrideEntries;
+		OverrideCmdLine.ParseIntoArray(OverrideEntries, TEXT(";"), false);
+
+		UE_LOG(LogNet, Log, TEXT("NetDriverOverrides:"));
+
+		for (FString& CurOverrideEntry : OverrideEntries)
+		{
+			TArray<FString> CurEntryParms;
+			CurOverrideEntry.ParseIntoArray(CurEntryParms, TEXT(","), false);
+
+			if (CurEntryParms.Num() == 0)
 			{
-				NetDriverClass = StaticLoadClass(UNetDriver::StaticClass(), NULL, *NetDriverDef.DriverClassNameFallback.ToString(), NULL, LOAD_None, NULL);
+				continue;
 			}
 
-			// Bail out if the net driver isn't available. The name may be incorrect or the class might not be built as part of the game configuration.
-			if (NetDriverClass == nullptr)
+
+			FString TargetDefName = (CurEntryParms.Num() > 1 ? CurEntryParms[0] : FName(NAME_GameNetDriver).ToString());
+			FString OverrideClass = (CurEntryParms.Num() > 1 ? CurEntryParms[1] : CurEntryParms[0]);
+			FString OverrideFallback;
+			auto FindTargetDefPred =
+				[TargetDefName](const FNetDriverDefinition& CurDef)
+				{
+					return CurDef.DefName == *TargetDefName;
+				};
+
+			if (CurEntryParms.Num() > 2)
 			{
-				break;
+				OverrideFallback = CurEntryParms[2];
+			}
+			else if (FNetDriverDefinition* FallbackDef = Engine->NetDriverDefinitions.FindByPredicate(FindTargetDefPred))
+			{
+				OverrideFallback = FallbackDef->DriverClassNameFallback.ToString();
+			}
+			else
+			{
+				OverrideFallback = TEXT("/Script/OnlineSubsystemUtils.IpNetDriver");
 			}
 
-			// Try to create network driver.
-			NetDriver = NewObject<UNetDriver>(GetTransientPackage(), NetDriverClass);
-			check(NetDriver);
-			NetDriver->SetNetDriverName(NetDriver->GetFName());
+			if (TargetDefName.Len() == 0 || OverrideClass.Len() == 0 || OverrideFallback.Len() == 0)
+			{
+				continue;
+			}
 
-			new (Context.ActiveNetDrivers) FNamedNetDriver(NetDriver, &NetDriverDef);
-			return NetDriver;
+
+			if (!NetDriverOverrides.ContainsByPredicate(FindTargetDefPred))
+			{
+				FNetDriverDefinition NewDef;
+
+				NewDef.DefName = *TargetDefName;
+				NewDef.DriverClassName = FName(*OverrideClass);
+				NewDef.DriverClassNameFallback = FName(*OverrideFallback);
+
+				NetDriverOverrides.Add(NewDef);
+
+				UE_LOG(LogNet, Log, TEXT("- DefName: %s, DriverClassName: %s, DriverClassNameFallback: %s"), *TargetDefName,
+						*OverrideClass, *OverrideFallback);
+			}
 		}
 	}
+
+
+	Definition = NetDriverOverrides.FindByPredicate(FindNetDriverDefPred);
+
+	if (Definition != nullptr)
+	{
+		UE_LOG(LogNet, Log, TEXT("Overriding NetDriver '%s' with class: %s"), *NetDriverDefinition.ToString(),
+				*Definition->DriverClassName.ToString());
+	}
+	else
+#endif
+	{
+		Definition = Engine->NetDriverDefinitions.FindByPredicate(FindNetDriverDefPred);
+	}
+
+	if (Definition != nullptr)
+	{
+		UClass* NetDriverClass = StaticLoadClass(UNetDriver::StaticClass(), nullptr, *Definition->DriverClassName.ToString(), nullptr,
+													LOAD_Quiet);
+
+		// if it fails, then fall back to standard fallback
+		if (NetDriverClass == nullptr || !NetDriverClass->GetDefaultObject<UNetDriver>()->IsAvailable())
+		{
+			NetDriverClass = StaticLoadClass(UNetDriver::StaticClass(), nullptr, *Definition->DriverClassNameFallback.ToString(),
+												nullptr, LOAD_None);
+		}
+
+		if (NetDriverClass != nullptr)
+		{
+			ReturnVal = NewObject<UNetDriver>(GetTransientPackage(), NetDriverClass);
+
+			check(ReturnVal != nullptr);
+
+			ReturnVal->SetNetDriverName(ReturnVal->GetFName());
+
+			new(Context.ActiveNetDrivers) FNamedNetDriver(ReturnVal, Definition);
+		}
+	}
+
 	
-	UE_LOG(LogNet, Log, TEXT("CreateNamedNetDriver failed to create driver from definition %s"), *NetDriverDefinition.ToString());
-	return nullptr;
+	if (ReturnVal == nullptr)
+	{
+		UE_LOG(LogNet, Log, TEXT("CreateNamedNetDriver failed to create driver from definition %s"), *NetDriverDefinition.ToString());
+	}
+
+	return ReturnVal;
 }
 
 UNetDriver* UEngine::CreateNetDriver(UWorld *InWorld, FName NetDriverDefinition)
@@ -9788,7 +9935,7 @@ bool UEngine::HandleStreamMapCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorl
 			for (const ULevel* const Level : InWorld->GetLevels())
 			{
 				if (Level->URL.Map == TestURL.Map)
-				{
+		{
 					Ar.Logf(TEXT("ERROR: The map '%s' is already loaded."), *TestURL.Map);
 					return true;
 				}
@@ -10357,9 +10504,6 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 		{
 			if (!bCalled)
 			{
-				PRAGMA_DISABLE_DEPRECATION_WARNINGS
-				FCoreUObjectDelegates::PostLoadMap.Broadcast();
-				PRAGMA_ENABLE_DEPRECATION_WARNINGS
 				FCoreUObjectDelegates::PostLoadMapWithWorld.Broadcast(nullptr);
 			}
 		}
@@ -10554,32 +10698,32 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 			{
 				if (!WorldContextFromList.PIEPrefix.IsEmpty() && URL.Map.Contains(WorldContextFromList.PIEPrefix))
 				{
-					FString SourceWorldPackage = UWorld::RemovePIEPrefix(URL.Map);
+			FString SourceWorldPackage = UWorld::RemovePIEPrefix(URL.Map);
 
-					// We are loading a new world for this context, so clear out PIE fixups that might be lingering.
-					// (note we dont want to do this in DuplicateWorldForPIE, since that is also called on streaming worlds.
-					GPlayInEditorID = WorldContext.PIEInstance;
-					FLazyObjectPtr::ResetPIEFixups();
+			// We are loading a new world for this context, so clear out PIE fixups that might be lingering.
+			// (note we dont want to do this in DuplicateWorldForPIE, since that is also called on streaming worlds.
+			GPlayInEditorID = WorldContext.PIEInstance;
+			FLazyObjectPtr::ResetPIEFixups();
 
 					NewWorld = UWorld::DuplicateWorldForPIE(SourceWorldPackage, nullptr);
 					if (NewWorld == nullptr)
-					{
-						NewWorld = CreatePIEWorldByLoadingFromPackage(WorldContext, SourceWorldPackage, WorldPackage);
-						if (NewWorld == nullptr)
-						{
-							Error = FString::Printf(TEXT("Failed to load package '%s' while in PIE"), *SourceWorldPackage);
-							return false;
-						}
-					}
-					else
-					{
-						WorldPackage = CastChecked<UPackage>(NewWorld->GetOuter());
-					}
-
-					NewWorld->StreamingLevelsPrefix = UWorld::BuildPIEPackagePrefix(WorldContext.PIEInstance);
-					GIsPlayInEditorWorld = true;
+			{
+				NewWorld = CreatePIEWorldByLoadingFromPackage(WorldContext, SourceWorldPackage, WorldPackage);
+				if (NewWorld == nullptr)
+				{
+					Error = FString::Printf(TEXT("Failed to load package '%s' while in PIE"), *SourceWorldPackage);
+					return false;
 				}
 			}
+			else
+			{
+				WorldPackage = CastChecked<UPackage>(NewWorld->GetOuter());
+			}
+
+			NewWorld->StreamingLevelsPrefix = UWorld::BuildPIEPackagePrefix(WorldContext.PIEInstance);
+			GIsPlayInEditorWorld = true;
+		}
+	}
 		}
 	}
 
@@ -10627,7 +10771,16 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 				WorldPackage = NewWorld->GetOutermost();
 			}
 		}
-		check(NewWorld);
+		
+		// This can still be null if the package name is ambiguous, for example if there exists a umap and uasset with the same
+		// name.
+		if (NewWorld == nullptr)
+		{
+			// it is now the responsibility of the caller to deal with a NULL return value and alert the user if necessary
+			Error = FString::Printf(TEXT("Failed to load package '%s'"), *URL.Map);
+			return false;
+		}
+
 
 		NewWorld->PersistentLevel->HandleLegacyMapBuildData();
 
@@ -10813,9 +10966,6 @@ bool UEngine::LoadMap( FWorldContext& WorldContext, FURL URL, class UPendingNetG
 
 	// send a callback message
 	PostLoadMapCaller.bCalled = true;
-	PRAGMA_DISABLE_DEPRECATION_WARNINGS
-	FCoreUObjectDelegates::PostLoadMap.Broadcast();
-	PRAGMA_ENABLE_DEPRECATION_WARNINGS
 	FCoreUObjectDelegates::PostLoadMapWithWorld.Broadcast(WorldContext.World());
 	
 	WorldContext.World()->bWorldWasLoadedThisTick = true;
@@ -12145,7 +12295,7 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 	// Serialize out the modified properties on the old default object
 	TIndirectArray<FInstancedObjectRecord> SavedInstances;
 	TMap<FString, int32> OldInstanceMap;
- 	// Save the modified properties of the old CDO
+	// Save the modified properties of the old CDO
 	FCPFUOWriter Writer(OldObject, NewObject, Params);
 
 	{
@@ -12264,15 +12414,15 @@ void UEngine::CopyPropertiesForUnrelatedObjects(UObject* OldObject, UObject* New
 	if(Params.bClearReferences)
 	{
 		UPackage* NewPackage = NewObject->GetOutermost();
-		// Replace references to old classes and instances on this object with the corresponding new ones
-		FArchiveReplaceOrClearExternalReferences<UObject> ReplaceInCDOAr(NewObject, ReferenceReplacementMap, NewPackage);
+	// Replace references to old classes and instances on this object with the corresponding new ones
+	FArchiveReplaceOrClearExternalReferences<UObject> ReplaceInCDOAr(NewObject, ReferenceReplacementMap, NewPackage);
 
-		// Replace references inside each individual component. This is always required because if something is in ReferenceReplacementMap, the above replace code will skip fixing child properties
-		for (int32 ComponentIndex = 0; ComponentIndex < ComponentsOnNewObject.Num(); ++ComponentIndex)
-		{
-			UObject* NewComponent = ComponentsOnNewObject[ComponentIndex];
-			FArchiveReplaceOrClearExternalReferences<UObject> ReplaceInComponentAr(NewComponent, ReferenceReplacementMap, NewPackage);
-		}
+	// Replace references inside each individual component. This is always required because if something is in ReferenceReplacementMap, the above replace code will skip fixing child properties
+	for (int32 ComponentIndex = 0; ComponentIndex < ComponentsOnNewObject.Num(); ++ComponentIndex)
+	{
+		UObject* NewComponent = ComponentsOnNewObject[ComponentIndex];
+		FArchiveReplaceOrClearExternalReferences<UObject> ReplaceInComponentAr(NewComponent, ReferenceReplacementMap, NewPackage);
+	}
 	}
 
 	// Restore the root component reference

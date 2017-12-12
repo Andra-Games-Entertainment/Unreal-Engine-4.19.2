@@ -14,7 +14,7 @@ class ACameraActor;
 /**
  * 
  */
-UCLASS()
+UCLASS(meta=(ScriptName="AutomationLibrary"))
 class FUNCTIONALTESTING_API UAutomationBlueprintFunctionLibrary : public UBlueprintFunctionLibrary
 {
 	GENERATED_UCLASS_BODY()
@@ -126,6 +126,8 @@ private:
 	FConsoleVariableSwapperTempl<int32> ScreenSpaceReflectionQuality;
 	FConsoleVariableSwapperTempl<int32> EyeAdaptationQuality;
 	FConsoleVariableSwapperTempl<int32> ContactShadows;
+	FConsoleVariableSwapperTempl<float> TonemapperGamma;
+	FConsoleVariableSwapperTempl<float> SecondaryScreenPercentage;
 };
 
 #endif

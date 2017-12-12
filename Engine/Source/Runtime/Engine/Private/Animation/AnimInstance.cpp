@@ -24,6 +24,7 @@
 #include "Animation/AnimNode_StateMachine.h"
 #include "SkeletalRenderPublic.h"
 #include "Rendering/SkeletalMeshRenderData.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 /** Anim stats */
 
@@ -34,7 +35,7 @@ DEFINE_STAT(STAT_SkelCompUpdateTransform);
 //                         -->  Physics Engine here <--
 DEFINE_STAT(STAT_UpdateRBBones);
 DEFINE_STAT(STAT_UpdateRBJoints);
-DEFINE_STAT(STAT_UpdateLocalToWorldAndOverlaps);
+DEFINE_STAT(STAT_FinalizeAnimationUpdate);
 DEFINE_STAT(STAT_GetAnimationPose);
 DEFINE_STAT(STAT_AnimTriggerAnimNotifies);
 DEFINE_STAT(STAT_RefreshBoneTransforms);
@@ -50,9 +51,6 @@ DEFINE_STAT(STAT_BlueprintPostEvaluateAnimation);
 DEFINE_STAT(STAT_NativeUpdateAnimation);
 DEFINE_STAT(STAT_Montage_Advance);
 DEFINE_STAT(STAT_Montage_UpdateWeight);
-DEFINE_STAT(STAT_AnimMontageInstance_Advance);
-DEFINE_STAT(STAT_AnimMontageInstance_TickBranchPoints);
-DEFINE_STAT(STAT_AnimMontageInstance_Advance_Iteration);
 DEFINE_STAT(STAT_UpdateCurves);
 DEFINE_STAT(STAT_LocalBlendCSBoneTransforms);
 
@@ -565,15 +563,10 @@ void UAnimInstance::ParallelUpdateAnimation()
 
 bool UAnimInstance::NeedsImmediateUpdate(float DeltaSeconds) const
 {
-	// If Evaluation Phase is skipped, PostUpdateAnimation() will not get called, so we can't use ParallelUpdateAnimation then.
-	USkeletalMeshComponent* SkelMeshComp = GetSkelMeshComponent();
-	const bool bEvaluationPhaseSkipped = SkelMeshComp && !SkelMeshComp->bRecentlyRendered && (SkelMeshComp->MeshComponentUpdateFlag > EMeshComponentUpdateFlag::AlwaysTickPoseAndRefreshBones);
-
 	const bool bUseParallelUpdateAnimation = (GetDefault<UEngine>()->bAllowMultiThreadedAnimationUpdate && bUseMultiThreadedAnimationUpdate) || (CVarForceUseParallelAnimUpdate.GetValueOnGameThread() != 0);
 
 	return
 		GIntraFrameDebuggingGameThread ||
-		bEvaluationPhaseSkipped || 
 		CVarUseParallelAnimUpdate.GetValueOnGameThread() == 0 ||
 		CVarUseParallelAnimationEvaluation.GetValueOnGameThread() == 0 ||
 		!bUseParallelUpdateAnimation ||
@@ -653,6 +646,11 @@ void UAnimInstance::NativePostEvaluateAnimation()
 
 void UAnimInstance::NativeUninitializeAnimation()
 {
+}
+
+void UAnimInstance::NativeBeginPlay()
+{
+
 }
 
 void UAnimInstance::AddNativeTransitionBinding(const FName& MachineName, const FName& PrevStateName, const FName& NextStateName, const FCanTakeTransition& NativeTransitionDelegate, const FName& TransitionName)
@@ -1190,15 +1188,33 @@ void UAnimInstance::UpdateCurvesToComponents(USkeletalMeshComponent* Component /
 	}
 }
 
-void UAnimInstance::GetAnimationCurveList(EAnimCurveType Type, TMap<FName, float>& OutCurveList) const
+void UAnimInstance::AppendAnimationCurveList(EAnimCurveType Type, TMap<FName, float>& InOutCurveList) const
 {
-	uint8 ArrayIndex = (uint8)Type;
+	const uint8 ArrayIndex = (uint8)Type;
 
 	if (ArrayIndex < (uint8)EAnimCurveType::MaxAnimCurveType)
 	{
-		// add unique only
-		OutCurveList.Append(AnimationCurves[ArrayIndex]);
+		InOutCurveList.Append(AnimationCurves[ArrayIndex]);
 	}
+}
+
+void UAnimInstance::GetAnimationCurveList(EAnimCurveType Type, TMap<FName, float>& InOutCurveList) const
+{
+	AppendAnimationCurveList(Type, InOutCurveList);
+}
+
+const TMap<FName, float>& UAnimInstance::GetAnimationCurveList(EAnimCurveType Type) const
+{
+	const uint8 ArrayIndex = (uint8)Type;
+	if (ArrayIndex < (uint8)EAnimCurveType::MaxAnimCurveType)
+	{
+		return AnimationCurves[ArrayIndex];
+	}
+
+	ensureMsgf(ArrayIndex < (uint8)EAnimCurveType::MaxAnimCurveType, TEXT("Unrecognized  EAnimCurveType value: %i"), ArrayIndex);
+
+	static TMap<FName, float> DummyMap;
+	return DummyMap;
 }
 
 void UAnimInstance::RefreshCurves(USkeletalMeshComponent* Component)
@@ -2363,14 +2379,10 @@ void UAnimInstance::StopAllMontagesByGroupName(FName InGroupName, const FAlphaBl
 {
 	for (int32 InstanceIndex = MontageInstances.Num() - 1; InstanceIndex >= 0; InstanceIndex--)
 	{
-		// If we have emptied the entire list as a result of calling Stop previously, we can end up with an empty list
-		if (MontageInstances.IsValidIndex(InstanceIndex))
+		FAnimMontageInstance* MontageInstance = MontageInstances[InstanceIndex];
+		if (MontageInstance && MontageInstance->Montage && (MontageInstance->Montage->GetGroupName() == InGroupName))
 		{
-			FAnimMontageInstance* MontageInstance = MontageInstances[InstanceIndex];
-			if (MontageInstance && MontageInstance->Montage && (MontageInstance->Montage->GetGroupName() == InGroupName))
-			{
-				MontageInstances[InstanceIndex]->Stop(BlendOut, true);
-			}
+			MontageInstances[InstanceIndex]->Stop(BlendOut, true);
 		}
 	}
 }
@@ -2749,6 +2761,28 @@ const FBoneContainer& UAnimInstance::GetRequiredBones() const
 void UAnimInstance::QueueRootMotionBlend(const FTransform& RootTransform, const FName& SlotName, float Weight)
 {
 	RootMotionBlendQueue.Add(FQueuedRootMotionBlend(RootTransform, SlotName, Weight));
+}
+
+void UAnimInstance::PreInitializeRootNode()
+{
+	// This function should only be called on the CDO
+	check(HasAnyFlags(RF_ClassDefaultObject));
+
+	IAnimClassInterface* AnimClassInterface = IAnimClassInterface::GetFromClass(GetClass());
+	if(AnimClassInterface)
+	{
+		for(UStructProperty* Property : AnimClassInterface->GetAnimNodeProperties())
+		{
+			if (Property->Struct->IsChildOf(FAnimNode_Base::StaticStruct()))
+			{
+				FAnimNode_Base* AnimNode = Property->ContainerPtrToValuePtr<FAnimNode_Base>(this);
+				if (AnimNode)
+				{
+					AnimNode->EvaluateGraphExposedInputs.Initialize(AnimNode, this);
+				}
+			}
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE 

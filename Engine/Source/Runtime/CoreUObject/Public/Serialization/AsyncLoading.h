@@ -484,6 +484,9 @@ struct FAsyncPackage : FGCObject
 	/** Removes all objects from the list and clears async loading flags */
 	void EmptyReferencedObjects();
 
+	/** Returns the UPackage wrapped by this, if it is valid */
+	UPackage* GetLoadedPackage();
+
 private:	
 
 	struct FCompletionCallback
@@ -622,7 +625,7 @@ public:
 	int64 CurrentBlockBytes;
 	TSet<int32> ExportsInThisBlock;
 
-	TMultiMap<FName, FPackageIndex> ObjectNameToImportOrExport;
+	TMap<TPair<FName, FPackageIndex>, FPackageIndex> ObjectNameWithOuterToExport;
 
 	TSet<FWeakAsyncPackagePtr> PackagesIMayBeWaitingForBeforePostload; // these need to be reexamined and perhaps deleted or collapsed
 

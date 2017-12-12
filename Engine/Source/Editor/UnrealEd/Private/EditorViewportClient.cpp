@@ -294,7 +294,7 @@ FEditorViewportClient::FEditorViewportClient(FEditorModeTools* InModeTools, FPre
 	, Viewport(NULL)
 	, ViewportType(LVT_Perspective)
 	, ViewState()
-	, StereoViewState()
+	, StereoViewStates()
 	, EngineShowFlags(ESFIM_Editor)
 	, LastEngineShowFlags(ESFIM_Game)
 	, ExposureSettings()
@@ -795,16 +795,8 @@ FSceneView* FEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily, c
 				GEngine->StereoRenderingDevice->CalculateStereoViewOffset( StereoPass, ViewRotation, ViewInitOptions.WorldToMetersScale, ViewInitOptions.ViewOrigin );
 			}
 
-			if (bUsingOrbitCamera)
-			{
-				// @todo vreditor: Not stereo friendly yet
-				ViewInitOptions.ViewRotationMatrix = FTranslationMatrix( ViewInitOptions.ViewOrigin ) * ViewTransform.ComputeOrbitMatrix();
-			}
-			else
-			{
-			    // Create the view matrix
-			    ViewInitOptions.ViewRotationMatrix = FInverseRotationMatrix( ViewRotation );
-			}
+			// Calc view rotation matrix
+			ViewInitOptions.ViewRotationMatrix = CalcViewRotationMatrix(ViewRotation);
 
 		    // Rotate view 90 degrees
 			ViewInitOptions.ViewRotationMatrix = ViewInitOptions.ViewRotationMatrix * FMatrix(
@@ -983,13 +975,22 @@ FSceneView* FEditorViewportClient::CalcSceneView(FSceneViewFamily* ViewFamily, c
 	}
 
 	// Allocate our stereo view state on demand, so that only viewports that actually use stereo features have one
-	if( bStereoRendering && StereoViewState.GetReference() == nullptr )
+	const int32 ViewStateIndex = (StereoPass > eSSP_MONOSCOPIC_EYE) ? StereoPass - eSSP_MONOSCOPIC_EYE : 0;
+	if (bStereoRendering)
 	{
-		StereoViewState.Allocate();
+		if (StereoViewStates.Num() <= ViewStateIndex)
+		{ 
+			StereoViewStates.SetNum(ViewStateIndex + 1);
+		}
+
+		if (StereoViewStates[ViewStateIndex].GetReference() == nullptr)
+		{
+			StereoViewStates[ViewStateIndex].Allocate();
+		}
 	}
 
 	ViewInitOptions.ViewFamily = ViewFamily;
-	ViewInitOptions.SceneViewStateInterface = ( ( StereoPass != eSSP_RIGHT_EYE ) ? ViewState.GetReference() : StereoViewState.GetReference() );
+	ViewInitOptions.SceneViewStateInterface = ( (StereoPass < eSSP_RIGHT_EYE) ? ViewState.GetReference() : StereoViewStates[ViewStateIndex].GetReference() );
 	ViewInitOptions.StereoPass = StereoPass;
 	
 	ViewInitOptions.ViewElementDrawer = this;
@@ -3225,9 +3226,13 @@ void FEditorViewportClient::AddReferencedObjects( FReferenceCollector& Collector
 	{
 		ViewState.GetReference()->AddReferencedObjects(Collector);
 	}
-	if (StereoViewState.GetReference())
+
+	for (FSceneViewStateReference &StereoViewState : StereoViewStates)
 	{
-		StereoViewState.GetReference()->AddReferencedObjects(Collector);
+		if (StereoViewState.GetReference())
+		{
+			StereoViewState.GetReference()->AddReferencedObjects(Collector);
+		}
 	}
 }
 
@@ -3528,10 +3533,11 @@ void FEditorViewportClient::Draw(FViewport* InViewport, FCanvas* Canvas)
 	FSceneView* View = nullptr;
 
 	// Stereo rendering
-	int32 NumViews = bStereoRendering ? 2 : 1;
+	const bool bStereoDeviceActive = bStereoRendering && GEngine->StereoRenderingDevice.IsValid();
+	int32 NumViews = bStereoRendering ? GEngine->StereoRenderingDevice->GetDesiredNumberOfViews(bStereoRendering) : 1;
 	for( int StereoViewIndex = 0; StereoViewIndex < NumViews; ++StereoViewIndex )
 	{
-		const EStereoscopicPass StereoPass = !bStereoRendering ? eSSP_FULL : ( ( StereoViewIndex == 0 ) ? eSSP_LEFT_EYE : eSSP_RIGHT_EYE );
+		const EStereoscopicPass StereoPass = bStereoRendering ? GEngine->StereoRenderingDevice->GetViewPassForIndex(bStereoRendering, StereoViewIndex) : eSSP_FULL;
 
 		View = CalcSceneView( &ViewFamily, StereoPass );
 
@@ -3579,9 +3585,12 @@ void FEditorViewportClient::Draw(FViewport* InViewport, FCanvas* Canvas)
 	// Draw the 3D scene
 	GetRendererModule().BeginRenderingViewFamily(Canvas,&ViewFamily);
 
-	DrawCanvas( *Viewport, *View, *Canvas );
+	if (View)
+	{
+		DrawCanvas( *Viewport, *View, *Canvas );
 
-	DrawSafeFrames(*Viewport, *View, *Canvas);
+		DrawSafeFrames(*Viewport, *View, *Canvas);
+	}
 
 	// Remove temporary debug lines.
 	// Possibly a hack. Lines may get added without the scene being rendered etc.
@@ -3611,42 +3620,60 @@ void FEditorViewportClient::Draw(FViewport* InViewport, FCanvas* Canvas)
 			{
 				const FRotator XYRot(-90.0f, -90.0f, 0.0f);
 				DrawAxes(Viewport, Canvas, &XYRot, EAxisList::XY);
-				DrawScaleUnits(Viewport, Canvas, *View);
+				if (View)
+				{
+					DrawScaleUnits(Viewport, Canvas, *View);
+				}
 				break;
 			}
 		case LVT_OrthoXZ:
 			{
 				const FRotator XZRot(0.0f, -90.0f, 0.0f);
 				DrawAxes(Viewport, Canvas, &XZRot, EAxisList::XZ);
-				DrawScaleUnits(Viewport, Canvas, *View);
+				if (View)
+				{
+					DrawScaleUnits(Viewport, Canvas, *View);
+				}
 				break;
 			}
 		case LVT_OrthoYZ:
 			{
 				const FRotator YZRot(0.0f, 0.0f, 0.0f);
 				DrawAxes(Viewport, Canvas, &YZRot, EAxisList::YZ);
-				DrawScaleUnits(Viewport, Canvas, *View);
+				if (View)
+				{
+					DrawScaleUnits(Viewport, Canvas, *View);
+				}
 				break;
 			}
 		case LVT_OrthoNegativeXY:
 			{
 				const FRotator XYRot(90.0f, 90.0f, 0.0f);
 				DrawAxes(Viewport, Canvas, &XYRot, EAxisList::XY);
-				DrawScaleUnits(Viewport, Canvas, *View);
+				if (View)
+				{
+					DrawScaleUnits(Viewport, Canvas, *View);
+				}
 				break;
 			}
 		case LVT_OrthoNegativeXZ:
 			{
 				const FRotator XZRot(0.0f, 90.0f, 0.0f);
 				DrawAxes(Viewport, Canvas, &XZRot, EAxisList::XZ);
-				DrawScaleUnits(Viewport, Canvas, *View);
+				if (View)
+				{
+					DrawScaleUnits(Viewport, Canvas, *View);
+				}
 				break;
 			}
 		case LVT_OrthoNegativeYZ:
 			{
 				const FRotator YZRot(0.0f, 180.0f, 0.0f);
 				DrawAxes(Viewport, Canvas, &YZRot, EAxisList::YZ);
-				DrawScaleUnits(Viewport, Canvas, *View);
+				if (View)
+				{
+					DrawScaleUnits(Viewport, Canvas, *View);
+				}
 				break;
 			}
 		default:
@@ -5494,6 +5521,22 @@ float FEditorViewportClient::UpdateViewportClientWindowDPIScale() const
 	}
 
 	return DPIScale;
+}
+
+FMatrix FEditorViewportClient::CalcViewRotationMatrix(const FRotator& InViewRotation) const
+{
+	const FViewportCameraTransform& ViewTransform = GetViewTransform();
+
+	if (bUsingOrbitCamera)
+	{
+		// @todo vreditor: Not stereo friendly yet
+		return FTranslationMatrix(ViewTransform.GetLocation()) * ViewTransform.ComputeOrbitMatrix();
+	}
+	else
+	{
+		// Create the view matrix
+		return FInverseRotationMatrix(InViewRotation);
+	}
 }
 
 ////////////////

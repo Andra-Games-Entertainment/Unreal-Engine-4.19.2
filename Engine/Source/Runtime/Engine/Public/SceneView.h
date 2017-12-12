@@ -214,6 +214,9 @@ struct FSceneViewInitOptions : public FSceneViewProjectionData
 
 	/** In case of ortho, generate a fake view position that has a non-zero W component. The view position will be derived based on the view matrix. */
 	bool bUseFauxOrthoViewPos;
+
+	/** Whether game screen percentage should be disabled. */
+	bool bDisableGameScreenPercentage;
 #endif
 
 	FSceneViewInitOptions()
@@ -237,6 +240,7 @@ struct FSceneViewInitOptions : public FSceneViewProjectionData
 		, EditorViewBitflag(1)
 		, OverrideLODViewOrigin(ForceInitToZero)
 		, bUseFauxOrthoViewPos(false)
+		, bDisableGameScreenPercentage(false)
 		//@TODO: , const TBitArray<>& InSpriteCategoryVisibility=TBitArray<>()
 #endif
 	{
@@ -575,6 +579,7 @@ BEGIN_UNIFORM_BUFFER_STRUCT_WITH_CONSTRUCTOR(FMobileDirectionalLightShaderParame
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_EX(FVector4, DirectionalLightShadowSize, EShaderPrecisionModifier::Half)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_ARRAY(FMatrix, DirectionalLightScreenToShadow, [MAX_MOBILE_SHADOWCASCADES])
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_EX(FVector4, DirectionalLightShadowDistances, EShaderPrecisionModifier::Half)
+	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_EX(FVector2D, DirectionalLightDistanceFadeMAD, EShaderPrecisionModifier::Half)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_TEXTURE(Texture2D, DirectionalLightShadowTexture)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_SAMPLER(SamplerState, DirectionalLightShadowSampler)
 END_UNIFORM_BUFFER_STRUCT(FMobileDirectionalLightShaderParameters)

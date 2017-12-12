@@ -4411,7 +4411,10 @@ void UMaterial::ReleaseResources()
 		}
 	}
 #if WITH_EDITOR
-	ClearAllCachedCookedPlatformData();
+	if (!GExitPurge)
+	{
+		ClearAllCachedCookedPlatformData();
+	}
 #endif
 	for (int32 InstanceIndex = 0; InstanceIndex < 3; ++InstanceIndex)
 	{
@@ -4448,30 +4451,13 @@ void UMaterial::GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize)
 		}
 	}
 
-	if (CumulativeResourceSize.GetResourceSizeMode() == EResourceSizeMode::Inclusive)
+	for (int32 QualityLevelIndex = 0; QualityLevelIndex < EMaterialQualityLevel::Num; QualityLevelIndex++)
 	{
-		for (int32 QualityLevelIndex = 0; QualityLevelIndex < EMaterialQualityLevel::Num; QualityLevelIndex++)
+		for (int32 FeatureLevelIndex = 0; FeatureLevelIndex < ERHIFeatureLevel::Num; FeatureLevelIndex++)
 		{
-			for (int32 FeatureLevelIndex = 0; FeatureLevelIndex < ERHIFeatureLevel::Num; FeatureLevelIndex++)
+			if (FMaterialResource* CurrentResource = MaterialResources[QualityLevelIndex][FeatureLevelIndex])
 			{
-				FMaterialResource* CurrentResource = MaterialResources[QualityLevelIndex][FeatureLevelIndex];
 				CurrentResource->GetResourceSizeEx(CumulativeResourceSize);
-			}
-		}
-
-		TArray<UTexture*> TheReferencedTextures;
-		for ( int32 ExpressionIndex= 0 ; ExpressionIndex < Expressions.Num() ; ++ExpressionIndex )
-		{
-			UMaterialExpressionTextureSample* TextureSample = Cast<UMaterialExpressionTextureSample>( Expressions[ExpressionIndex] );
-			if ( TextureSample && TextureSample->Texture )
-			{
-				UTexture* Texture						= TextureSample->Texture;
-				const bool bTextureAlreadyConsidered	= TheReferencedTextures.Contains( Texture );
-				if ( !bTextureAlreadyConsidered )
-				{
-					TheReferencedTextures.Add( Texture );
-					Texture->GetResourceSizeEx(CumulativeResourceSize);
-				}
 			}
 		}
 	}

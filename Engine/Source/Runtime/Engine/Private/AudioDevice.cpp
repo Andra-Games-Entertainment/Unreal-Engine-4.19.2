@@ -1104,7 +1104,7 @@ bool FAudioDevice::HandleSoundClassFixup(const TCHAR* Cmd, FOutputDevice& Ar)
 				// unless the assets are renamed immediately
 				RenameData.Reset();
 				RenameData.Add(FAssetRenameData(AssetData.GetAsset(), LongPackagePath, OutAssetName));
-				AssetToolsModule.Get().RenameAssets(RenameData);
+				AssetToolsModule.Get().RenameAssetsWithDialog(RenameData);
 			}		
 		}
 	}
@@ -2210,7 +2210,6 @@ void FAudioDevice::UpdateSoundClassProperties(float DeltaTime)
 		}
 		else 
 		{
-			check(SoundMixState->EndTime >= 0.f && AudioTime >= SoundMixState->EndTime);
 			// Clear the effect of this SoundMix - may need to revisit for passive
 			SoundMixState->InterpValue = 0.0f;
 			SoundMixState->CurrentState = ESoundMixState::AwaitingRemoval;
@@ -3097,7 +3096,7 @@ void FAudioDevice::StartSources(TArray<FWaveInstance*>& WaveInstances, int32 Fir
 					// If we failed, then we need to stop the wave instance and add the source back to the free list
 					// This can happen if e.g. the USoundWave pointed to by the WaveInstance is not a valid sound file.
 					// If we don't stop the wave file, it will continue to try initializing the file every frame, which is a perf hit
-					UE_LOG(LogAudio, Warning, TEXT("Failed to start sound source for %s"), (WaveInstance->ActiveSound && WaveInstance->ActiveSound->Sound) ? *WaveInstance->ActiveSound->Sound->GetName() : TEXT("UNKNOWN") );
+					UE_LOG(LogAudio, Log, TEXT("Failed to start sound source for %s"), (WaveInstance->ActiveSound && WaveInstance->ActiveSound->Sound) ? *WaveInstance->ActiveSound->Sound->GetName() : TEXT("UNKNOWN") );
 					Source->Stop();
 				}
 			}
@@ -3149,12 +3148,14 @@ void FAudioDevice::Update(bool bGameTicking)
 	SCOPED_NAMED_EVENT(FAudioDevice_Update, FColor::Blue);
 	if (!IsInAudioThread())
 	{
-
 		FAudioDevice* AudioDevice = this;
 		FAudioThread::RunCommandOnAudioThread([AudioDevice, bGameTicking]()
 		{
 			AudioDevice->Update(bGameTicking);
 		});
+
+		// We process all enqueued commands on the audio device update
+		FAudioThread::ProcessAllCommands();
 
 		return;
 	}
@@ -4787,7 +4788,7 @@ void FAudioDevice::DumpActiveSounds() const
 			for (const TPair<UPTRINT, FWaveInstance*>& WaveInstancePair : ActiveSound->WaveInstances)
 			{
 				const FWaveInstance* WaveInstance = WaveInstancePair.Value;
-				UE_LOG(LogAudio, Display, TEXT("   %s (%.3g) (%d) - %.3g"), *WaveInstance->GetName(), WaveInstance->WaveData->GetDuration(), WaveInstance->WaveData->GetResourceSizeBytes(EResourceSizeMode::Inclusive), WaveInstance->GetActualVolume());
+				UE_LOG(LogAudio, Display, TEXT("   %s (%.3g) (%d) - %.3g"), *WaveInstance->GetName(), WaveInstance->WaveData->GetDuration(), WaveInstance->WaveData->GetResourceSizeBytes(EResourceSizeMode::EstimatedTotal), WaveInstance->GetActualVolume());
 			}
 		}
 	}

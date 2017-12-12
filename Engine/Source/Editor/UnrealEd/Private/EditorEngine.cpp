@@ -687,7 +687,7 @@ void UEditorEngine::HandlePackageReloaded(const EPackageReloadPhase InPackageRel
 				// Notify about any BP assets that are about to be unloaded
 				if (UBlueprint* BP = Cast<UBlueprint>(InObject))
 				{
-					FKismetEditorUtilities::OnBlueprintUnloaded.Broadcast(BP);
+					BP->ClearEditorReferences();
 				}
 			}
 		}, false, RF_Transient, EInternalObjectFlags::PendingKill);
@@ -1902,6 +1902,18 @@ void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 
 		// Update audio device.
 		AudioDeviceManager->UpdateActiveAudioDevices((!PlayWorld && bAudioIsRealtime) || (PlayWorld && !PlayWorld->IsPaused()));
+		if (bRequestEndPlayMapQueued)
+		{
+			// Shutdown all audio devices if we've requested end playmap now to avoid issues with GC running
+			TArray<FAudioDevice*>& AudioDevices = AudioDeviceManager->GetAudioDevices();
+			for (FAudioDevice* AudioDevice : AudioDevices)
+			{
+				if (AudioDevice)
+				{
+					AudioDevice->Flush(nullptr);
+				}
+			}
+		}
 
 		if (PlayWorld)
 		{
@@ -2191,6 +2203,9 @@ void UEditorEngine::Cleanse( bool ClearSelection, bool Redraw, const FText& Tran
 
 			if (RedirectorPackage == GetTransientPackage())
 			{
+				RedirIt->ClearFlags(FlagsToClear);
+				RedirIt->RemoveFromRoot();
+
 				continue;
 			}
 
@@ -4285,9 +4300,70 @@ void UEditorEngine::OnSourceControlDialogClosed(bool bEnabled)
 	}
 }
 
+bool UEditorEngine::InitializePhysicsSceneForSaveIfNecessary(UWorld* World)
+{
+	// We need a physics scene at save time in case code does traces during onsave events.
+	bool bHasPhysicsScene = false;
+
+	// First check if our owning world has a physics scene
+	if (World->PersistentLevel && World->PersistentLevel->OwningWorld)
+	{
+		bHasPhysicsScene = (World->PersistentLevel->OwningWorld->GetPhysicsScene() != nullptr);
+	}
+
+	// If we didn't already find a physics scene in our owning world, maybe we personally have our own.
+	if (!bHasPhysicsScene)
+	{
+		bHasPhysicsScene = (World->GetPhysicsScene() != nullptr);
+	}
+
+
+	// If we didn't find any physics scene we will synthesize one and remove it after save
+	if (!bHasPhysicsScene)
+	{
+		// Clear world components first so that UpdateWorldComponents below properly adds them all to the physics scene
+		World->ClearWorldComponents();
+
+		if (World->bIsWorldInitialized)
+		{
+			// If we don't have a physics scene and the world was initialized without one (i.e. an inactive world) then we should create one here. We will remove it down below after the save
+			World->CreatePhysicsScene();
+		}
+		else
+		{
+			// If we aren't already initialized, initialize now and create a physics scene. Don't create an FX system because it uses too much video memory for bulk operations
+			World->InitWorld(GetEditorWorldInitializationValues().CreateFXSystem(false).CreatePhysicsScene(true));
+		}
+
+		// Update components now that a physics scene exists.
+		World->UpdateWorldComponents(true, true);
+
+		// Set this to true so we can clean up what we just did down below
+		return true;
+	}
+
+	return false;
+}
+
+void UEditorEngine::CleanupPhysicsSceneThatWasInitializedForSave(UWorld* World)
+{
+	// Make sure we clean up the physics scene here. If we leave too many scenes in memory, undefined behavior occurs when locking a scene for read/write.
+	World->ClearWorldComponents();
+	World->SetPhysicsScene(nullptr);
+#if WITH_PHYSX
+	if (GPhysCommandHandler)
+	{
+		GPhysCommandHandler->Flush();
+	}
+#endif // WITH_PHYSX
+
+	// Update components again in case it was a world without a physics scene but did have rendered components.
+	World->UpdateWorldComponents(true, true);
+}
+
 FSavePackageResultStruct UEditorEngine::Save( UPackage* InOuter, UObject* InBase, EObjectFlags TopLevelFlags, const TCHAR* Filename,
 				 FOutputDevice* Error, FLinkerLoad* Conform, bool bForceByteSwapping, bool bWarnOfLongFilename, 
-				 uint32 SaveFlags, const class ITargetPlatform* TargetPlatform, const FDateTime& FinalTimeStamp, bool bSlowTask )
+				 uint32 SaveFlags, const class ITargetPlatform* TargetPlatform, const FDateTime& FinalTimeStamp, bool bSlowTask, FArchiveDiffMap* InOutDiffMap)
 {
 	FScopedSlowTask SlowTask(100, FText(), bSlowTask);
 
@@ -4304,51 +4380,17 @@ FSavePackageResultStruct UEditorEngine::Save( UPackage* InOuter, UObject* InBase
 
 	UWorld* World = Cast<UWorld>(Base);
 	bool bInitializedPhysicsSceneForSave = false;
+	const bool bSavingConcurrent = !!(SaveFlags & ESaveFlags::SAVE_Concurrent);
 	
 	UWorld *OriginalOwningWorld = nullptr;
 	if ( World )
 	{
-		// We need a physics scene at save time in case code does traces during onsave events.
-		bool bHasPhysicsScene = false;
-
-		// First check if our owning world has a physics scene
-		if (World->PersistentLevel && World->PersistentLevel->OwningWorld)
+		if (!bSavingConcurrent)
 		{
-			bHasPhysicsScene = (World->PersistentLevel->OwningWorld->GetPhysicsScene() != nullptr);
+			bInitializedPhysicsSceneForSave = InitializePhysicsSceneForSaveIfNecessary(World);
+
+			OnPreSaveWorld(SaveFlags, World);
 		}
-		
-		// If we didn't already find a physics scene in our owning world, maybe we personally have our own.
-		if (!bHasPhysicsScene)
-		{
-			bHasPhysicsScene = (World->GetPhysicsScene() != nullptr);
-		}
-
-		
-		// If we didn't find any physics scene we will synthesize one and remove it after save
-		if (!bHasPhysicsScene)
-		{
-			// Clear world components first so that UpdateWorldComponents below properly adds them all to the physics scene
-			World->ClearWorldComponents();
-
-			if (World->bIsWorldInitialized)
-			{
-				// If we don't have a physics scene and the world was initialized without one (i.e. an inactive world) then we should create one here. We will remove it down below after the save
-				World->CreatePhysicsScene();
-			}
-			else
-			{
-				// If we aren't already initialized, initialize now and create a physics scene. Don't create an FX system because it uses too much video memory for bulk operations
-				World->InitWorld(GetEditorWorldInitializationValues().CreateFXSystem(false).CreatePhysicsScene(true));
-			}
-
-			// Update components now that a physics scene exists.
-			World->UpdateWorldComponents(true, true);
-
-			// Set this to true so we can clean up what we just did down below
-			bInitializedPhysicsSceneForSave = true;
-		}
-
-		OnPreSaveWorld(SaveFlags, World);
 
 		OriginalOwningWorld = World->PersistentLevel->OwningWorld;
 		World->PersistentLevel->OwningWorld = World;
@@ -4365,7 +4407,7 @@ FSavePackageResultStruct UEditorEngine::Save( UPackage* InOuter, UObject* InBase
 	SlowTask.EnterProgressFrame(70);
 
 	UPackage::PreSavePackageEvent.Broadcast(InOuter);
-	const FSavePackageResultStruct Result = UPackage::Save(InOuter, Base, TopLevelFlags, Filename, Error, Conform, bForceByteSwapping, bWarnOfLongFilename, SaveFlags, TargetPlatform, FinalTimeStamp, bSlowTask);
+	const FSavePackageResultStruct Result = UPackage::Save(InOuter, Base, TopLevelFlags, Filename, Error, Conform, bForceByteSwapping, bWarnOfLongFilename, SaveFlags, TargetPlatform, FinalTimeStamp, bSlowTask, InOutDiffMap);
 
 	SlowTask.EnterProgressFrame(10);
 
@@ -4398,23 +4440,14 @@ FSavePackageResultStruct UEditorEngine::Save( UPackage* InOuter, UObject* InBase
 			World->PersistentLevel->OwningWorld = OriginalOwningWorld;
 		}
 
-		OnPostSaveWorld(SaveFlags, World, OriginalPackageFlags, Result == ESavePackageResult::Success);
-
-		if (bInitializedPhysicsSceneForSave)
+		if (!bSavingConcurrent)
 		{
-			// Make sure we clean up the physics scene here. If we leave too many scenes in memory, undefined behavior occurs when locking a scene for read/write.
-			World->ClearWorldComponents();
-			World->SetPhysicsScene(nullptr);
+			OnPostSaveWorld(SaveFlags, World, OriginalPackageFlags, Result == ESavePackageResult::Success);
 
-#if WITH_PHYSX
-			if (GPhysCommandHandler)
+			if (bInitializedPhysicsSceneForSave)
 			{
-				GPhysCommandHandler->Flush();
+				CleanupPhysicsSceneThatWasInitializedForSave(World);
 			}
-#endif	// WITH_PHYSX
-			
-			// Update components again in case it was a world without a physics scene but did have rendered components.
-			World->UpdateWorldComponents(true, true);
 
 			// Rerunning construction scripts may have made it dirty again
 			InOuter->SetDirtyFlag(false);
@@ -6777,10 +6810,15 @@ void UEditorEngine::UpdateAutoLoadProject()
 	IFileManager::Get().Delete(*AutoLoadInProgressFilename, bRequireExists, bEvenIfReadOnly, bQuiet);
 }
 
-FORCEINLINE bool NetworkRemapPath_local(FWorldContext& Context, FString& Str, bool bReading)
+FORCEINLINE bool NetworkRemapPath_local(FWorldContext& Context, FString& Str, bool bReading, bool bIsReplay)
 {
 	if (bReading)
 	{
+		if (bIsReplay && Context.World() && Context.World()->RemapCompiledScriptActor(Str))
+		{
+			return true;
+		}
+		
 		if (FPackageName::IsShortPackageName(Str))
 		{
 			return false;
@@ -6788,7 +6826,7 @@ FORCEINLINE bool NetworkRemapPath_local(FWorldContext& Context, FString& Str, bo
 
 		// First strip any source prefix, then add the appropriate prefix for this context
 		FSoftObjectPath Path = UWorld::RemovePIEPrefix(Str);
-			
+		
 		Path.FixupForPIE();
 		FString Remapped = Path.ToString();
 		if (!Remapped.Equals(Str, ESearchCase::CaseSensitive))
@@ -6817,14 +6855,16 @@ bool UEditorEngine::NetworkRemapPath(UNetDriver* Driver, FString& Str, bool bRea
 		return false;
 	}
 
+	// Pretty sure there's no case where you can't have a world by this point.
+	bool bIsAReplay = (Driver->GetWorld()) ? (Driver->GetWorld()->DemoNetDriver != NULL) : false;
 	FWorldContext& Context = GetWorldContextFromWorldChecked(Driver->GetWorld());
-	return NetworkRemapPath_local(Context, Str, bReading);
+	return NetworkRemapPath_local(Context, Str, bReading, bIsAReplay);
 }
 
 bool UEditorEngine::NetworkRemapPath( UPendingNetGame *PendingNetGame, FString& Str, bool bReading)
 {
 	FWorldContext& Context = GetWorldContextFromPendingNetGameChecked(PendingNetGame);
-	return NetworkRemapPath_local(Context, Str, bReading);
+	return NetworkRemapPath_local(Context, Str, bReading, PendingNetGame->DemoNetDriver != NULL);
 }
 
 void UEditorEngine::VerifyLoadMapWorldCleanup()
@@ -7112,7 +7152,7 @@ void FActorLabelUtilities::RenameExistingActor(AActor* Actor, const FString& New
 	{
 		TArray<FAssetRenameData> RenameData;
 		RenameData.Add(FAssetRenameData(OldPath, NewPath, true));
-		AssetToolsModule.Get().RenameAssets(RenameData);
+		AssetToolsModule.Get().RenameAssetsWithDialog(RenameData);
 	}
 }
 

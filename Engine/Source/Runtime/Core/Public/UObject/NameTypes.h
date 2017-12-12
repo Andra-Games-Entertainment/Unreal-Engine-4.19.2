@@ -139,21 +139,17 @@ protected:
 	};
 	// DO NOT ADD VARIABLES BELOW!
 
-	/** 
-	 * Constructor called from the linker name table serialization function. Initializes the index
-	 * to a value that indicates widechar as that's what the linker is going to serialize.
-	 *
-	 * Only callable from the serialization version of this class
-	 */
-	FNameEntry( enum ELinkerNameTableConstructor )
-	{
-		Index = NAME_WIDE_MASK;
-	}
-
-public:
+private:
 	/** Default constructor doesn't do anything. AllocateNameEntry is responsible for work. */
 	FNameEntry()
 	{}
+
+	FNameEntry(const FNameEntry&) = delete;
+	FNameEntry(FNameEntry&&) = delete;
+	FNameEntry& operator=(const FNameEntry&) = delete;
+	FNameEntry& operator=(FNameEntry&&) = delete;
+
+public:
 
 	/** 
 	 * Sets whether or not the NameEntry will have a wide string, or an ansi string
@@ -254,11 +250,7 @@ public:
 	static int32 GetSize( int32 Length, bool bIsPureAnsi );
 
 	// Functions.
-	friend CORE_API FArchive& operator<<( FArchive& Ar, FNameEntry& E );
-	friend CORE_API FArchive& operator<<( FArchive& Ar, FNameEntry* E )
-	{
-		return Ar << *E;
-	}
+	CORE_API void Write(FArchive& Ar) const;
 
 	// Friend for access to Flags.
 	template<typename TCharType>
@@ -268,21 +260,68 @@ public:
 /**
  *  This struct is only used during loading/saving and is not part of the runtime costs
  */
-struct FNameEntrySerialized :
-	public FNameEntry
+struct FNameEntrySerialized
 {
+	NAME_INDEX Index;
+
+	union
+	{
+		ANSICHAR	AnsiName[NAME_SIZE];
+		WIDECHAR	WideName[NAME_SIZE];
+	};
+
 	uint16 NonCasePreservingHash;
 	uint16 CasePreservingHash;
 	bool bWereHashesLoaded;
 
 	FNameEntrySerialized(const FNameEntry& NameEntry);
 	FNameEntrySerialized(enum ELinkerNameTableConstructor) :
-		FNameEntry(ENAME_LinkerConstructor),
 		NonCasePreservingHash(0),
 		CasePreservingHash(0),
 		bWereHashesLoaded(false)
 	{
 	}
+
+	/** 
+	 * Sets whether or not the NameEntry will have a wide string, or an ansi string
+	 *
+	 * @param bIsWide true if we are going to serialize a wide string
+	 */
+	FORCEINLINE void PreSetIsWideForSerialization(bool bIsWide)
+	{
+		Index = bIsWide ? NAME_WIDE_MASK : 0;
+	}
+
+	/**
+	 * Returns whether this name entry is represented via TCHAR or ANSICHAR
+	 */
+	FORCEINLINE bool IsWide() const
+	{
+		return (Index & NAME_WIDE_MASK);
+	}
+
+	/**
+	 * @return direct access to ANSI name if stored in ANSI
+	 */
+	inline ANSICHAR const* GetAnsiName() const
+	{
+		check(!IsWide());
+		return AnsiName;
+	}
+
+	/**
+	 * @return direct access to wide name if stored in widechars
+	 */
+	inline WIDECHAR const* GetWideName() const
+	{
+		check(IsWide());
+		return WideName;
+	}
+
+	/**
+	 * @return FString of name portion minus number.
+	 */
+	CORE_API FString GetPlainNameString() const;	
 
 	friend CORE_API FArchive& operator<<(FArchive& Ar, FNameEntrySerialized& E);
 	friend CORE_API FArchive& operator<<(FArchive& Ar, FNameEntrySerialized* E)
@@ -554,7 +593,12 @@ public:
 	/** Returns the pure name string without any trailing numbers */
 	FString GetPlainNameString() const
 	{
-		return GetDisplayNameEntry()->GetPlainNameString();
+		if (const FNameEntry* CurEntry = GetDisplayNameEntry())
+		{
+			return CurEntry->GetPlainNameString();
+		}
+
+		return TEXT("*INVALID*");
 	}
 
 	/**
@@ -562,7 +606,12 @@ public:
 	 */
 	FORCEINLINE ANSICHAR const* GetPlainANSIString() const
 	{
-		return GetDisplayNameEntry()->GetAnsiName();
+		if (const FNameEntry* CurEntry = GetDisplayNameEntry())
+		{
+			return CurEntry->GetAnsiName();
+		}
+
+		return "*INVALID*";
 	}
 
 	/**
@@ -570,7 +619,12 @@ public:
 	 */
 	FORCEINLINE WIDECHAR const* GetPlainWIDEString() const
 	{
-		return GetDisplayNameEntry()->GetWideName();
+		if (const FNameEntry* CurEntry = GetDisplayNameEntry())
+		{
+			return CurEntry->GetWideName();
+		}
+
+		return L"*INVALID*";
 	}
 
 	const FNameEntry* GetComparisonNameEntry() const;
@@ -896,33 +950,36 @@ public:
 		}
 
 		// Find name entry associated with this FName.
+		bool bAreNamesMatching = false;
 		const FNameEntry* const Entry = GetComparisonNameEntry();
 
-		// Temporary buffer to hold split name in case passed in name is of Name_Number format.
-		WIDECHAR TempBuffer[NAME_SIZE];
-		int32 InNumber = NAME_NO_NUMBER_INTERNAL;
-		int32 TempNumber = NAME_NO_NUMBER_INTERNAL;
-
-		// Check whether we need to split the passed in string into name and number portion.
-		auto WideOther = StringCast<WIDECHAR>(Other);
-		const WIDECHAR* WideOtherPtr = WideOther.Get();
-		if (SplitNameWithCheck(WideOtherPtr, TempBuffer, ARRAY_COUNT(TempBuffer), TempNumber))
+		if (Entry != nullptr)
 		{
-			WideOtherPtr = TempBuffer;
-			InNumber = NAME_EXTERNAL_TO_INTERNAL(TempNumber);
-		}
+			// Temporary buffer to hold split name in case passed in name is of Name_Number format.
+			WIDECHAR TempBuffer[NAME_SIZE];
+			int32 InNumber = NAME_NO_NUMBER_INTERNAL;
+			int32 TempNumber = NAME_NO_NUMBER_INTERNAL;
 
-		// Report a match if both the number and string portion match.
-		bool bAreNamesMatching = false;
-		if (InNumber == GetNumber())
-		{
-			if (Entry->IsWide())
+			// Check whether we need to split the passed in string into name and number portion.
+			auto WideOther = StringCast<WIDECHAR>(Other);
+			const WIDECHAR* WideOtherPtr = WideOther.Get();
+			if (SplitNameWithCheck(WideOtherPtr, TempBuffer, ARRAY_COUNT(TempBuffer), TempNumber))
 			{
-				bAreNamesMatching = !FPlatformString::Stricmp(WideOtherPtr, Entry->GetWideName());
+				WideOtherPtr = TempBuffer;
+				InNumber = NAME_EXTERNAL_TO_INTERNAL(TempNumber);
 			}
-			else
+
+			// Report a match if both the number and string portion match.
+			if (InNumber == GetNumber())
 			{
-				bAreNamesMatching = !FPlatformString::Stricmp(WideOtherPtr, Entry->GetAnsiName());
+				if (Entry->IsWide())
+				{
+					bAreNamesMatching = !FPlatformString::Stricmp(WideOtherPtr, Entry->GetWideName());
+				}
+				else
+				{
+					bAreNamesMatching = !FPlatformString::Stricmp(WideOtherPtr, Entry->GetAnsiName());
+				}
 			}
 		}
 

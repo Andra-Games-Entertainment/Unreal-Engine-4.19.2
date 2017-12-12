@@ -391,6 +391,8 @@ public:
 	*/
 	void SetCustomDepthStencilValue_RenderThread(const int32 InCustomDepthStencilValue);
 
+	void SetDistanceFieldSelfShadowBias_RenderThread(float NewBias);
+
 	// Accessors.
 	inline FSceneInterface& GetScene() const { return *Scene; }
 	inline FPrimitiveComponentId GetPrimitiveComponentId() const { return PrimitiveComponentId; }
@@ -489,7 +491,7 @@ public:
 	inline bool NeedsLevelAddedToWorldNotification() const { return bNeedsLevelAddedToWorldNotification; }
 	inline bool IsComponentLevelVisible() const { return bIsComponentLevelVisible; }
 	inline bool IsStaticPathAvailable() const { return !bDisableStaticPath; }
-	inline bool ShouldReceiveCombinedCSMAndStaticShadowsFromStationaryLights() const { return bReceiveCombinedCSMAndStaticShadowsFromStationaryLights; }
+	inline bool ShouldReceiveMobileCSMShadows() const { return bReceiveMobileCSMShadows; }
 
 #if WITH_EDITOR
 	inline int32 GetNumUncachedStaticLightingInteractions() { return NumUncachedStaticLightingInteractions; }
@@ -827,9 +829,9 @@ private:
 	/** Whether this primitive should be composited onto the scene after post processing (editor only) */
 	uint32 bUseEditorCompositing : 1;
 
-	/** Should this primitive receive dynamic-only CSM shadows */
-	uint32 bReceiveCombinedCSMAndStaticShadowsFromStationaryLights : 1;
-		
+	/** Whether this primitive receive CSM shadows (Mobile) */
+	uint32 bReceiveMobileCSMShadows : 1;
+
 	/** This primitive has bRenderCustomDepth enabled */
 	uint32 bRenderCustomDepth : 1;
 
@@ -937,6 +939,8 @@ private:
 	 * @param InLocalBounds - The local space bounds of the primitive.
 	 */
 	ENGINE_API void SetTransform(const FMatrix& InLocalToWorld, const FBoxSphereBounds& InBounds, const FBoxSphereBounds& InLocalBounds, FVector InActorPosition);
+
+	ENGINE_API bool WouldSetTransformBeRedundant(const FMatrix& InLocalToWorld, const FBoxSphereBounds& InBounds, const FBoxSphereBounds& InLocalBounds, FVector InActorPosition);
 
 	/**
 	 * Either updates the uniform buffer or defers it until it becomes visible depending on a cvar

@@ -416,7 +416,7 @@ public:
 	virtual FQuat GetBaseRotationOffset() const { return BaseRotationOffset; }
 
 	/** Get the saved rotation offset of mesh. This is how much extra rotation is applied from the capsule rotation. */
-	UFUNCTION(BlueprintCallable, Category=Character, meta=(DisplayName="GetBaseRotationOffset"))
+	UFUNCTION(BlueprintCallable, Category=Character, meta=(DisplayName="GetBaseRotationOffset", ScriptName="GetBaseRotationOffset"))
 	FRotator GetBaseRotationOffsetRotator() const { return GetBaseRotationOffset().Rotator(); }
 
 	/** Default crouched eye height */
@@ -587,10 +587,11 @@ protected:
 	bool CanJumpInternal() const;
 	virtual bool CanJumpInternal_Implementation() const;
 
+public:
+
 	/** Marks character as not trying to jump */
 	void ResetJumpState();
 
-public:
 	/**
 	 * True if jump is actively providing a force, such as when the jump key is held and the time it has been held is less than JumpMaxHoldTime.
 	 * @see CharacterMovement->IsFalling
@@ -723,7 +724,7 @@ public:
 	 * @param	HalfHeightAdjust		difference between default collision half-height, and actual crouched capsule half-height.
 	 * @param	ScaledHalfHeightAdjust	difference after component scale is taken in to account.
 	 */
-	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName="OnEndCrouch"))
+	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName="OnEndCrouch", ScriptName="OnEndCrouch"))
 	void K2_OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust);
 
 	/**
@@ -738,7 +739,7 @@ public:
 	 * @param	HalfHeightAdjust		difference between default collision half-height, and actual crouched capsule half-height.
 	 * @param	ScaledHalfHeightAdjust	difference after component scale is taken in to account.
 	 */
-	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName="OnStartCrouch"))
+	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName="OnStartCrouch", ScriptName="OnStartCrouch"))
 	void K2_OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust);
 
 	/**
@@ -759,7 +760,7 @@ public:
 	 * @param	PrevCustomMode		Custom mode before the change (applicable if PrevMovementMode is Custom)
 	 * @param	NewCustomMode		New custom mode (applicable if NewMovementMode is Custom)
 	 */
-	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName="OnMovementModeChanged"))
+	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName="OnMovementModeChanged", ScriptName="OnMovementModeChanged"))
 	void K2_OnMovementModeChanged(EMovementMode PrevMovementMode, EMovementMode NewMovementMode, uint8 PrevCustomMode, uint8 NewCustomMode);
 
 	/**
@@ -767,7 +768,7 @@ public:
 	 * @note C++ code should override UCharacterMovementComponent::PhysCustom() instead.
 	 * @see UCharacterMovementComponent::PhysCustom()
 	 */
-	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName="UpdateCustomMovement"))
+	UFUNCTION(BlueprintImplementableEvent, meta=(DisplayName="UpdateCustomMovement", ScriptName="UpdateCustomMovement"))
 	void K2_UpdateCustomMovement(float DeltaTime);
 
 	/**

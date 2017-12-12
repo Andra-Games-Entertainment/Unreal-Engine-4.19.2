@@ -50,7 +50,7 @@
 extern ENGINE_API FLightMap2D* GDebugSelectedLightmap;
 extern ENGINE_API UPrimitiveComponent* GDebugSelectedComponent;
 
-DECLARE_FLOAT_COUNTER_STAT(TEXT("Custom Depth"), Stat_GPU_CustomDepth, STATGROUP_GPU);
+DECLARE_GPU_STAT_NAMED(CustomDepth, TEXT("Custom Depth"));
 
 static TAutoConsoleVariable<int32> CVarCustomDepthTemporalAAJitter(
 	TEXT("r.CustomDepthTemporalAAJitter"),
@@ -194,6 +194,9 @@ static TAutoConsoleVariable<int32> CVarSimpleForwardShading(
 	TEXT("0:off, 1:on"),
 	ECVF_RenderThreadSafe | ECVF_Scalability);
 
+// Keep track of the previous value for CVarSimpleForwardShading so we can avoid costly updates when it hasn't actually changed
+static int32 CVarSimpleForwardShading_PreviousValue = 0;
+
 static TAutoConsoleVariable<float> CVarNormalCurvatureToRoughnessBias(
 	TEXT("r.NormalCurvatureToRoughnessBias"),
 	0.0f,
@@ -234,7 +237,7 @@ static TAutoConsoleVariable<int32> CVarRHICmdBalanceParallelLists(
 
 static TAutoConsoleVariable<int32> CVarRHICmdMinCmdlistForParallelSubmit(
 	TEXT("r.RHICmdMinCmdlistForParallelSubmit"),
-	2,
+	1,
 	TEXT("Minimum number of parallel translate command lists to submit. If there are fewer than this number, they just run on the RHI thread and immediate context."));
 
 static TAutoConsoleVariable<int32> CVarRHICmdMinDrawsPerParallelCmdList(
@@ -895,7 +898,6 @@ void UpdateNoiseTextureParameters(FViewUniformShaderParameters& ViewUniformShade
 
 void SetupPrecomputedVolumetricLightmapUniformBufferParameters(const FScene* Scene, FViewUniformShaderParameters& ViewUniformShaderParameters)
 {
-
 	if (Scene && Scene->VolumetricLightmapSceneData.GetLevelVolumetricLightmap())
 	{
 		const FPrecomputedVolumetricLightmapData* VolumetricLightmapData = Scene->VolumetricLightmapSceneData.GetLevelVolumetricLightmap()->Data;
@@ -1127,14 +1129,13 @@ void FViewInfo::SetupUniformBufferParameters(
 	ViewUniformShaderParameters.StateFrameIndexMod8 = StateFrameIndexMod8;
 
 	{
-		// If rendering in stereo, the right eye uses the left eye's translucency lighting volume.
+		// If rendering in stereo, the other stereo passes uses the left eye's translucency lighting volume.
 		const FViewInfo* PrimaryView = this;
-		if (StereoPass == eSSP_RIGHT_EYE)
+		if (IStereoRendering::IsASecondaryView(StereoPass))
 		{
-			int32 ViewIndex = Family->Views.Find(this);
-			if (Family->Views.IsValidIndex(ViewIndex) && Family->Views.IsValidIndex(ViewIndex - 1))
+			if (Family->Views.IsValidIndex(0))
 			{
-				const FSceneView* LeftEyeView = Family->Views[ViewIndex - 1];
+				const FSceneView* LeftEyeView = Family->Views[0];
 				if (LeftEyeView->bIsViewInfo && LeftEyeView->StereoPass == eSSP_LEFT_EYE)
 				{
 					PrimaryView = static_cast<const FViewInfo*>(LeftEyeView);
@@ -1290,7 +1291,7 @@ void FViewInfo::SetupUniformBufferParameters(
 	extern FVector GetReflectionEnvironmentRoughnessMixingScaleBiasAndLargestWeight();
 	ViewUniformShaderParameters.ReflectionEnvironmentRoughnessMixingScaleBiasAndLargestWeight = GetReflectionEnvironmentRoughnessMixingScaleBiasAndLargestWeight();
 
-	ViewUniformShaderParameters.StereoPassIndex = (StereoPass != eSSP_RIGHT_EYE) ? 0 : 1;
+	ViewUniformShaderParameters.StereoPassIndex = (StereoPass <= eSSP_LEFT_EYE) ? 0 : (StereoPass == eSSP_RIGHT_EYE) ? 1 : StereoPass - eSSP_MONOSCOPIC_EYE + 1;
 }
 
 void FViewInfo::InitRHIResources()
@@ -1398,13 +1399,13 @@ FSceneViewState* FViewInfo::GetEffectiveViewState() const
 	FSceneViewState* EffectiveViewState = ViewState;
 
 	// When rendering in stereo we want to use the same exposure for both eyes.
-	if (StereoPass == eSSP_RIGHT_EYE)
+	if (IStereoRendering::IsASecondaryView(StereoPass))
 	{
 		int32 ViewIndex = Family->Views.Find(this);
 		if (Family->Views.IsValidIndex(ViewIndex))
 		{
-			// The left eye is always added before the right eye.
-			ViewIndex = ViewIndex - 1;
+			// The left eye is always added before other eye views.
+			ViewIndex = 0;
 			if (Family->Views.IsValidIndex(ViewIndex))
 			{
 				const FSceneView* PrimaryView = Family->Views[ViewIndex];
@@ -1582,6 +1583,7 @@ FSceneRenderer::FSceneRenderer(const FSceneViewFamily* InViewFamily,FHitProxyCon
 ,	MeshCollector(InViewFamily->GetFeatureLevel())
 ,	bUsedPrecomputedVisibility(false)
 ,	InstancedStereoWidth(0)
+,	RootMark(nullptr)
 ,	FamilySize(0, 0)
 {
 	check(Scene != NULL);
@@ -1982,7 +1984,10 @@ void FSceneRenderer::ComputeFamilySize()
 		MaxFamilyX = FMath::Max(MaxFamilyX, FinalViewMaxX);
 		MaxFamilyY = FMath::Max(MaxFamilyY, FinalViewMaxY);
 
-		InstancedStereoWidth = FPlatformMath::Max(InstancedStereoWidth, static_cast<uint32>(View.ViewRect.Max.X));
+		if (!IStereoRendering::IsAnAdditionalView(View.StereoPass))
+		{
+			InstancedStereoWidth = FPlatformMath::Max(InstancedStereoWidth, static_cast<uint32>(View.ViewRect.Max.X));
+		}
 	}
 
 	// We render to the actual position of the viewports so with black borders we need the max.
@@ -2375,7 +2380,7 @@ void FSceneRenderer::RenderCustomDepthPass(FRHICommandListImmediate& RHICmdList)
 	if (SceneContext.BeginRenderingCustomDepth(RHICmdList, bPrimitives))
 	{
 		SCOPED_DRAW_EVENT(RHICmdList, CustomDepth);
-		SCOPED_GPU_STAT(RHICmdList, Stat_GPU_CustomDepth);
+		SCOPED_GPU_STAT(RHICmdList, CustomDepth);
 
 		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
 		{
@@ -2495,15 +2500,16 @@ bool FSceneRenderer::ShouldCompositeEditorPrimitives(const FViewInfo& View)
 	return false;
 }
 
-void FSceneRenderer::WaitForTasksClearSnapshotsAndDeleteSceneRenderer(FRHICommandListImmediate& RHICmdList, FSceneRenderer* SceneRenderer)
+void FSceneRenderer::WaitForTasksClearSnapshotsAndDeleteSceneRenderer(FRHICommandListImmediate& RHICmdList, FSceneRenderer* SceneRenderer, bool bWaitForTasks)
 {
 	// we are about to destroy things that are being used for async tasks, so we wait here for them.
+	if (bWaitForTasks)
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_DeleteSceneRenderer_WaitForTasks);
 		RHICmdList.ImmediateFlush(EImmediateFlushType::WaitForOutstandingTasksOnly);
 	}
 	FViewInfo::DestroyAllSnapshots(); // this destroys viewinfo snapshots
-	FSceneRenderTargets::Get(RHICmdList).DestroyAllSnapshots(); // this will destroy the render target snapshots
+	FSceneRenderTargets::GetGlobalUnsafe().DestroyAllSnapshots(); // this will destroy the render target snapshots
 	static const IConsoleVariable* AsyncDispatch	= IConsoleManager::Get().FindConsoleVariable(TEXT("r.RHICmdAsyncRHIThreadDispatch"));
 
 	if (AsyncDispatch->GetInt() == 0)
@@ -2511,13 +2517,58 @@ void FSceneRenderer::WaitForTasksClearSnapshotsAndDeleteSceneRenderer(FRHIComman
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_DeleteSceneRenderer_Dispatch);
 		RHICmdList.ImmediateFlush(EImmediateFlushType::WaitForDispatchToRHIThread); // we want to make sure this all gets to the rhi thread this frame and doesn't hang around
 	}
+
+
+	FMemMark* LocalRootMark = SceneRenderer->RootMark;
+	SceneRenderer->RootMark = nullptr;
 	// Delete the scene renderer.
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_DeleteSceneRenderer);
 		delete SceneRenderer;
 	}
+
+	delete LocalRootMark;
 }
 
+class FClearSnapshotsAndDeleteSceneRendererTask
+{
+	FSceneRenderer* SceneRenderer;
+
+public:
+
+	FClearSnapshotsAndDeleteSceneRendererTask(FSceneRenderer* InSceneRenderer)
+		: SceneRenderer(InSceneRenderer)
+	{
+	}
+
+	FORCEINLINE TStatId GetStatId() const
+	{
+		RETURN_QUICK_DECLARE_CYCLE_STAT(FClearSnapshotsAndDeleteSceneRendererTask, STATGROUP_TaskGraphTasks);
+	}
+
+	ENamedThreads::Type GetDesiredThread()
+	{
+		return ENamedThreads::RenderThread_Local;
+	}
+
+	static ESubsequentsMode::Type GetSubsequentsMode() { return ESubsequentsMode::TrackSubsequents; }
+
+	void DoTask(ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
+	{
+		FSceneRenderer::WaitForTasksClearSnapshotsAndDeleteSceneRenderer(FRHICommandListExecutor::GetImmediateCommandList(), SceneRenderer, false);
+	}
+};
+
+void FSceneRenderer::DelayWaitForTasksClearSnapshotsAndDeleteSceneRenderer(FRHICommandListImmediate& RHICmdList, FSceneRenderer* SceneRenderer)
+{
+	FGraphEventArray& WaitOutstandingTasks = RHICmdList.GetRenderThreadTaskArray();
+	FGraphEventRef ClearSnapshotsAndDeleteSceneRendererTask = TGraphTask<FClearSnapshotsAndDeleteSceneRendererTask>::CreateTask(&WaitOutstandingTasks, ENamedThreads::RenderThread).ConstructAndDispatchWhenReady(SceneRenderer);
+
+	WaitOutstandingTasks.Empty();
+	WaitOutstandingTasks.Add(ClearSnapshotsAndDeleteSceneRendererTask);
+
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::RenderThread_Local); 
+}
 
 void FSceneRenderer::UpdatePrimitivePrecomputedLightingBuffers()
 {
@@ -2608,6 +2659,14 @@ static void ViewExtensionPreRender_RenderThread(FRHICommandListImmediate& RHICmd
     FDeferredUpdateResource::UpdateResources(RHICmdList);
 }
 
+
+static TAutoConsoleVariable<int32> CVarDelaySceneRenderCompletion(
+	TEXT("r.DelaySceneRenderCompletion"),
+	0,
+	TEXT("Experimental option to postpone the cleanup of the scene renderer until later."),
+	ECVF_RenderThreadSafe
+);
+
 /**
  * Helper function performing actual work in render thread.
  *
@@ -2615,7 +2674,26 @@ static void ViewExtensionPreRender_RenderThread(FRHICommandListImmediate& RHICmd
  */
 static void RenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, FSceneRenderer* SceneRenderer)
 {
-	FMemMark MemStackMark(FMemStack::Get());
+	{
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_DelaySceneRenderCompletion_TaskWait);
+		FRHICommandListExecutor::GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::WaitForOutstandingTasksOnly);
+	}
+
+	static const IConsoleVariable* AsyncDispatch = IConsoleManager::Get().FindConsoleVariable(TEXT("r.RHICmdAsyncRHIThreadDispatch"));
+
+#if WITH_EDITOR
+	bool bDelayCleanup = false;
+#else
+	bool bDelayCleanup = !!AsyncDispatch->GetInt() && IsRunningRHIInSeparateThread() && !!CVarDelaySceneRenderCompletion.GetValueOnRenderThread();
+#endif
+
+	FMemMark* MemStackMark = new FMemMark(FMemStack::Get());
+
+	if (bDelayCleanup)
+	{
+		SceneRenderer->RootMark = MemStackMark;
+		MemStackMark = nullptr;
+	}
 
 	// update any resources that needed a deferred update
 	FDeferredUpdateResource::UpdateResources(RHICmdList);
@@ -2675,7 +2753,15 @@ static void RenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, 
 
 		GRenderTargetPool.SetEventRecordingActive(false);
 
-		FSceneRenderer::WaitForTasksClearSnapshotsAndDeleteSceneRenderer(RHICmdList, SceneRenderer);
+		if (bDelayCleanup)
+		{
+			check(!MemStackMark && SceneRenderer->RootMark);
+			FSceneRenderer::DelayWaitForTasksClearSnapshotsAndDeleteSceneRenderer(RHICmdList, SceneRenderer);
+		}
+		else
+		{
+			FSceneRenderer::WaitForTasksClearSnapshotsAndDeleteSceneRenderer(RHICmdList, SceneRenderer);
+		}
 	}
 
 #if STATS
@@ -2686,6 +2772,8 @@ static void RenderViewFamily_RenderThread(FRHICommandListImmediate& RHICmdList, 
 		SET_CYCLE_COUNTER(STAT_TotalGPUFrameTime, RHIGetGPUFrameCycles());
 	}
 #endif
+
+	delete MemStackMark;
 }
 
 void OnChangeSimpleForwardShading(IConsoleVariable* Var)
@@ -2693,20 +2781,38 @@ void OnChangeSimpleForwardShading(IConsoleVariable* Var)
 	static const auto SupportSimpleForwardShadingCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.SupportSimpleForwardShading"));
 	static const auto SimpleForwardShadingCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.SimpleForwardShading"));
 
-	if (SimpleForwardShadingCVar->GetValueOnAnyThread() != 0)
+	const bool bWasEnabled = CVarSimpleForwardShading_PreviousValue != 0;
+	const bool bShouldBeEnabled = SimpleForwardShadingCVar->GetValueOnAnyThread() != 0;
+	if( bWasEnabled != bShouldBeEnabled )
+	{
+	bool bWasIgnored = false;
 	{
 		if (SupportSimpleForwardShadingCVar->GetValueOnAnyThread() == 0)
 		{
-			UE_LOG(LogRenderer, Warning, TEXT("r.SimpleForwardShading ignored as r.SupportSimpleForwardShading is not enabled"));
+				if (bShouldBeEnabled)
+				{
+					UE_LOG( LogRenderer, Warning, TEXT( "r.SimpleForwardShading ignored as r.SupportSimpleForwardShading is not enabled" ) );
+				}
+			bWasIgnored = true;
 		}
 		else if (!PlatformSupportsSimpleForwardShading(GMaxRHIShaderPlatform))
 		{
-			UE_LOG(LogRenderer, Warning, TEXT("r.SimpleForwardShading ignored, only supported on PC shader platforms.  Current shader platform %s"), *LegacyShaderPlatformToShaderFormat(GMaxRHIShaderPlatform).ToString());
+				if (bShouldBeEnabled)
+				{
+					UE_LOG( LogRenderer, Warning, TEXT( "r.SimpleForwardShading ignored, only supported on PC shader platforms.  Current shader platform %s" ), *LegacyShaderPlatformToShaderFormat( GMaxRHIShaderPlatform ).ToString() );
+				}
+			bWasIgnored = true;
 		}
 	}
 
-	// Propgate cvar change to static draw lists
-	FGlobalComponentRecreateRenderStateContext Context;
+	if( !bWasIgnored )
+	{
+		// Propagate cvar change to static draw lists
+		FGlobalComponentRecreateRenderStateContext Context;
+	}
+	}
+
+	CVarSimpleForwardShading_PreviousValue = SimpleForwardShadingCVar->GetValueOnAnyThread();
 }
 
 void OnChangeCVarRequiringRecreateRenderState(IConsoleVariable* Var)
@@ -2720,6 +2826,7 @@ FRendererModule* RendererModule;
 FRendererModule::FRendererModule()
 	: CustomCullingImpl(nullptr)
 {
+	CVarSimpleForwardShading_PreviousValue = CVarSimpleForwardShading.AsVariable()->GetInt();
 	CVarSimpleForwardShading.AsVariable()->SetOnChangedCallback(FConsoleVariableDelegate::CreateStatic(&OnChangeSimpleForwardShading));
 
 	static auto CVarEarlyZPass = IConsoleManager::Get().FindConsoleVariable(TEXT("r.EarlyZPass"));
@@ -3152,8 +3259,12 @@ void FSceneRenderer::ResolveSceneColor(FRHICommandList& RHICmdList)
 	{
 		RHICmdList.CopyToResolveTarget(SceneContext.GetSceneColorSurface(), SceneContext.GetSceneColorTexture(), true, FResolveRect(0, 0, FamilySize.X, FamilySize.Y));
 	}
-	else 
+	else
 	{
+		RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneColorSurface());
+
+		FTexture2DRHIRef FMaskTexture = GDynamicRHI->RHIGetFMaskTexture(SceneContext.GetSceneColorSurface());
+
 		// Custom shader based color resolve for HDR color to emulate mobile.
 		SetRenderTarget(RHICmdList, SceneContext.GetSceneColorTexture(), FTextureRHIParamRef());
 		
@@ -3182,60 +3293,91 @@ void FSceneRenderer::ResolveSceneColor(FRHICommandList& RHICmdList)
 
 			if (ResolveWidth != 0)
 			{
-				ResolveFilterWide(RHICmdList, GraphicsPSOInit, SceneContext.GetCurrentFeatureLevel(), CurrentSceneColor->GetRenderTargetItem().TargetableTexture, FIntPoint(0, 0), CurrentNumSamples, ResolveWidth);
+				ResolveFilterWide(RHICmdList, GraphicsPSOInit, SceneContext.GetCurrentFeatureLevel(), CurrentSceneColor->GetRenderTargetItem().TargetableTexture, FMaskTexture, FIntPoint(0, 0), CurrentNumSamples, ResolveWidth);
 			}
 			else
 			{
 				auto ShaderMap = GetGlobalShaderMap(SceneContext.GetCurrentFeatureLevel());
 				TShaderMapRef<FHdrCustomResolveVS> VertexShader(ShaderMap);
+				GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = GetVertexDeclarationFVector4();
+				GraphicsPSOInit.BoundShaderState.VertexShaderRHI = GETSAFERHISHADER_VERTEX(*VertexShader);
+				GraphicsPSOInit.PrimitiveType = PT_TriangleList;
 
-				if (CurrentNumSamples == 2)
+				if (FMaskTexture.IsValid())
 				{
-					TShaderMapRef<FHdrCustomResolve2xPS> PixelShader(ShaderMap);
-					GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = GetVertexDeclarationFVector4();
-					GraphicsPSOInit.BoundShaderState.VertexShaderRHI = GETSAFERHISHADER_VERTEX(*VertexShader);
-					GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
-					GraphicsPSOInit.PrimitiveType = PT_TriangleList;
+					if (CurrentNumSamples == 2)
+					{
+						TShaderMapRef<FHdrCustomResolveFMask2xPS> PixelShader(ShaderMap);
+						GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
 
-					SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
-					PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture);
-					RHICmdList.DrawPrimitive(PT_TriangleList, 0, 1, 1);
-				}
-				else if (CurrentNumSamples == 4)
-				{
-					TShaderMapRef<FHdrCustomResolve4xPS> PixelShader(ShaderMap);
-					GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = GetVertexDeclarationFVector4();
-					GraphicsPSOInit.BoundShaderState.VertexShaderRHI = GETSAFERHISHADER_VERTEX(*VertexShader);
-					GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
-					GraphicsPSOInit.PrimitiveType = PT_TriangleList;
+						SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
+						PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture, FMaskTexture);
+					}
+					else if (CurrentNumSamples == 4)
+					{
+						TShaderMapRef<FHdrCustomResolveFMask4xPS> PixelShader(ShaderMap);
+						GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
 
-					SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
-					PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture);
-					RHICmdList.DrawPrimitive(PT_TriangleList, 0, 1, 1);
-				}
-				else if (CurrentNumSamples == 8)
-				{
-					TShaderMapRef<FHdrCustomResolve8xPS> PixelShader(ShaderMap);
-					GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = GetVertexDeclarationFVector4();
-					GraphicsPSOInit.BoundShaderState.VertexShaderRHI = GETSAFERHISHADER_VERTEX(*VertexShader);
-					GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
-					GraphicsPSOInit.PrimitiveType = PT_TriangleList;
+						SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
+						PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture, FMaskTexture);
+					}
+					else if (CurrentNumSamples == 8)
+					{
+						TShaderMapRef<FHdrCustomResolveFMask8xPS> PixelShader(ShaderMap);
+						GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
 
-					SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
-					PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture);
-					RHICmdList.DrawPrimitive(PT_TriangleList, 0, 1, 1);
+						SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
+						PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture, FMaskTexture);
+					}
+					else
+					{
+						// Everything other than 2,4,8 samples is not implemented.
+						check(0);
+						break;
+					}
 				}
 				else
 				{
-					// Everything other than 2,4,8 samples is not implemented.
-					check(0);
+					if (CurrentNumSamples == 2)
+					{
+						TShaderMapRef<FHdrCustomResolve2xPS> PixelShader(ShaderMap);
+						GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
+
+						SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
+						PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture);
+					}
+					else if (CurrentNumSamples == 4)
+					{
+						TShaderMapRef<FHdrCustomResolve4xPS> PixelShader(ShaderMap);
+						GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
+
+						SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
+						PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture);
+					}
+					else if (CurrentNumSamples == 8)
+					{
+						TShaderMapRef<FHdrCustomResolve8xPS> PixelShader(ShaderMap);
+						GraphicsPSOInit.BoundShaderState.PixelShaderRHI = GETSAFERHISHADER_PIXEL(*PixelShader);
+
+						SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
+						PixelShader->SetParameters(RHICmdList, CurrentSceneColor->GetRenderTargetItem().TargetableTexture);
+					}
+					else
+					{
+						// Everything other than 2,4,8 samples is not implemented.
+						check(0);
+						break;
+					}
 				}
+
+				RHICmdList.DrawPrimitive(PT_TriangleList, 0, 1, 1);
 			}
 		}
 
 		RHICmdList.SetScissorRect(false, 0, 0, 0, 0);
 	}
 }
+
 FTextureRHIParamRef FSceneRenderer::GetMultiViewSceneColor(const FSceneRenderTargets& SceneContext) const
 {
 	const FViewInfo& View = Views[0];

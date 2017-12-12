@@ -169,15 +169,6 @@ bool AActor::CheckActorComponents()
 			UE_LOG(LogCheckComponents, Error, TEXT("Component is a template but I am not. Me = %s, Component = %s"), *this->GetFullName(), *Inner->GetFullName());
 			bResult = false;
 		}
-		UObject* Archetype = Inner->GetArchetype();
-		if (Archetype != Inner->GetClass()->GetDefaultObject())
-		{
-			if (Archetype != GetClass()->GetDefaultSubobjectByName(Inner->GetFName()))
-			{
-				UE_LOG(LogCheckComponents, Error, TEXT("Component archetype is not the CDO nor a default subobject of my class. Me = %s, Component = %s, Archetype = %s"), *this->GetFullName(), *Inner->GetFullName(), *Archetype->GetFullName());
-				bResult = false;
-			}
-		}
 	}
 	for (int32 Index = 0; Index < BlueprintCreatedComponents.Num(); Index++)
 	{
@@ -1714,15 +1705,7 @@ bool AActor::IsInLevel(const ULevel *TestLevel) const
 
 ULevel* AActor::GetLevel() const
 {
-	for (UObject* Outer = GetOuter(); Outer != nullptr; Outer = Outer->GetOuter())
-	{
-		if (ULevel* Level = Cast<ULevel>(Outer))
-		{
-			return Level;
-		}
-	}
-
-	return nullptr;
+	return GetTypedOuter<ULevel>();
 }
 
 bool AActor::IsInPersistentLevel(bool bIncludeLevelStreamingPersistent) const
@@ -3142,6 +3125,7 @@ void AActor::BeginPlay()
 		{
 			Component->RegisterAllComponentTickFunctions(true);
 			Component->BeginPlay();
+			ensureMsgf(Component->HasBegunPlay(), TEXT("Failed to route BeginPlay (%s)"), *Component->GetFullName());
 		}
 		else
 		{
@@ -4595,6 +4579,24 @@ FNetworkObjectInfo* AActor::FindNetworkObjectInfo()
 	}
 
 	return nullptr;
+}
+
+void AActor::PostRename(UObject* OldOuter, const FName OldName)
+{
+	Super::PostRename(OldOuter, OldName);
+
+	if (UWorld* World = GetWorld())
+	{
+		if (UNetDriver* NetDriver = World->GetNetDriver())
+		{
+			NetDriver->NotifyActorRenamed(this, OldName);
+		}
+
+		if (World->DemoNetDriver)
+		{
+			World->DemoNetDriver->NotifyActorRenamed(this, OldName);
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

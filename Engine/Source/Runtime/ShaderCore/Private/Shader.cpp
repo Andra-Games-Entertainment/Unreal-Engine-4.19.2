@@ -987,6 +987,7 @@ bool FShader::SerializeBase(FArchive& Ar, bool bShadersInline)
 		// Save the shader resource if we are inlining shaders
 		if (Ar.IsSaving())
 		{
+			check(Resource->Target == Target);
 			Resource->Serialize(Ar);
 		}
 
@@ -1854,8 +1855,15 @@ void ShaderMapAppendKeyString(EShaderPlatform Platform, FString& KeyString)
 
 	if (IsMobilePlatform(Platform))
 	{
-		static IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Mobile.DisableVertexFog"));
-		KeyString += (CVar && CVar->GetInt() != 0) ? TEXT("_NoVFog") : TEXT("");
+		{
+			static IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Mobile.DisableVertexFog"));
+			KeyString += (CVar && CVar->GetInt() != 0) ? TEXT("_NoVFog") : TEXT("");
+		}
+
+		{
+			static const auto* CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.Shadow.CSM.MaxMobileCascades"));
+			KeyString += (CVar) ? FString::Printf(TEXT("MMC%d"), CVar->GetValueOnAnyThread()) : TEXT("");
+		}		
 	}
 
 	if (Platform == SP_PS4)

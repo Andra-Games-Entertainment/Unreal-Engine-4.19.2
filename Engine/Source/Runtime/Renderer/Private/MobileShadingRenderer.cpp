@@ -359,7 +359,7 @@ void FMobileSceneRenderer::BasicPostProcess(FRHICommandListImmediate& RHICmdList
 	if (bDoUpscale || bBlitRequired)
 	{	// blit from sceneRT to view family target, simple bilinear if upscaling otherwise point filtered.
 		uint32 UpscaleQuality = bDoUpscale ? 1 : 0;
-		FRenderingCompositePass* Node = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessUpscale(View, UpscaleQuality));
+		FRenderingCompositePass* Node = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessUpscaleES2(View, UpscaleQuality, false));
 
 		Node->SetInput(ePId_Input0, FRenderingCompositeOutputRef(Context.FinalOutput));
 		Node->SetInput(ePId_Input1, FRenderingCompositeOutputRef(Context.FinalOutput));
@@ -515,6 +515,9 @@ void FMobileSceneRenderer::CreateDirectionalLightUniformBuffers(FSceneView& Scen
 		{
 			Params.DirectionalLightColor = Light->Proxy->GetColor() / PI;
 			Params.DirectionalLightDirection = -Light->Proxy->GetDirection();
+
+			const FVector2D FadeParams = Light->Proxy->GetDirectionalLightDistanceFadeParameters(FeatureLevel, Light->IsPrecomputedLightingValid(), SceneView.MaxShadowCascades);
+			Params.DirectionalLightDistanceFadeMAD = FVector2D(FadeParams.Y, -FadeParams.X * FadeParams.Y);
 
 			if (bDynamicShadows && VisibleLightInfos.IsValidIndex(Light->Id) && VisibleLightInfos[Light->Id].AllProjectedShadows.Num() > 0)
 			{

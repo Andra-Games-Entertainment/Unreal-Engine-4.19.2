@@ -435,17 +435,18 @@ struct FSetShapeParams
 FBodyInstance::FBodyInstance()
 	: InstanceBodyIndex(INDEX_NONE)
 	, InstanceBoneIndex(INDEX_NONE)
-	, Scale3D(1.0f)
 	, SceneIndexSync(0)
 	, SceneIndexAsync(0)
+	, ObjectType(ECC_WorldStatic)
+	, Scale3D(1.0f)
+	, CollisionProfileName(UCollisionProfile::CustomCollisionProfileName)
+	, MaskFilter(0)
+	, CollisionEnabled(ECollisionEnabled::QueryAndPhysics)
 #if WITH_PHYSX
 	, CurrentSceneState(BodyInstanceSceneState::NotAdded)
 #endif // WITH_PHYSX
 	, SleepFamily(ESleepFamily::Normal)
 	, DOFMode(0)
-	, CollisionEnabled(ECollisionEnabled::QueryAndPhysics)
-	, CollisionProfileName(UCollisionProfile::CustomCollisionProfileName)
-	, MaskFilter(0)
 	, bUseCCD(false)
 	, bNotifyRigidBodyCollision(false)
 	, bSimulatePhysics(false)
@@ -470,15 +471,14 @@ FBodyInstance::FBodyInstance()
 	, bOverrideMaxDepenetrationVelocity(false)
 	, bOverrideWalkableSlopeOnInstance(false)
 	, MaxDepenetrationVelocity(0.f)
-	, ExternalCollisionProfileBodySetup(nullptr)
 	, MassInKgOverride(100.f)
+	, ExternalCollisionProfileBodySetup(nullptr)
 	, LinearDamping(0.01)
 	, AngularDamping(0.0)
 	, CustomDOFPlaneNormal(FVector::ZeroVector)
 	, COMNudge(ForceInit)
 	, MassScale(1.f)
 	, InertiaTensorScale(1.f)
-	, ObjectType(ECC_WorldStatic)
 	, DOFConstraint(nullptr)
 	, WeldParent(nullptr)
 	, PhysMaterialOverride(nullptr)
@@ -646,7 +646,6 @@ void FBodyInstance::InvalidateCollisionProfileName()
 void FBodyInstance::SetResponseToChannel(ECollisionChannel Channel, ECollisionResponse NewResponse)
 {
 	InvalidateCollisionProfileName();
-	ResponseToChannels_DEPRECATED.SetResponse(Channel, NewResponse);
 	CollisionResponses.SetResponse(Channel, NewResponse);
 	UpdatePhysicsFilterData();
 }
@@ -654,7 +653,6 @@ void FBodyInstance::SetResponseToChannel(ECollisionChannel Channel, ECollisionRe
 void FBodyInstance::SetResponseToAllChannels(ECollisionResponse NewResponse)
 {
 	InvalidateCollisionProfileName();
-	ResponseToChannels_DEPRECATED.SetAllChannels(NewResponse);
 	CollisionResponses.SetAllChannels(NewResponse);
 	UpdatePhysicsFilterData();
 }
@@ -662,7 +660,6 @@ void FBodyInstance::SetResponseToAllChannels(ECollisionResponse NewResponse)
 void FBodyInstance::ReplaceResponseToChannels(ECollisionResponse OldResponse, ECollisionResponse NewResponse)
 {
 	InvalidateCollisionProfileName();
-	ResponseToChannels_DEPRECATED.ReplaceChannels(OldResponse, NewResponse);
 	CollisionResponses.ReplaceChannels(OldResponse, NewResponse);
 	UpdatePhysicsFilterData();
 }
@@ -2856,13 +2853,13 @@ FVector GetUnrealWorldAngularVelocityInRadiansImp(const FBodyInstance* BodyInsta
 	return AngVel;
 }
 
-/** Note: returns angular velocity in degrees per second. */
+/** Note: returns angular velocity in radians per second. */
 FVector FBodyInstance::GetUnrealWorldAngularVelocityInRadians() const
 {
 	return GetUnrealWorldAngularVelocityInRadiansImp<true>(this);
 }
 
-/** Note: returns angular velocity in degrees per second. */
+/** Note: returns angular velocity in radians per second. */
 FVector FBodyInstance::GetUnrealWorldAngularVelocityInRadians_AssumesLocked() const
 {
 	return GetUnrealWorldAngularVelocityInRadiansImp<false>(this);
@@ -3742,6 +3739,18 @@ void FBodyInstance::SetEnableGravity(bool bInGravityEnabled)
 	}
 }
 
+void FBodyInstance::SetUseCCD(bool bInUseCCD)
+{
+	if (bUseCCD != bInUseCCD)
+	{
+		bUseCCD = bInUseCCD;
+#if WITH_PHYSX
+		// Need to update shape filter data when CCD changes
+		UpdatePhysicsFilterData();
+#endif // WITH_PHYSX
+	}
+}
+
 
 void FBodyInstance::AddRadialImpulseToBody(const FVector& Origin, float Radius, float Strength, uint8 Falloff, bool bVelChange)
 {
@@ -4418,6 +4427,7 @@ void FBodyInstance::FixupData(class UObject* Loader)
 
 	int32 const UE4Version = Loader->GetLinkerUE4Version();
 
+#if WITH_EDITOR
 	if (UE4Version < VER_UE4_ADD_CUSTOMPROFILENAME_CHANGE)
 	{
 		if (CollisionProfileName == NAME_None)
@@ -4430,6 +4440,7 @@ void FBodyInstance::FixupData(class UObject* Loader)
 	{
 		CollisionResponses.SetCollisionResponseContainer(ResponseToChannels_DEPRECATED);
 	}
+#endif // WITH_EDITORONLY_DATA
 
 	// Load profile. If older version, please verify profile name first
 	bool bNeedToVerifyProfile = (UE4Version < VER_UE4_COLLISION_PROFILE_SETTING) || 

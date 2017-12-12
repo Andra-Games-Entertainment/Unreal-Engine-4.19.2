@@ -42,9 +42,18 @@ void FStreamedAudioChunk::Serialize(FArchive& Ar, UObject* Owner, int32 ChunkInd
 	bool bCooked = Ar.IsCooking();
 	Ar << bCooked;
 
-	BulkData.SetBulkDataFlags(BULKDATA_Force_NOT_InlinePayload);
+	// ChunkIndex 0 is always inline payload, all other chunks are streamed.
+	if (ChunkIndex == 0)
+	{
+		BulkData.SetBulkDataFlags(BULKDATA_ForceInlinePayload);
+	}
+	else
+	{
+		BulkData.SetBulkDataFlags(BULKDATA_Force_NOT_InlinePayload);
+	}
 	BulkData.Serialize(Ar, Owner, ChunkIndex);
 	Ar << DataSize;
+	Ar << AudioDataSize;
 
 #if WITH_EDITORONLY_DATA
 	if (!bCooked)
@@ -640,7 +649,10 @@ void USoundWave::FinishDestroy()
 
 	CleanupCachedRunningPlatformData();
 #if WITH_EDITOR
-	ClearAllCachedCookedPlatformData();
+	if (!GExitPurge)
+	{
+		ClearAllCachedCookedPlatformData();
+	}
 #endif
 
 	IStreamingManager::Get().GetAudioStreamingManager().RemoveStreamingSoundWave(this);
@@ -804,7 +816,10 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 			WaveInstance->bOutputToBusOnly = ParseParams.bOutputToBusOnly;
 		}
 
-		WaveInstance->SoundSourceBusSends = ParseParams.SoundSourceBusSends;
+		for (int32 BusSendType = 0; BusSendType < (int32)EBusSendType::Count; ++BusSendType)
+		{
+			WaveInstance->SoundSourceBusSends[BusSendType] = ParseParams.SoundSourceBusSends[BusSendType];
+		}
 
 		if (AudioDevice->IsHRTFEnabledForAll() && ParseParams.SpatializationMethod == ESoundSpatializationAlgorithm::SPATIALIZATION_Default)
 		{
@@ -819,6 +834,8 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 		WaveInstance->SpatializationPluginSettings = ParseParams.SpatializationPluginSettings;
 		WaveInstance->OcclusionPluginSettings = ParseParams.OcclusionPluginSettings;
 		WaveInstance->ReverbPluginSettings = ParseParams.ReverbPluginSettings;
+
+		WaveInstance->bIsAmbisonics = bIsAmbisonics;
 
 		bool bAddedWaveInstance = false;
 

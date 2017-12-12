@@ -149,20 +149,6 @@ void UAnimSequence::PostInitProperties()
 	Super::PostInitProperties();
 }
 
-void UAnimSequence::GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize)
-{
-	Super::GetResourceSizeEx(CumulativeResourceSize);
-
-	if (CumulativeResourceSize.GetResourceSizeMode() == EResourceSizeMode::Exclusive)
-	{
-		// All of the sequence data is serialized and will be counted as part of the direct object size rather than as a resource
-	}
-	else
-	{
-		CumulativeResourceSize.AddDedicatedSystemMemoryBytes((CompressedTrackOffsets.Num() == 0) ? GetApproxRawSize() : GetApproxCompressedSize());
-	}
-}
-
 void UAnimSequence::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 {
 #if WITH_EDITORONLY_DATA
@@ -515,12 +501,6 @@ void UAnimSequence::PostLoad()
 	bWasCompressedWithoutTranslations = false; //@todoanim: @fixmelh : AnimRotationOnly - GetAnimSet()->bAnimRotationOnly;
 #endif // WITH_EDITORONLY_DATA
 
-	if( IsRunningGame() )
-	{
-		// this probably will not show newly created animations in PIE but will show them in the game once they have been saved off
-		INC_DWORD_STAT_BY( STAT_AnimationMemory, GetResourceSizeBytes(EResourceSizeMode::Exclusive) );
-	}
-
 	{
 		LOG_SCOPE_VERBOSITY_OVERRIDE(LogAnimation, ELogVerbosity::Warning);
  		// convert animnotifies
@@ -692,11 +672,6 @@ void UAnimSequence::BeginDestroy()
 	// clear any active codec links
 	RotationCodec = NULL;
 	TranslationCodec = NULL;
-
-	if( IsRunningGame() )
-	{
-		DEC_DWORD_STAT_BY( STAT_AnimationMemory, GetResourceSizeBytes(EResourceSizeMode::Exclusive) );
-	}
 }
 
 #if WITH_EDITOR
@@ -2343,12 +2318,15 @@ void UAnimSequence::SerializeCompressedData(FArchive& Ar, bool bDDCData)
 		// Swap the byte stream into a buffer.
 		TArray<uint8> SerializedData;
 
-		// we must know the proper codecs to use
-		AnimationFormat_SetInterfaceLinks(*this);
+		if (!HasAnyFlags(RF_ClassDefaultObject))
+		{
+			// we must know the proper codecs to use
+			AnimationFormat_SetInterfaceLinks(*this);
 
-		// and then use the codecs to byte swap
-		check(RotationCodec != NULL);
-		((AnimEncoding*)RotationCodec)->ByteSwapOut(*this, SerializedData, Ar.ForceByteSwapping());
+			// and then use the codecs to byte swap
+			check(RotationCodec != NULL);
+			((AnimEncoding*)RotationCodec)->ByteSwapOut(*this, SerializedData, Ar.ForceByteSwapping());
+		}
 
 		// Make sure the entire byte stream was serialized.
 		//check( CompressedByteStream.Num() == SerializedData.Num() );
@@ -5587,7 +5565,7 @@ void GatherAnimSequenceStats(FOutputDevice& Ar)
 			NumTransTracksWithOneKey, NumRotTracksWithOneKey, NumScaleTracksWithOneKey,
 			TotalNumTransKeys, TotalNumRotKeys, TotalNumScaleKeys,
 			*FAnimationUtils::GetAnimationKeyFormatString(static_cast<AnimationKeyFormat>(Seq->KeyEncodingFormat)),
-			(int32)Seq->GetResourceSizeBytes(EResourceSizeMode::Exclusive) );
+			(int32)Seq->GetResourceSizeBytes(EResourceSizeMode::EstimatedTotal) );
 	}
 	Ar.Logf( TEXT("======================================================================") );
 	Ar.Logf( TEXT("Total Num Tracks: %i trans, %i rot, %i scale, %i trans1, %i rot1, %i scale1"), GlobalNumTransTracks, GlobalNumRotTracks, GlobalNumScaleTracks, GlobalNumTransTracksWithOneKey, GlobalNumRotTracksWithOneKey, GlobalNumScaleTracksWithOneKey  );

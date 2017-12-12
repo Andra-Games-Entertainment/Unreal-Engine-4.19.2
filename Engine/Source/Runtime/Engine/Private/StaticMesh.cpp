@@ -410,8 +410,8 @@ void FStaticMeshVertexBuffers::InitModelVF(FLocalVertexFactory* VertexFactory)
 	ENQUEUE_RENDER_COMMAND(StaticMeshVertexBuffersLegacyBspInit)(
 		[VertexFactory, Self](FRHICommandListImmediate& RHICmdList)
 	{
-		InitOrUpdateResource(&Self->PositionVertexBuffer);
-		InitOrUpdateResource(&Self->StaticMeshVertexBuffer);
+		check(Self->PositionVertexBuffer.IsInitialized());
+		check(Self->StaticMeshVertexBuffer.IsInitialized());
 
 		FLocalVertexFactory::FDataType Data;
 		Self->PositionVertexBuffer.BindPositionVertexBuffer(VertexFactory, Data);
@@ -1131,15 +1131,15 @@ FArchive& operator<<(FArchive& Ar, FMeshReductionSettings& ReductionSettings)
 FArchive& operator<<(FArchive& Ar, FMeshBuildSettings& BuildSettings)
 {
 	// Note: this serializer is currently only used to build the mesh DDC key, no versioning is required
-	Ar << BuildSettings.bRecomputeNormals;
-	Ar << BuildSettings.bRecomputeTangents;
-	Ar << BuildSettings.bUseMikkTSpace;
-	Ar << BuildSettings.bRemoveDegenerates;
-	Ar << BuildSettings.bBuildAdjacencyBuffer;
-	Ar << BuildSettings.bBuildReversedIndexBuffer;
-	Ar << BuildSettings.bUseHighPrecisionTangentBasis;
-	Ar << BuildSettings.bUseFullPrecisionUVs;
-	Ar << BuildSettings.bGenerateLightmapUVs;
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bRecomputeNormals);
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bRecomputeTangents);
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bUseMikkTSpace);
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bRemoveDegenerates);
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bBuildAdjacencyBuffer);
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bBuildReversedIndexBuffer);
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bUseHighPrecisionTangentBasis);
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bUseFullPrecisionUVs);
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bGenerateLightmapUVs);
 
 	Ar << BuildSettings.MinLightmapResolution;
 	Ar << BuildSettings.SrcLightmapIndex;
@@ -1157,7 +1157,7 @@ FArchive& operator<<(FArchive& Ar, FMeshBuildSettings& BuildSettings)
 	}
 	
 	Ar << BuildSettings.DistanceFieldResolutionScale;
-	Ar << BuildSettings.bGenerateDistanceFieldAsIfTwoSided;
+	FArchive_Serialize_BitfieldBool(Ar, BuildSettings.bGenerateDistanceFieldAsIfTwoSided);
 
 	FString ReplacementMeshName = BuildSettings.DistanceFieldReplacementMesh->GetPathName();
 	Ar << ReplacementMeshName;
@@ -1568,11 +1568,6 @@ void UStaticMesh::InitResources()
 #endif // STATS
 }
 
-/**
- * Returns the size of the object/ resource for display to artists/ LDs in the Editor.
- *
- * @return size of resource as to be displayed to artists/ LDs in the Editor.
- */
 void UStaticMesh::GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize)
 {
 	Super::GetResourceSizeEx(CumulativeResourceSize);
@@ -1581,30 +1576,6 @@ void UStaticMesh::GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize)
 	{
 		RenderData->GetResourceSizeEx(CumulativeResourceSize);
 	}
-	if (CumulativeResourceSize.GetResourceSizeMode() == EResourceSizeMode::Inclusive)
-	{
-		TSet<UMaterialInterface*> UniqueMaterials;
-		for (int32 MaterialIndex = 0; MaterialIndex < StaticMaterials.Num(); ++MaterialIndex)
-		{
-			const FStaticMaterial& StaticMaterial = StaticMaterials[MaterialIndex];
-			bool bAlreadyCounted = false;
-			UniqueMaterials.Add(StaticMaterial.MaterialInterface,&bAlreadyCounted);
-			if (!bAlreadyCounted && StaticMaterial.MaterialInterface)
-			{
-				StaticMaterial.MaterialInterface->GetResourceSizeEx(CumulativeResourceSize);
-			}
-		}
-
-		if(BodySetup)
-		{
-			BodySetup->GetResourceSizeEx(CumulativeResourceSize);
-		}
-	}
-}
-
-SIZE_T FStaticMeshRenderData::GetResourceSize() const
-{
-	return GetResourceSizeBytes();
 }
 
 void FStaticMeshRenderData::GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize) const
@@ -1613,10 +1584,6 @@ void FStaticMeshRenderData::GetResourceSizeEx(FResourceSizeEx& CumulativeResourc
 
 	// Count dynamic arrays.
 	CumulativeResourceSize.AddUnknownMemoryBytes(LODResources.GetAllocatedSize());
-#if WITH_EDITORONLY_DATA
-	CumulativeResourceSize.AddDedicatedSystemMemoryBytes(DerivedDataKey.GetAllocatedSize());
-	CumulativeResourceSize.AddDedicatedSystemMemoryBytes(WedgeMap.GetAllocatedSize());
-#endif // #if WITH_EDITORONLY_DATA
 
 	for(int32 LODIndex = 0;LODIndex < LODResources.Num();LODIndex++)
 	{
@@ -1645,13 +1612,6 @@ void FStaticMeshRenderData::GetResourceSizeEx(FResourceSizeEx& CumulativeResourc
 		NextCachedRenderData->GetResourceSizeEx(CumulativeResourceSize);
 	}
 #endif // #if WITH_EDITORONLY_DATA
-}
-
-SIZE_T FStaticMeshRenderData::GetResourceSizeBytes() const
-{
-	FResourceSizeEx ResSize;
-	GetResourceSizeEx(ResSize);
-	return ResSize.GetTotalMemoryBytes();
 }
 
 int32 UStaticMesh::GetNumVertices(int32 LODIndex) const
@@ -2094,11 +2054,10 @@ void UStaticMesh::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const
 		DefaultCollisionName = BodySetup->DefaultInstance.GetCollisionProfileName();
 	}
 
-	static const UEnum *ComplexityEnum = FindObject<UEnum>(ANY_PACKAGE, TEXT("ECollisionTraceFlag"), true);
 	FString ComplexityString;
-	if (BodySetup && ComplexityEnum)
+	if (BodySetup != nullptr)
 	{
-		ComplexityString = ComplexityEnum->GetNameStringByValue((int64)BodySetup->GetCollisionTraceFlag());
+		ComplexityString = Lex::ToString((ECollisionTraceFlag)BodySetup->GetCollisionTraceFlag());
 	}
 
 	OutTags.Add( FAssetRegistryTag("Triangles", FString::FromInt(NumTriangles), FAssetRegistryTag::TT_Numerical) );

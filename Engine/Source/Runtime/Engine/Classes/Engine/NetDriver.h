@@ -290,6 +290,9 @@ public:
 	UPROPERTY()
 	class UWorld* World;
 
+	UPROPERTY()
+	class UPackage* WorldPackage;
+
 	/** @todo document */
 	TSharedPtr< class FNetGUIDCache > GuidCache;
 
@@ -341,8 +344,8 @@ public:
 	bool						ProfileStats;
 	/** If true, it assumes the stats are being set by server data */
 	bool						bSkipLocalStats;
-	/** Timings for Socket::SendTo() and Socket::RecvFrom() */
-	int32						SendCycles, RecvCycles;
+	/** Timings for Socket::SendTo() */
+	int32						SendCycles;
 	/** Stats for network perf */
 	uint32						InBytesPerSecond;
 	/** todo document */
@@ -413,6 +416,7 @@ public:
 	/** Dumps next net update's relevant actors when true*/
 	bool						DebugRelevantActors;
 
+	/** These are debug list of actors. They are using TWeakObjectPtr so that they do not affect GC performance since they are rarely in use (DebugRelevantActors) */
 	TArray< TWeakObjectPtr<AActor> >	LastPrioritizedActors;
 	TArray< TWeakObjectPtr<AActor> >	LastRelevantActors;
 	TArray< TWeakObjectPtr<AActor> >	LastSentActors;
@@ -427,6 +431,11 @@ public:
 	 *  FActorDestructionInfos also.
 	 */
 	TMap<FNetworkGUID, FActorDestructionInfo>	DestroyedStartupOrDormantActors;
+
+	/** The server adds an entry into this map for every startup actor that has been renamed, and will
+	 *  always map from current name to original name
+	 */
+	TMap<FName, FName>	RenamedStartupActors;
 
 	/** Maps FRepChangedPropertyTracker to active objects that are replicating properties */
 	TMap< TWeakObjectPtr< UObject >, TSharedPtr< FRepChangedPropertyTracker > >	RepChangedPropertyTrackerMap;
@@ -454,6 +463,7 @@ public:
 	TMap< FNetworkGUID, TSet< FObjectReplicator* > >	GuidToReplicatorMap;
 	int32												TotalTrackedGuidMemoryBytes;
 	TSet< FObjectReplicator* >							UnmappedReplicators;
+	TSet< FObjectReplicator* >							AllOwnedReplicators;
 
 	/** Handles to various registered delegates */
 	FDelegateHandle TickDispatchDelegateHandle;
@@ -681,6 +691,9 @@ public:
 	/** Called when a spawned actor is destroyed. */
 	ENGINE_API virtual void NotifyActorDestroyed( AActor* Actor, bool IsSeamlessTravel=false );
 
+	/** Called when an actor is renamed. */
+	ENGINE_API virtual void NotifyActorRenamed(AActor* Actor, FName PreviousName);
+
 	ENGINE_API virtual void NotifyStreamingLevelUnload( ULevel* );
 
 	ENGINE_API virtual void NotifyActorLevelUnloaded( AActor* Actor );
@@ -719,7 +732,9 @@ public:
 	/**
 	 * Get the world associated with this net driver
 	 */
-	class UWorld* GetWorld() const override { return World; }
+	virtual class UWorld* GetWorld() const override final { return World; }
+
+	class UPackage* GetWorldPackage() const { return WorldPackage; }
 
 	/** Called during seamless travel to clear all state that was tied to the previous game world (actor lists, etc) */
 	ENGINE_API virtual void ResetGameWorldState();

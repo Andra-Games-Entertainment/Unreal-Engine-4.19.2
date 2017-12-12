@@ -197,12 +197,6 @@ public:
 	UPROPERTY(Category=LOD, AdvancedDisplay, VisibleAnywhere, BlueprintReadOnly, meta=(DisplayName="Current Max Draw Distance") )
 	float CachedMaxDrawDistance;
 
-#if WITH_EDITORONLY_DATA
-	/** If true, and if World setting has bEnableHierarchicalLOD equal to true, then this component will be included when generating a Proxy mesh for the parent Actor */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, Category = HLOD, meta = (DisplayName = "Include Component for HLOD Mesh generation"))
-	uint8 bEnableAutoLODGeneration : 1;
-#endif 
-
 	/** The scene depth priority group to draw the primitive in. */
 	UPROPERTY()
 	TEnumAsByte<enum ESceneDepthPriorityGroup> DepthPriorityGroup;
@@ -215,6 +209,12 @@ public:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Lighting)
 	TEnumAsByte<EIndirectLightingCacheQuality> IndirectLightingCacheQuality;
 
+#if WITH_EDITORONLY_DATA
+	/** If true, and if World setting has bEnableHierarchicalLOD equal to true, then this component will be included when generating a Proxy mesh for the parent Actor */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, Category = HLOD, meta = (DisplayName = "Include Component for HLOD Mesh generation"))
+	uint8 bEnableAutoLODGeneration : 1;
+#endif 
+
 public:
 
 	/** Whether this primitive is referenced by a FLevelTextureManager  */
@@ -226,7 +226,7 @@ public:
 
 	/** Whether this primitive is referenced by the streaming manager and should sent callbacks when detached or destroyed */
 	FORCEINLINE bool IsAttachedToStreamingManager() const { return !!(bAttachedToStreamingManagerAsStatic | bAttachedToStreamingManagerAsDynamic); }
-	
+
 	/** 
 	 * Indicates if we'd like to create physics state all the time (for collision and simulation). 
 	 * If you set this to false, it still will create physics state if collision or simulation activated. 
@@ -425,13 +425,12 @@ public:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category=Lighting)
 	uint8 bLightAttachmentsAsGroup:1;
 
-	/** 
-	 * Mobile only:
-	 * If enabled this component can receive combined static and CSM shadows from a stationary light. (Enabling will increase shading cost.) 
-	 * If disabled this component will only receive static shadows from stationary lights.
-	 */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Mobile, meta=(DisplayName ="Receive Combined Static and CSM Shadows from Stationary Lights"))
-	uint8 bReceiveCombinedCSMAndStaticShadowsFromStationaryLights : 1;
+	/**
+	* Mobile only:
+	* If disabled this component will not receive CSM shadows. (Components that do not receive CSM may have reduced shading cost)
+	*/
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadOnly, Category = Mobile, meta = (DisplayName = "Receive CSM Shadows"))
+	uint8 bReceiveMobileCSMShadows : 1;
 
 	/** 
 	 * Whether the whole component should be shadowed as one from stationary lights, which makes shadow receiving much cheaper.
@@ -1353,7 +1352,7 @@ public:
 	virtual void SetCollisionObjectType(ECollisionChannel Channel);
 
 	/** Perform a line trace against a single component */
-	UFUNCTION(BlueprintCallable, Category="Collision", meta=(DisplayName = "Line Trace Component", bTraceComplex="true", UnsafeDuringActorConstruction="true"))	
+	UFUNCTION(BlueprintCallable, Category="Collision", meta=(DisplayName = "Line Trace Component", ScriptName = "LineTraceComponent", bTraceComplex="true", UnsafeDuringActorConstruction="true"))	
 	bool K2_LineTraceComponent(FVector TraceStart, FVector TraceEnd, bool bTraceComplex, bool bShowTrace, FVector& HitLocation, FVector& HitNormal, FName& BoneName, FHitResult& OutHit);
 
 	/** Sets the bRenderCustomDepth property and marks the render state dirty. */
@@ -1807,15 +1806,15 @@ public:
 	virtual ECollisionEnabled::Type GetCollisionEnabled() const override;
 
 	/** Utility to see if there is any form of collision (query or physics) enabled on this component. */
-	UFUNCTION(BlueprintPure, meta=(DisplayName="Is Collision Enabled"), Category="Collision")
+	UFUNCTION(BlueprintPure, meta=(DisplayName="Is Collision Enabled", ScriptName="IsCollisionEnabled"), Category="Collision")
 	bool K2_IsCollisionEnabled() const;
 
 	/** Utility to see if there is any query collision enabled on this component. */
-	UFUNCTION(BlueprintPure, meta=(DisplayName="Is Query Collision Enabled"), Category="Collision")
+	UFUNCTION(BlueprintPure, meta=(DisplayName="Is Query Collision Enabled", ScriptName="IsQueryCollisionEnabled"), Category="Collision")
 	bool K2_IsQueryCollisionEnabled() const;
 
 	/** Utility to see if there is any physics collision enabled on this component. */
-	UFUNCTION(BlueprintPure, meta=(DisplayName="Is Physics Collision Enabled"), Category="Collision")
+	UFUNCTION(BlueprintPure, meta=(DisplayName="Is Physics Collision Enabled", ScriptName="IsPhysicsCollisionEnabled"), Category="Collision")
 	bool K2_IsPhysicsCollisionEnabled() const;
 
 	/** Gets the response type given a specific channel */
@@ -2010,6 +2009,14 @@ public:
 
 	/** Returns the calculated mass in kg. This is not 100% exactly the mass physx will calculate, but it is very close ( difference < 0.1kg ). */
 	virtual float CalculateMass(FName BoneName = NAME_None);
+
+	/** Set whether this component should use Continuous Collision Detection */
+	UFUNCTION(BlueprintCallable, Category = "Physics")
+	virtual void SetUseCCD(bool InUseCCD, FName BoneName = NAME_None);
+
+	/** Set whether all bodies in this component should use Continuous Collision Detection */
+	UFUNCTION(BlueprintCallable, Category = "Physics")
+	virtual void SetAllUseCCD(bool InUseCCD);
 
 	/**
 	 *	Force all bodies in this component to sleep.

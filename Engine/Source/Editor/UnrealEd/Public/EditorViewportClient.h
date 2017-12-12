@@ -971,6 +971,11 @@ public:
 	/** Get the editor viewport widget */
 	TSharedPtr<SEditorViewport> GetEditorViewportWidget() const { return EditorViewportWidget.Pin(); }
 
+	/**
+	 * Computes a matrix to use for viewport location and rotation
+	 */
+	virtual FMatrix CalcViewRotationMatrix(const FRotator& InViewRotation) const;
+
 protected:
 
 	/** true if this window is allowed to be possessed by cinematic tools for previewing sequences in real-time */
@@ -1346,7 +1351,7 @@ public:
 	FSceneViewStateReference ViewState;
 
 	/** Viewport view state when stereo rendering is enabled */
-	FSceneViewStateReference StereoViewState;
+	TArray<FSceneViewStateReference> StereoViewStates;
 
 	/** A set of flags that determines visibility for various scene elements. */
 	FEngineShowFlags		EngineShowFlags;

@@ -32,6 +32,7 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "HAL/LowLevelMemTracker.h"
+#include "Stats/StatsMisc.h"
 
 DEFINE_LOG_CATEGORY( LogDemo );
 
@@ -579,7 +580,7 @@ bool UDemoNetDriver::InitConnectInternal( FString& Error )
 
 	if (GetDuplicateLevelID() == -1)
 	{
-		if ( bAsyncLoadWorld )
+		if ( bAsyncLoadWorld && GetWorld()->WorldType != EWorldType::PIE ) // Editor doesn't support async map travel
 		{
 			LevelNamesAndTimes = PlaybackDemoHeader.LevelNamesAndTimes;
 
@@ -767,8 +768,14 @@ void UDemoNetDriver::TickFlushAsyncEndOfFrame(float DeltaSeconds)
 	}
 }
 
+/** Accounts for the network time we spent in the demo driver. */
+double GTickFlushDemoDriverTimeSeconds = 0.0;
+
 void UDemoNetDriver::TickFlushInternal( float DeltaSeconds )
 {
+	GTickFlushDemoDriverTimeSeconds = 0.0;
+	FSimpleScopeSecondsCounter ScopedTimer(GTickFlushDemoDriverTimeSeconds);
+
 	// Set the context on the world for this driver's level collection.
 	const int32 FoundCollectionIndex = World ? World->GetLevelCollections().IndexOfByPredicate([this](const FLevelCollection& Collection)
 	{
@@ -1156,7 +1163,7 @@ float UDemoNetDriver::GetCheckpointSaveMaxMSPerFrame() const
 
 void UDemoNetDriver::AddNewLevel(const FString& NewLevelName)
 {
-	LevelNamesAndTimes.Add(FLevelNameAndTime(NewLevelName, ReplayStreamer->GetTotalDemoTime()));
+	LevelNamesAndTimes.Add(FLevelNameAndTime(UWorld::RemovePIEPrefix(NewLevelName), ReplayStreamer->GetTotalDemoTime()));
 }
 
 void UDemoNetDriver::SaveCheckpoint()
@@ -2346,6 +2353,8 @@ void UDemoNetDriver::TickDemoPlayback( float DeltaSeconds )
 		const bool bIsAtEnd = StreamingArchive->AtEnd() && (PlaybackPackets.Num() == 0 || (DemoCurrentTime + DeltaSeconds >= DemoTotalTime));
 		if (!ReplayStreamer->IsLive() && bIsAtEnd)
 		{
+			OnDemoFinishPlaybackDelegate.Broadcast();
+
 			if (FParse::Param(FCommandLine::Get(), TEXT("ExitAfterReplay")))
 			{
 				FPlatformMisc::RequestExit(false);
@@ -3248,12 +3257,12 @@ void UDemoNetConnection::HandleClientPlayer( APlayerController* PC, UNetConnecti
 	}
 }
 
-bool UDemoNetConnection::ClientHasInitializedLevelFor(const UObject* TestObject) const
+bool UDemoNetConnection::ClientHasInitializedLevelFor(const AActor* TestActor) const
 {
 	// We save all currently streamed levels into the demo stream so we can force the demo playback client
 	// to stay in sync with the recording server
 	// This may need to be tweaked or re-evaluated when we start recording demos on the client
-	return ( GetDriver()->DemoFrameNum > 2 || Super::ClientHasInitializedLevelFor( TestObject ) );
+	return ( GetDriver()->DemoFrameNum > 2 || Super::ClientHasInitializedLevelFor( TestActor ) );
 }
 
 TSharedPtr<FObjectReplicator> UDemoNetConnection::CreateReplicatorForNewActorChannel(UObject* Object)

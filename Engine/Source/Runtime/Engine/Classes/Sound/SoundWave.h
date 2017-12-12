@@ -41,8 +41,11 @@ enum EDecompressionType
  */
 struct FStreamedAudioChunk
 {
-	/** Size of the chunk of data in bytes */
+	/** Size of the chunk of data in bytes including zero padding */
 	int32 DataSize;
+
+	/** Size of the audio data. */
+	int32 AudioDataSize;
 
 	/** Bulk data if stored in the package. */
 	FByteBulkData BulkData;
@@ -165,6 +168,10 @@ class ENGINE_API USoundWave : public USoundBase
 	/** Allows sound to play at 0 volume, otherwise will stop the sound when the sound is silent. */
 	UPROPERTY(EditAnywhere, Category=Sound)
 	uint32 bVirtualizeWhenSilent:1;
+
+	/** Whether or not this source is ambisonics file format. */
+	UPROPERTY(EditAnywhere, Category = Sound)
+	uint32 bIsAmbisonics : 1;
 
 	/** Whether this SoundWave was decompressed from OGG. */
 	uint32 bDecompressedFromOgg:1;
