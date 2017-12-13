@@ -693,7 +693,15 @@ FText UEdGraphSchema::GetPinDisplayName(const UEdGraphPin* Pin) const
 	check(Pin != nullptr);
 	if (Pin->PinFriendlyName.IsEmpty())
 	{
-		ResultPinName = FText::FromName(Pin->PinName);
+		// We don't want to display "None" for no name
+		if (Pin->PinName.IsNone())
+		{
+			return FText::GetEmpty();
+		}
+		else
+		{
+			ResultPinName = FText::FromName(Pin->PinName);
+		}
 	}
 	else
 	{
@@ -819,7 +827,7 @@ void UEdGraphSchema::GetContextMenuActions(const UEdGraph* CurrentGraph, const U
 				{
 					MenuBuilder->AddWidget(NodeCommentBox, FText::GetEmpty() );
 				}
-				TWeakObjectPtr<UEdGraphNode> SelectedNodeWeakPtr = InGraphNode;
+				TWeakObjectPtr<UEdGraphNode> SelectedNodeWeakPtr = MakeWeakObjectPtr(const_cast<UEdGraphNode*>(InGraphNode));
 
 				FText NodeCommentText;
 				if ( UEdGraphNode* SelectedNode = SelectedNodeWeakPtr.Get() )

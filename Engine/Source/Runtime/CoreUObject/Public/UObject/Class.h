@@ -1092,7 +1092,6 @@ public:
 
 	// UObject Interface
 	virtual COREUOBJECT_API void Serialize( FArchive& Ar ) override;
-	virtual COREUOBJECT_API void PostLoad() override;
 
 	// UStruct interface.
 	virtual COREUOBJECT_API void Link(FArchive& Ar, bool bRelinkExistingProperties) override;
@@ -1618,6 +1617,13 @@ public:
 	 * @return index of the value the parsed enum name matches, or INDEX_NONE if no matches
 	 */
 	static int64 ParseEnum(const TCHAR*& Str);
+
+	/**
+	 * Tests if the enum contains a MAX value
+	 *
+	 * @return	true if the enum contains a MAX enum, false otherwise.
+	 */
+	bool ContainsExistingMax() const;
 
 	/**
 	 * Sets the array of enums.
@@ -2577,6 +2583,14 @@ public:
 	 * @param  DependenciesOut	Will be filled with a list of dependencies that need to be created before this class is recreated (on load).
 	 */
 	virtual void GetRequiredPreloadDependencies(TArray<UObject*>& DependenciesOut) {}
+
+	/**
+	 * Initializes the ClassReps and NetFields arrays used by replication.
+	 * For classes that are loaded, this needs to happen in PostLoad to
+	 * ensure all replicated UFunctions have been serialized. For native classes,
+	 * this should happen in Link. Also needs to happen after blueprint compiliation.
+	 */
+	void SetUpRuntimeReplicationData();
 
 private:
 	#if UCLASS_FAST_ISA_IMPL == UCLASS_ISA_INDEXTREE

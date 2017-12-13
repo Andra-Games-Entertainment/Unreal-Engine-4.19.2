@@ -123,6 +123,8 @@ void UK2Node_MacroInstance::AllocateDefaultPins()
 			}
 		}
 	}
+
+	CacheWildcardPins();
 }
 
 void UK2Node_MacroInstance::PreloadRequiredAssets()
@@ -201,7 +203,7 @@ void UK2Node_MacroInstance::GetContextMenuActions(const FGraphNodeContextMenuBui
 				NSLOCTEXT("K2Node", "MacroInstanceFindInContentBrowser", "Find in Content Browser"),
 				NSLOCTEXT("K2Node", "MacroInstanceFindInContentBrowserTooltip", "Finds the Blueprint Macro Library that contains this Macro in the Content Browser"),
 				FSlateIcon(FEditorStyle::GetStyleSetName(), "PropertyWindow.Button_Browse"),
-				FUIAction( FExecuteAction::CreateStatic( &UK2Node_MacroInstance::FindInContentBrowser, TWeakObjectPtr<UK2Node_MacroInstance>(this) ) )
+				FUIAction( FExecuteAction::CreateStatic( &UK2Node_MacroInstance::FindInContentBrowser, MakeWeakObjectPtr(const_cast<UK2Node_MacroInstance*>(this)) ) )
 				);
 		}
 		Context.MenuBuilder->EndSection();
@@ -442,6 +444,15 @@ void UK2Node_MacroInstance::PostFixupAllWildcardPins(bool bInAllWildcardPinsUnli
 	{
 		// Reset the type to a wildcard because there are no longer any wildcard pins linked to determine a type with
 		ResolvedWildcardType.ResetToDefaults();
+
+		// Collapse any wildcard pins that are split and set their type back to wildcard
+		for (UEdGraphPin* Pin : WildcardPins)
+		{
+			GetSchema()->RecombinePin(Pin);
+			Pin->PinType.PinCategory = UEdGraphSchema_K2::PC_Wildcard;
+			Pin->PinType.PinSubCategory = NAME_None;
+			Pin->PinType.PinSubCategoryObject = nullptr;
+		}
 	}
 }
 

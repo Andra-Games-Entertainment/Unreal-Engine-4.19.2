@@ -28,6 +28,7 @@
 #include "K2Node_Tunnel.h"
 #include "K2Node_FunctionEntry.h"
 #include "K2Node_MacroInstance.h"
+#include "K2Node_Message.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Logging/TokenizedMessage.h"
@@ -273,20 +274,17 @@ void FKismetDebugUtilities::OnScriptException(const UObject* ActiveObject, const
 		{
 			// Record into the trace log
 			FKismetTraceSample& Tracer = Data.TraceStackSamples.WriteNewElementUninitialized();
-			Tracer.Context = ActiveObject;
+			Tracer.Context = MakeWeakObjectPtr(const_cast<UObject*>(ActiveObject));
 			Tracer.Function = StackFrame.Node;
 			Tracer.Offset = BreakpointOffset; //@TODO: Might want to make this a parameter of Info
 			Tracer.ObservationTime = FPlatformTime::Seconds();
 
 			// Find the node that generated the code which we hit
 			UEdGraphNode* NodeStoppedAt = FindSourceNodeForCodeLocation(ActiveObject, StackFrame.Node, BreakpointOffset, /*bAllowImpreciseHit=*/ true);
-			if (NodeStoppedAt)
+			if (NodeStoppedAt && (Info.GetType() == EBlueprintExceptionType::Tracepoint || Info.GetType() == EBlueprintExceptionType::Breakpoint))
 			{
 				// Handle Node stepping and update the stack
-				if (Info.GetType() == EBlueprintExceptionType::Tracepoint || Info.GetType() == EBlueprintExceptionType::Breakpoint)
-				{
-					CheckBreakConditions(NodeStoppedAt, bShouldBreakExecution);
-				}
+				CheckBreakConditions(NodeStoppedAt, bShouldBreakExecution);
 			}
 
 			// Handle a breakpoint or single-step
@@ -446,7 +444,7 @@ void FKismetDebugUtilities::CheckBreakConditions(UEdGraphNode* NodeStoppedAt, bo
 	if (NodeStoppedAt)
 	{
 		// Update tracked graph stack.
-		const UEdGraph* CurrentGraph = NodeStoppedAt->GetTypedOuter<UEdGraph>();
+		UEdGraph* CurrentGraph = NodeStoppedAt->GetTypedOuter<UEdGraph>();
 		if (ensure(CurrentGraph))
 		{
 			if (Data.GraphStack.FindLast(CurrentGraph) != INDEX_NONE)
@@ -525,6 +523,23 @@ void FKismetDebugUtilities::AttemptToBreakExecution(UBlueprint* BlueprintObj, co
 		if (Data.bIsSingleStepping)
 		{
 			Data.bIsSingleStepping = false;
+		}
+	}
+	else if(UEdGraphNode* PreviousNode = FKismetDebugUtilities::GetCurrentInstruction())
+	{
+		if (UK2Node_Message* MessageNode = Cast<UK2Node_Message>(PreviousNode))
+		{
+			//Looks like object not implement one of their interfaces
+			UE_LOG(LogBlueprintDebug, Warning, TEXT("Can't break execution on function '%s'. Possibly interface '%s' in class '%s' was not fully implemented."),
+				*(PreviousNode->GetDocumentationExcerptName()),					  //Function name
+				*(MessageNode->GetTargetFunction()->GetOuterUClass()->GetName()), //Interface name
+				*(ActiveObject->GetClass()->GetName()));						  //Current object class name
+		}
+		else
+		{
+			UE_LOG(LogBlueprintDebug, Warning, TEXT("Can't break execution on function '%s'. Possibly it was not implemented in class '%s'."),
+				*(PreviousNode->GetDocumentationExcerptName()),					  //Function name
+				*(ActiveObject->GetClass()->GetName()));						  //Current object class name
 		}
 	}
 	else

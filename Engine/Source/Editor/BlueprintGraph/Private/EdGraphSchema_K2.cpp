@@ -6458,19 +6458,28 @@ bool UEdGraphSchema_K2::CollapseGatewayNode(UK2Node* InNode, UEdGraphNode* InEnt
 				{
 					// We had an input/output with a connection that wasn't twinned
 					bSuccessful = false;
-					OwningBP->Message_Warn( FString::Printf(*NSLOCTEXT("K2Node", "PinOnBoundryNode_Warning", "Warning: Pin '%s' on boundary node '%s' could not be found in the composite node '%s'").ToString(),
-						*(BoundaryPin->PinName.ToString()),
-						(GatewayNode ? *(GatewayNode->GetName()) : TEXT("(null)")),
-						*(GetName()))					
-						);
+					OwningBP->Message_Warn(
+						FText::Format(
+							NSLOCTEXT("K2Node", "PinOnBoundryNode_WarningFmt", "Warning: Pin '{0}' on boundary node '{1}' could not be found in the composite node '{2}'"),
+							FText::FromString(BoundaryPin->PinName.ToString()),
+							GatewayNode ? FText::FromString(GatewayNode->GetName()) : NSLOCTEXT("K2Node", "PinOnBoundryNode_WarningNoNode", "(null)"),
+							FText::FromString(GetName())
+						).ToString()
+					);
 				}
 				else
 				{
-					UE_LOG(LogBlueprint, Warning, TEXT("%s"), *FString::Printf(*NSLOCTEXT("K2Node", "PinOnBoundryNode_Warning", "Warning: Pin '%s' on boundary node '%s' could not be found in the composite node '%s'").ToString(),
-						*(BoundaryPin->PinName.ToString()),
-						(GatewayNode ? *(GatewayNode->GetName()) : TEXT("(null)")),
-						*(GetName()))					
-						);
+					UE_LOG(
+						LogBlueprint,
+						Warning,
+						TEXT("%s"),
+						*FText::Format(
+							NSLOCTEXT("K2Node", "PinOnBoundryNode_WarningFmt", "Warning: Pin '{0}' on boundary node '{1}' could not be found in the composite node '{2}'"),
+							FText::FromString(BoundaryPin->PinName.ToString()),
+							GatewayNode ? FText::FromString(GatewayNode->GetName()) : NSLOCTEXT("K2Node", "PinOnBoundryNode_WarningNoNode", "(null)"),
+							FText::FromString(GetName())
+						).ToString()
+					);
 				}
 			}
 			else
@@ -6795,8 +6804,19 @@ void UEdGraphSchema_K2::SplitPin(UEdGraphPin* Pin, const bool bNotify) const
 
 void UEdGraphSchema_K2::RecombinePin(UEdGraphPin* Pin) const
 {
-	UEdGraphNode* GraphNode = Pin->GetOwningNode();
 	UEdGraphPin* ParentPin = Pin->ParentPin;
+
+	if (ParentPin == nullptr)
+	{
+		if (Pin->SubPins.Num() > 0)
+		{
+			RecombinePin(Pin->SubPins[0]);
+		}
+
+		return;
+	}
+
+	UEdGraphNode* GraphNode = Pin->GetOwningNode();
 
 	GraphNode->Modify();
 	ParentPin->Modify();
