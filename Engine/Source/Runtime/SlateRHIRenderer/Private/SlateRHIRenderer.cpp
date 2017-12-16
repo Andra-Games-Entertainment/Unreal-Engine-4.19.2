@@ -460,9 +460,9 @@ class FCompositeLUTGenerationPS : public FGlobalShader
 	DECLARE_SHADER_TYPE(FCompositeLUTGenerationPS, Global);
 public:
 
-	static bool ShouldCache(EShaderPlatform Platform)
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
 	{
-		return SupportsUICompositionRendering(Platform);
+		return SupportsUICompositionRendering(Parameters.Platform);
 	}
 
 	FCompositeLUTGenerationPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
@@ -530,9 +530,9 @@ class FCompositePS : public FGlobalShader
 	DECLARE_SHADER_TYPE(FCompositePS, Global);
 public:
 
-	static bool ShouldCache(EShaderPlatform Platform)
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
 	{
-		return SupportsUICompositionRendering(Platform);
+		return SupportsUICompositionRendering(Parameters.Platform);
 	}
 
 	FCompositePS(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
@@ -560,9 +560,9 @@ public:
 		SetShaderValue(RHICmdList, GetPixelShader(), OutputDevice, CVarOutputDevice->GetValueOnRenderThread());
 	}
 
-	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
-		FGlobalShader::ModifyCompilationEnvironment(Platform, OutEnvironment);
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("SCRGB_ENCODING"), EncodingType);
 	}
 
@@ -926,8 +926,8 @@ void FSlateRHIRenderer::DrawWindow_RenderThread(FRHICommandListImmediate& RHICmd
 
 void FSlateRHIRenderer::DrawWindows( FSlateDrawBuffer& WindowDrawBuffer )
 {
-		DrawWindows_Private(WindowDrawBuffer);
-	}
+	DrawWindows_Private(WindowDrawBuffer);
+}
 
 
 void FSlateRHIRenderer::PrepareToTakeScreenshot(const FIntRect& Rect, TArray<FColor>* OutColorData)
@@ -1039,11 +1039,6 @@ void FSlateRHIRenderer::DrawWindows_Private( FSlateDrawBuffer& WindowDrawBuffer 
 #else
 					Params.bClear = false;
 #endif
-
-					// NOTE: We pass a raw pointer to the SWindow so that we don't have to use a thread-safe weak pointer in
-					// the FSlateWindowElementList structure
-					Params.SlateWindow = Window;
-
 					// Skip the actual draw if we're in a headless execution environment
 					if (GIsClient && !IsRunningCommandlet() && !GUsingNullRHI)
 					{
@@ -1055,7 +1050,7 @@ void FSlateRHIRenderer::DrawWindows_Private( FSlateDrawBuffer& WindowDrawBuffer 
 						);
 					}
 
-					SlateWindowRendered.Broadcast( *Params.SlateWindow, &ViewInfo->ViewportRHI );
+					SlateWindowRendered.Broadcast( *Window, &ViewInfo->ViewportRHI );
 
 					if ( bTakingAScreenShot )
 					{

@@ -89,9 +89,13 @@ public:
 
 	virtual int32 GetCurrentFunctionStackDepth() = 0;
 
-	virtual int32 AccessCollectionParameter(UMaterialParameterCollection* ParameterCollection, int32 ParameterIndex, int32 ComponentIndex) = 0;
+	virtual int32 AccessCollectionParameter(UMaterialParameterCollection* ParameterCollection, int32 ParameterIndex, int32 ComponentIndex) = 0;	
 	virtual int32 ScalarParameter(FName ParameterName, float DefaultValue) = 0;
 	virtual int32 VectorParameter(FName ParameterName, const FLinearColor& DefaultValue) = 0;
+
+	virtual int32 AddCompiledSharedInput(int32 CodeIndex, FExpressionInput Expression, FGuid InputId, FName InputName, EMaterialValueType InputType) = 0;
+	virtual int32 AccessSharedInput(class UMaterialSharedInputCollection* InputCollection, FGuid InputId, FName InputName) = 0;
+	virtual UMaterialExpression* AccessSharedInputExpression(FGuid InputId) = 0;
 
 	virtual int32 Constant(float X) = 0;
 	virtual int32 Constant2(float X,float Y) = 0;
@@ -280,7 +284,7 @@ public:
 	virtual int32 DepthOfFieldFunction(int32 Depth, int32 FunctionValueIndex) = 0;
 	virtual int32 AtmosphericFogColor(int32 WorldPosition) = 0;
 	virtual int32 RotateScaleOffsetTexCoords(int32 TexCoordCodeIndex, int32 RotationScale, int32 Offset) = 0;
-	virtual int32 SpeedTree(ESpeedTreeGeometryType GeometryType, ESpeedTreeWindType WindType, ESpeedTreeLODType LODType, float BillboardThreshold, bool bAccurateWindVelocities) = 0;
+	virtual int32 SpeedTree(int32 GeometryArg, int32 WindArg, int32 LODArg, float BillboardThreshold, bool bAccurateWindVelocities, bool bExtraBend, int32 ExtraBendArg) = 0;
 	virtual int32 TextureCoordinateOffset() = 0;
 	virtual int32 EyeAdaptation() = 0;
 	virtual int32 AtmosphericLightVector() = 0;
@@ -336,6 +340,10 @@ public:
 	virtual int32 AccessCollectionParameter(UMaterialParameterCollection* ParameterCollection, int32 ParameterIndex, int32 ComponentIndex) override { return Compiler->AccessCollectionParameter(ParameterCollection, ParameterIndex, ComponentIndex); }
 	virtual int32 ScalarParameter(FName ParameterName, float DefaultValue) override { return Compiler->ScalarParameter(ParameterName,DefaultValue); }
 	virtual int32 VectorParameter(FName ParameterName, const FLinearColor& DefaultValue) override { return Compiler->VectorParameter(ParameterName,DefaultValue); }
+
+	virtual int32 AddCompiledSharedInput(int32 CodeIndex, FExpressionInput Expression, FGuid InputId, FName InputName, EMaterialValueType InputType) override { return Compiler->AddCompiledSharedInput(CodeIndex, Expression, InputId, InputName, InputType); }
+	virtual int32 AccessSharedInput(class UMaterialSharedInputCollection* InputCollection, FGuid InputId, FName InputName) override { return Compiler->AccessSharedInput(InputCollection, InputId, InputName); }
+	virtual UMaterialExpression* AccessSharedInputExpression(FGuid InputId) override { return Compiler->AccessSharedInputExpression(InputId); }
 
 	virtual int32 Constant(float X) override { return Compiler->Constant(X); }
 	virtual int32 Constant2(float X,float Y) override { return Compiler->Constant2(X,Y); }
@@ -511,9 +519,9 @@ public:
 		return Compiler->RotateScaleOffsetTexCoords(TexCoordCodeIndex, RotationScale, Offset);
 	}
 
-	virtual int32 SpeedTree(ESpeedTreeGeometryType GeometryType, ESpeedTreeWindType WindType, ESpeedTreeLODType LODType, float BillboardThreshold, bool bAccurateWindVelocities) override 
+	virtual int32 SpeedTree(int32 GeometryArg, int32 WindArg, int32 LODArg, float BillboardThreshold, bool bAccurateWindVelocities, bool bExtraBend, int32 ExtraBendArg) override
 	{ 
-		return Compiler->SpeedTree(GeometryType, WindType, LODType, BillboardThreshold, bAccurateWindVelocities); 
+		return Compiler->SpeedTree(GeometryArg, WindArg, LODArg, BillboardThreshold, bAccurateWindVelocities, bExtraBend, ExtraBendArg);
 	}
 
 	virtual int32 AtmosphericFogColor(int32 WorldPosition) override

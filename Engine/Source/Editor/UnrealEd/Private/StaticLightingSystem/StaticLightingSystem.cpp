@@ -51,6 +51,7 @@
 FSwarmDebugOptions GSwarmDebugOptions;
 
 #include "Lightmass/LightmassCharacterIndirectDetailVolume.h"
+#include "Lightmass/VolumetricLightmapDensityVolume.h"
 #include "StaticLighting.h"
 #include "StaticLightingSystem/StaticLightingPrivate.h"
 #include "ModelLight.h"
@@ -450,6 +451,8 @@ bool FStaticLightingSystem::BeginLightmassProcess()
 	bool bRebuildDirtyGeometryForLighting = true;
 	bool bForceNoPrecomputedLighting = false;
 
+	GDebugStaticLightingInfo = FDebugLightingOutput();
+
 	{
 		FLightmassStatistics::FScopedGather StartupStatScope(LightmassStatistics.StartupTime);
 
@@ -629,7 +632,6 @@ bool FStaticLightingSystem::BeginLightmassProcess()
 			{
 				// Clear reference to the selected lightmap
 				GCurrentSelectedLightmapSample.Lightmap = NULL;
-				GDebugStaticLightingInfo = FDebugLightingOutput();
 			}
 			
 			GatherStaticLightingInfo(bRebuildDirtyGeometryForLighting, bForceNoPrecomputedLighting);
@@ -1480,13 +1482,13 @@ void FStaticLightingSystem::CompleteDeterministicMappings(class FLightmassProces
 				InLightmassProcessor->ProcessMapping(TextureMapping->GetLightingGuid());
 				ApplyTime += FPlatformTime::Seconds() - ApplyStartTime;
 			}
+		}
 
-			CurrentStep++;
+		CurrentStep++;
 
-			if (CurrentStep % ProgressUpdateFrequency == 0)
-			{
-				GWarn->UpdateProgress(CurrentStep , TotalSteps);
-			}
+		if (CurrentStep % ProgressUpdateFrequency == 0)
+		{
+			GWarn->UpdateProgress(CurrentStep , TotalSteps);
 		}
 	}
 
@@ -1880,7 +1882,13 @@ bool FStaticLightingSystem::CreateLightmassProcessor()
 	if (LightmassProcessor->IsSwarmConnectionIsValid() == false)
 	{
 		UE_LOG(LogStaticLightingSystem, Warning, TEXT("Failed to connect to Swarm."));
-		FMessageDialog::Open( EAppMsgType::Ok, LOCTEXT("FailedToConnectToSwarmDialogMessage", "Failed to connect to Swarm."));
+		FMessageDialog::Open( EAppMsgType::Ok, 
+#if USE_LOCAL_SWARM_INTERFACE
+			LOCTEXT("FailedToConnectToSwarmDialogMessage", "Failed to connect to Swarm. Check that your network interface supports multicast.")
+#else
+			LOCTEXT("FailedToConnectToSwarmDialogMessage", "Failed to connect to Swarm.")
+#endif	
+		);
 		delete LightmassProcessor;
 		LightmassProcessor = NULL;
 		return false;
@@ -1937,6 +1945,15 @@ void FStaticLightingSystem::GatherScene()
 		if (World->ContainsActor(LMDetailVolume) && !LMDetailVolume->IsPendingKill() && ShouldOperateOnLevel(LMDetailVolume->GetLevel()))
 		{
 			LightmassExporter->AddCharacterIndirectDetailVolume(LMDetailVolume);
+		}
+	}
+
+	for (TObjectIterator<AVolumetricLightmapDensityVolume> It; It; ++It)
+	{
+		AVolumetricLightmapDensityVolume* DetailVolume = *It;
+		if (World->ContainsActor(DetailVolume) && !DetailVolume->IsPendingKill() && ShouldOperateOnLevel(DetailVolume->GetLevel()))
+		{
+			LightmassExporter->VolumetricLightmapDensityVolumes.Add(DetailVolume);
 		}
 	}
 

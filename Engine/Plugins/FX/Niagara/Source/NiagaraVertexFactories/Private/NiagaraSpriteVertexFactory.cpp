@@ -159,7 +159,7 @@ public:
 	virtual void FillDeclElements(FVertexDeclarationElementList& Elements, int32& Offset)
 	{
 		uint32 InitialStride = sizeof(float) * 2;
-		uint32 PerParticleStride = (sizeof(float) * 4*4 + sizeof(float)*3*2);
+		uint32 PerParticleStride = (sizeof(float) * 4*5 + sizeof(float)*3*2);
 
 		/** The stream to read the texture coordinates from. */
 		check( Offset == 0 );
@@ -245,7 +245,7 @@ inline TGlobalResource<FNiagaraSpriteVertexDeclaration>& GetNiagaraSpriteVertexD
 	}
 }
 
-bool FNiagaraSpriteVertexFactory::ShouldCache(EShaderPlatform Platform, const class FMaterial* Material, const class FShaderType* ShaderType)
+bool FNiagaraSpriteVertexFactory::ShouldCompilePermutation(EShaderPlatform Platform, const class FMaterial* Material, const class FShaderType* ShaderType)
 {
 	return (!IsMobilePlatform(Platform) && !IsSwitchPlatform(Platform) && (Material->IsUsedWithNiagaraSprites() || Material->IsSpecialEngineMaterial()));
 }

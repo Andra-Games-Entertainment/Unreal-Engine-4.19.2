@@ -395,7 +395,7 @@ int8 ComputeTemporalStaticMeshLOD( const FStaticMeshRenderData* RenderData, cons
 }
 
 // Ensure we always use the left eye when selecting lods to avoid divergent selections in stereo
-static const FSceneView& GetLODView(const FSceneView& InView)
+const FSceneView& GetLODView(const FSceneView& InView)
 {
 	if (InView.StereoPass == EStereoscopicPass::eSSP_RIGHT_EYE && InView.Family)
 	{
@@ -428,14 +428,18 @@ int8 ComputeStaticMeshLOD( const FStaticMeshRenderData* RenderData, const FVecto
 	return MinLOD;
 }
 
-FLODMask ComputeLODForMeshes( const TIndirectArray<class FStaticMesh>& StaticMeshes, const FSceneView& View, const FVector4& Origin, float SphereRadius, int32 ForcedLODLevel, float ScreenSizeScale )
+FLODMask ComputeLODForMeshes( const TIndirectArray<class FStaticMesh>& StaticMeshes, const FSceneView& View, const FVector4& Origin, float SphereRadius, int32 ForcedLODLevel, float& OutScreenRadiusSquared, float ScreenSizeScale)
 {
 	FLODMask LODToRender;
 	const FSceneView& LODView = GetLODView(View);
 
+	const int32 NumMeshes = StaticMeshes.Num();
+
 	// Handle forced LOD level first
 	if (ForcedLODLevel >= 0)
 	{
+		OutScreenRadiusSquared = 0.0f;
+
 		int8 MinLOD = 127, MaxLOD = 0;
 		for (int32 MeshIndex = 0; MeshIndex < StaticMeshes.Num(); ++MeshIndex)
 		{
@@ -445,17 +449,15 @@ FLODMask ComputeLODForMeshes( const TIndirectArray<class FStaticMesh>& StaticMes
 		}
 		LODToRender.SetLOD(FMath::Clamp<int8>(ForcedLODLevel, MinLOD, MaxLOD));
 	}
-	else if (LODView.Family->EngineShowFlags.LOD)
+	else if (LODView.Family->EngineShowFlags.LOD && NumMeshes)
 	{
-		int32 NumMeshes = StaticMeshes.Num();
-
-		if (NumMeshes && StaticMeshes[0].bDitheredLODTransition)
+		if (StaticMeshes[0].bDitheredLODTransition)
 		{
 			for (int32 SampleIndex = 0; SampleIndex < 2; SampleIndex++)
 			{
 				int32 MinLODFound = INT_MAX;
 				bool bFoundLOD = false;
-				const float ScreenRadiusSquared = ComputeTemporalLODBoundsScreenRadiusSquared(Origin, SphereRadius, LODView, SampleIndex);
+				OutScreenRadiusSquared = ComputeTemporalLODBoundsScreenRadiusSquared(Origin, SphereRadius, LODView, SampleIndex);
 
 				for(int32 MeshIndex = NumMeshes-1 ; MeshIndex >= 0 ; --MeshIndex)
 				{
@@ -463,7 +465,7 @@ FLODMask ComputeLODForMeshes( const TIndirectArray<class FStaticMesh>& StaticMes
 
 					float MeshScreenSize = Mesh.ScreenSize * ScreenSizeScale;
 
-					if(FMath::Square(MeshScreenSize * 0.5f) >= ScreenRadiusSquared)
+					if(FMath::Square(MeshScreenSize * 0.5f) >= OutScreenRadiusSquared)
 					{
 						LODToRender.SetLODSample(Mesh.LODIndex, SampleIndex);
 						bFoundLOD = true;
@@ -483,7 +485,7 @@ FLODMask ComputeLODForMeshes( const TIndirectArray<class FStaticMesh>& StaticMes
 		{
 			int32 MinLODFound = INT_MAX;
 			bool bFoundLOD = false;
-			const float ScreenRadiusSquared = ComputeBoundsScreenRadiusSquared(Origin, SphereRadius, LODView);
+			OutScreenRadiusSquared = ComputeBoundsScreenRadiusSquared(Origin, SphereRadius, LODView);
 
 			for(int32 MeshIndex = NumMeshes-1 ; MeshIndex >= 0 ; --MeshIndex)
 			{
@@ -491,7 +493,7 @@ FLODMask ComputeLODForMeshes( const TIndirectArray<class FStaticMesh>& StaticMes
 
 				float MeshScreenSize = Mesh.ScreenSize * ScreenSizeScale;
 
-				if(FMath::Square(MeshScreenSize * 0.5f) >= ScreenRadiusSquared)
+				if(FMath::Square(MeshScreenSize * 0.5f) >= OutScreenRadiusSquared)
 				{
 					LODToRender.SetLOD(Mesh.LODIndex);
 					bFoundLOD = true;
@@ -587,8 +589,12 @@ FViewUniformShaderParameters::FViewUniformShaderParameters()
 	GlobalDistanceFieldTexture3_UB = BlackVolume;
 	GlobalDistanceFieldSampler3_UB = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 
-	SharedBilinearWrapSampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
-	SharedBilinearClampSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	SharedPointWrappedSampler = TStaticSamplerState<SF_Point, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
+	SharedPointClampedSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	SharedBilinearWrappedSampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
+	SharedBilinearClampedSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	SharedTrilinearWrappedSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
+	SharedTrilinearClampedSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 }
 
 FInstancedViewUniformShaderParameters::FInstancedViewUniformShaderParameters()
@@ -628,25 +634,49 @@ void InitializeSharedSamplerStates()
 
 FLightMapInteraction FLightCacheInterface::GetLightMapInteraction(ERHIFeatureLevel::Type InFeatureLevel) const
 {
+	if (bGlobalVolumeLightmap)
+	{
+		return FLightMapInteraction::GlobalVolume();
+	}
+
 	return LightMap ? LightMap->GetInteraction(InFeatureLevel) : FLightMapInteraction();
 }
 
 FShadowMapInteraction FLightCacheInterface::GetShadowMapInteraction() const
 {
+	if (bGlobalVolumeLightmap)
+	{
+		return FShadowMapInteraction::GlobalVolume();
+	}
+
 	return ShadowMap ? ShadowMap->GetInteraction() : FShadowMapInteraction();
 }
 
 ELightInteractionType FLightCacheInterface::GetStaticInteraction(const FLightSceneProxy* LightSceneProxy, const TArray<FGuid>& IrrelevantLights) const
 {
+	if (bGlobalVolumeLightmap)
+	{
+		if (LightSceneProxy->HasStaticLighting())
+		{
+			return LIT_CachedLightMap;
+		}
+		else if (LightSceneProxy->HasStaticShadowing())
+		{
+			return LIT_CachedSignedDistanceFieldShadowMap2D;
+		}
+		else
+		{
+			return LIT_MAX;
+		}
+	}
+
 	ELightInteractionType Ret = LIT_MAX;
 
 	// Check if the light has static lighting or shadowing.
-	// This directly accesses the component's static lighting with the assumption that it won't be changed without synchronizing with the rendering thread.
 	if(LightSceneProxy->HasStaticShadowing())
 	{
 		const FGuid LightGuid = LightSceneProxy->GetLightGuid();
 
-		// this code was unified, in some place IrrelevantLights was checked after LightMap and ShadowMap
 		if(IrrelevantLights.Contains(LightGuid))
 		{
 			Ret = LIT_CachedIrrelevant;

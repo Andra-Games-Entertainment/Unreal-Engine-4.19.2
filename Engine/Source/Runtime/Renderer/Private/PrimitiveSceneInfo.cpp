@@ -97,6 +97,8 @@ FPrimitiveSceneInfo::FPrimitiveSceneInfo(UPrimitiveComponent* InComponent,FScene
 	LastVisibilityChangeTime(0.0f),
 	Scene(InScene),
 	NumES2DynamicPointLights(0),
+	bIsUsingCustomLODRules(Proxy->IsUsingCustomLODRules()),
+	bIsUsingCustomWholeSceneShadowLODRules(Proxy->IsUsingCustomWholeSceneShadowLODRules()),
 	PackedIndex(INDEX_NONE),
 	ComponentForDebuggingOnly(InComponent),
 	bNeedsStaticMeshUpdate(false),
@@ -624,7 +626,7 @@ void FPrimitiveSceneInfo::UpdatePrecomputedLightingBuffer()
 		// If the PrimitiveInfo has no precomputed lighting buffer, it will fallback to the global Empty buffer.
 		if (!RHISupportsVolumeTextures(Scene->GetFeatureLevel())
 			&& Scene->VolumetricLightmapSceneData.HasData()
-			&& (Proxy->IsMovable() || Proxy->NeedsUnbuiltPreviewLighting())
+			&& (Proxy->IsMovable() || Proxy->NeedsUnbuiltPreviewLighting() || Proxy->GetLightmapType() == ELightmapType::ForceVolumetric)
 			&& Proxy->WillEverBeLit())
 		{
 			IndirectLightingCacheUniformBuffer = CreatePrecomputedLightingUniformBuffer(BufferUsage, Scene->GetFeatureLevel(), NULL, NULL, Proxy->GetBounds().Origin, Scene->GetFrameNumber(), &Scene->VolumetricLightmapSceneData, NULL);

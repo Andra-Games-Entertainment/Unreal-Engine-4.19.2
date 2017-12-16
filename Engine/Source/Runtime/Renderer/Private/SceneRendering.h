@@ -793,6 +793,56 @@ BEGIN_UNIFORM_BUFFER_STRUCT(FReflectionCaptureShaderData,)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_ARRAY(FVector4,BoxScales,[GMaxNumReflectionCaptures])
 END_UNIFORM_BUFFER_STRUCT(FReflectionCaptureShaderData)
 
+// Structure in charge of storing all information about TAA's history.
+struct FTemporalAAHistory
+{
+	// Render targets holding's pixel history.
+	//  scene color's RGBA are in RT[0].
+	TRefCountPtr<IPooledRenderTarget> RT[2];
+
+	// Reference size of RT. Might be different than RT's actual size to handle down res.
+	FIntPoint ReferenceBufferSize;
+
+	// Viewport coordinate of the history in RT according to ReferenceBufferSize.
+	FIntRect ViewportRect;
+
+	// Scene color's PreExposure.
+	float SceneColorPreExposure;
+
+
+	void SafeRelease()
+	{
+		RT[0].SafeRelease();
+		RT[1].SafeRelease();
+	}
+
+	bool IsValid() const
+	{
+		return RT[0].IsValid();
+	}
+};
+
+// Structure that hold all information related to previous frame.
+struct FPreviousViewInfo
+{
+	// View matrices.
+	FViewMatrices ViewMatrices;
+
+	// Temporal AA result of last frame
+	FTemporalAAHistory TemporalAAHistory;
+
+	// Scene color input for SSR, that can be different from TemporalAAHistory.RT[0] if there is a SSR
+	// input post process material.
+	TRefCountPtr<IPooledRenderTarget> CustomSSRInput;
+
+
+	void SafeRelease()
+	{
+		TemporalAAHistory.SafeRelease();
+		CustomSSRInput.SafeRelease();
+	}
+};
+
 /** A FSceneView with additional state used by the scene renderer. */
 class FViewInfo : public FSceneView
 {
@@ -847,6 +897,12 @@ public:
 	/** A map from static mesh ID to editor selection visibility (whether or not it is selected AND should be drawn).  */
 	FSceneBitArray StaticMeshEditorSelectionMap;
 #endif
+
+	/** Will only contain relevant primitives for view and/or shadow */
+	TArray<FLODMask, SceneRenderingAllocator> PrimitivesLODMask;
+
+	/** Used to know which shadow casting primitive were already init (lazy init)  */
+	FSceneBitArray InitializedShadowCastingPrimitive;
 
 	/** An array of batch element visibility masks, valid only for meshes
 	 set visible in either StaticMeshVisibilityMap or StaticMeshShadowDepthMap. */
@@ -912,6 +968,11 @@ public:
 	// Used by mobile renderer to determine whether static meshes will be rendered with CSM shaders or not.
 	FMobileCSMVisibilityInfo MobileCSMVisibilityInfo;
 
+	// Primitive CustomData
+	TArray<const FPrimitiveSceneInfo*, SceneRenderingAllocator> PrimitivesWithCustomData;	// Size == Amount of Primitive With Custom View Data
+	FSceneBitArray UpdatedPrimitivesWithCustomData;
+	TArray<FMemStackBase, SceneRenderingAllocator> PrimitiveCustomDataMemStack; // Size == 1 global stack + 1 per visibility thread (if multithread)
+
 	/** Parameters for exponential height fog. */
 	FVector4 ExponentialFogParameters;
 	FVector ExponentialFogColor;
@@ -964,7 +1025,8 @@ public:
 	/** Bitmask of all shading models used by primitives in this view */
 	uint16 ShadingModelMaskInView;
 
-	FViewMatrices PrevViewMatrices;
+	// Previous frame view info to use for this view.
+	FPreviousViewInfo PrevViewInfo;
 
 	/** An intermediate number of visible static meshes.  Doesn't account for occlusion until after FinishOcclusionQueries is called. */
 	int32 NumVisibleStaticMeshElements;
@@ -1069,7 +1131,7 @@ public:
 	{
 		SetupUniformBufferParameters(SceneContext,
 			ViewMatrices,
-			PrevViewMatrices,
+			PrevViewInfo.ViewMatrices,
 			OutTranslucentCascadeBoundsArray,
 			NumTranslucentCascades,
 			ViewUniformShaderParameters);
@@ -1145,7 +1207,7 @@ public:
 		}
 	}
 
-	inline FVector GetPrevViewDirection() const { return PrevViewMatrices.GetViewMatrix().GetColumn(2); }
+	inline FVector GetPrevViewDirection() const { return PrevViewInfo.ViewMatrices.GetViewMatrix().GetColumn(2); }
 
 	/** Create a snapshot of this view info on the scene allocator. */
 	FViewInfo* CreateSnapshot() const;
@@ -1164,6 +1226,13 @@ public:
 		
 		return FInt32Range(Start, AfterEnd);
 	}
+
+	/** Set the custom data associated with a primitive scene info.	*/
+	void SetCustomData(const FPrimitiveSceneInfo* InPrimitiveSceneInfo, void* InCustomData);
+
+	/** Custom Data Memstack functions.	*/
+	FORCEINLINE FMemStackBase& GetCustomDataGlobalMemStack() { return PrimitiveCustomDataMemStack[0]; }
+	FORCEINLINE FMemStackBase& AllocateCustomDataMemStack() { return *new(PrimitiveCustomDataMemStack) FMemStackBase(0); }
 
 private:
 	// Cache of TEXTUREGROUP_World to create view's samplers on render thread.
@@ -1538,6 +1607,7 @@ protected:
 		const FSceneViewFamily& InViewFamily, 
 		const FPrimitiveViewMasks& HasDynamicMeshElementsMasks, 
 		const FPrimitiveViewMasks& HasDynamicEditorMeshElementsMasks, 
+		const FPrimitiveViewMasks& HasViewCustomDataMasks,
 		FMeshElementCollector& Collector);
 
 	/** Initialized the fog constants for each view. */
@@ -1641,6 +1711,9 @@ protected:
 
 	/** Render inverse opacity for the dynamic meshes. */
 	bool RenderInverseOpacityDynamic(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState);
+
+	/** Will update the view custom data. */
+	void UpdateViewCustomData();
 	
 private:
 

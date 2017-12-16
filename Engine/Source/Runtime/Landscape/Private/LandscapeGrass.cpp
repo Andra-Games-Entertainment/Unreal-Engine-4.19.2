@@ -199,7 +199,7 @@ protected:
 
 public:
 
-	static bool ShouldCache(EShaderPlatform Platform, const FMaterial* Material, const FVertexFactoryType* VertexFactoryType)
+	static bool ShouldCompilePermutation(EShaderPlatform Platform, const FMaterial* Material, const FVertexFactoryType* VertexFactoryType)
 	{
 		return ShouldCacheLandscapeGrassShaders(Platform, Material, VertexFactoryType);
 	}
@@ -231,7 +231,7 @@ class FLandscapeGrassWeightPS : public FMeshMaterialShader
 	FShaderParameter OutputPassParameter;
 public:
 
-	static bool ShouldCache(EShaderPlatform Platform, const FMaterial* Material, const FVertexFactoryType* VertexFactoryType)
+	static bool ShouldCompilePermutation(EShaderPlatform Platform, const FMaterial* Material, const FVertexFactoryType* VertexFactoryType)
 	{
 		return ShouldCacheLandscapeGrassShaders(Platform, Material, VertexFactoryType);
 	}
@@ -791,7 +791,7 @@ bool ULandscapeComponent::CanRenderGrassMap() const
 	}
 
 	// Check we can render the material
-	if (!MaterialInstances[0]->GetMaterialResource(ComponentWorld->FeatureLevel)->HasValidGameThreadShaderMap())
+	if (!GetMaterialInstance(0)->GetMaterialResource(ComponentWorld->FeatureLevel)->HasValidGameThreadShaderMap())
 	{
 		return false;
 	}
@@ -879,7 +879,7 @@ TArray<uint16> ULandscapeComponent::RenderWPOHeightmap(int32 LOD)
 
 	if (!CanRenderGrassMap())
 	{
-		MaterialInstances[0]->GetMaterialResource(GetWorld()->FeatureLevel)->FinishCompilation();
+		GetMaterialInstance(0)->GetMaterialResource(GetWorld()->FeatureLevel)->FinishCompilation();
 	}
 
 	TArray<ULandscapeGrassType*> GrassTypes;

@@ -1034,10 +1034,17 @@ void ULevel::CreateModelComponents()
 
 	SlowTask.EnterProgressFrame(4);
 
-	Model->InvalidSurfaces = 0;
+	Model->InvalidSurfaces = false;
+	
+	// It is possible that the BSP model has existing buffers from an undo/redo operation
+	if (Model->MaterialIndexBuffers.Num())
+	{
+		// Make sure model resources are released which only happens on the rendering thread
+		FlushRenderingCommands();
 
-	// Clear the model index buffers.
-	Model->MaterialIndexBuffers.Empty();
+		// Clear the model index buffers.
+		Model->MaterialIndexBuffers.Empty();
+	}
 
 	struct FNodeIndices
 	{
@@ -1917,7 +1924,7 @@ void ULevel::OnLevelScriptBlueprintChanged(ULevelScriptBlueprint* InBlueprint)
 {
 	if( !InBlueprint->bIsRegeneratingOnLoad && 
 		// Make sure this is OUR level scripting blueprint
-		ensureMsgf(InBlueprint == LevelScriptBlueprint, TEXT("Level ('%s') recieved OnLevelScriptBlueprintChanged notification for the wrong Blueprint ('%s')."), LevelScriptBlueprint ? *LevelScriptBlueprint->GetPathName() : TEXT("NULL"), *InBlueprint->GetPathName()) )
+		ensureMsgf(InBlueprint == LevelScriptBlueprint, TEXT("Level ('%s') received OnLevelScriptBlueprintChanged notification for the wrong Blueprint ('%s')."), LevelScriptBlueprint ? *LevelScriptBlueprint->GetPathName() : TEXT("NULL"), *InBlueprint->GetPathName()) )
 	{
 		UClass* SpawnClass = (LevelScriptBlueprint->GeneratedClass) ? LevelScriptBlueprint->GeneratedClass : LevelScriptBlueprint->SkeletonGeneratedClass;
 

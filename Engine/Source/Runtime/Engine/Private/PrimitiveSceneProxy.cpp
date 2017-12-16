@@ -12,6 +12,7 @@
 #include "SceneManagement.h"
 #include "PrimitiveSceneInfo.h"
 #include "Materials/Material.h"
+#include "SceneManagement.h"
 
 static TAutoConsoleVariable<int32> CVarForceSingleSampleShadowingFromStationary(
 	TEXT("r.Shadow.ForceSingleSampleShadowingFromStationary"),
@@ -38,6 +39,7 @@ FPrimitiveSceneProxy::FPrimitiveSceneProxy(const UPrimitiveComponent* InComponen
 ,	LevelColor(FLinearColor::White)
 ,	PropertyColor(FLinearColor::White)
 ,	Mobility(InComponent->Mobility)
+,	LightmapType(InComponent->LightmapType)
 ,	DrawInGame(InComponent->IsVisible())
 ,	DrawInEditor(InComponent->bVisible)
 ,	bRenderInMono(InComponent->bRenderInMono)
@@ -77,7 +79,6 @@ FPrimitiveSceneProxy::FPrimitiveSceneProxy(const UPrimitiveComponent* InComponen
 ,	bCastInsetShadow(InComponent->bSelfShadowOnly ? true : InComponent->bCastInsetShadow)	// Assumed to be enabled if bSelfShadowOnly is enabled.
 ,	bCastCinematicShadow(InComponent->bCastCinematicShadow)
 ,	bCastFarShadow(InComponent->bCastFarShadow)
-,	bLightAsIfStatic(InComponent->bLightAsIfStatic)
 ,	bLightAttachmentsAsGroup(InComponent->bLightAttachmentsAsGroup)
 ,	bSingleSampleShadowFromStationaryLights(InComponent->bSingleSampleShadowFromStationaryLights)
 ,	bStaticElementsAlwaysUseProxyPrimitiveUniformBuffer(false)
@@ -331,7 +332,9 @@ void FPrimitiveSceneProxy::ApplyLateUpdateTransform(const FMatrix& LateUpdateTra
 
 bool FPrimitiveSceneProxy::UseSingleSampleShadowFromStationaryLights() const 
 { 
-	return bSingleSampleShadowFromStationaryLights || CVarForceSingleSampleShadowingFromStationary.GetValueOnRenderThread() != 0; 
+	return bSingleSampleShadowFromStationaryLights 
+		|| CVarForceSingleSampleShadowingFromStationary.GetValueOnRenderThread() != 0
+		|| LightmapType == ELightmapType::ForceVolumetric; 
 }
 
 #if !UE_BUILD_SHIPPING
@@ -785,4 +788,15 @@ bool FPrimitiveSceneProxy::GetMaterialTextureScales(int32 LODIndex, int32 Sectio
 { 
 	return false; 
 }
+
 #endif // WITH_EDITORONLY_DATA
+
+FLODMask FPrimitiveSceneProxy::GetCustomLOD(const FSceneView& InView, float InViewLODScale, int32 InForcedLODLevel, float& OutScreenRadiusSquared) const
+{
+	return FLODMask();
+}
+
+FLODMask FPrimitiveSceneProxy::GetCustomWholeSceneShadowLOD(const FSceneView& InView, float InViewLODScale, int32 InForcedLODLevel, const struct FLODMask& InVisibilePrimitiveLODMask, float InShadowMapTextureResolution, float InShadowMapCascadeSize, int8 InShadowCascadeId, bool InHasSelfShadow) const
+{
+	return FLODMask();
+}

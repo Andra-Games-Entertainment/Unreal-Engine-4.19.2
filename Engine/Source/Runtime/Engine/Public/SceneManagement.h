@@ -322,6 +322,14 @@ public:
 		Result.Type = LMIT_None;
 		return Result;
 	}
+
+	static FLightMapInteraction GlobalVolume()
+	{
+		FLightMapInteraction Result;
+		Result.Type = LMIT_GlobalVolume;
+		return Result;
+	}
+
 	static FLightMapInteraction Texture(
 		const class ULightMapTexture2D* const* InTextures,
 		const ULightMapTexture2D* InSkyOcclusionTexture,
@@ -506,6 +514,14 @@ public:
 		Result.Type = SMIT_None;
 		return Result;
 	}
+
+	static FShadowMapInteraction GlobalVolume()
+	{
+		FShadowMapInteraction Result;
+		Result.Type = SMIT_GlobalVolume;
+		return Result;
+	}
+
 	static FShadowMapInteraction Texture(
 		class UShadowMapTexture2D* InTexture,
 		const FVector2D& InCoordinateScale,
@@ -591,7 +607,8 @@ class FLightCacheInterface
 {
 public:
 	FLightCacheInterface(const FLightMap* InLightMap, const FShadowMap* InShadowMap)
-		: LightMap(InLightMap)
+		: bGlobalVolumeLightmap(false)
+		, LightMap(InLightMap)
 		, ShadowMap(InShadowMap)
 	{
 	}
@@ -631,6 +648,11 @@ public:
 		return ShadowMap;
 	}
 
+	void SetGlobalVolumeLightmap(bool bInGlobalVolumeLightmap)
+	{
+		bGlobalVolumeLightmap = bInGlobalVolumeLightmap;
+	}
+
 	// WARNING : This can be called with buffers valid for a single frame only, don't cache anywhere. See FPrimitiveSceneInfo::UpdatePrecomputedLightingBuffer()
 	void SetPrecomputedLightingBuffer(FUniformBufferRHIParamRef InPrecomputedLightingUniformBuffer)
 	{
@@ -647,6 +669,9 @@ public:
 	ENGINE_API FShadowMapInteraction GetShadowMapInteraction() const;
 
 private:
+
+	bool bGlobalVolumeLightmap;
+
 	// The light-map used by the element. may be 0
 	const FLightMap* LightMap;
 
@@ -2355,6 +2380,9 @@ extern ENGINE_API void ApplyViewModeOverrides(
 /** Draws the UV layout of the supplied asset (either StaticMeshRenderData OR SkeletalMeshRenderData, not both!) */
 extern ENGINE_API void DrawUVs(FViewport* InViewport, FCanvas* InCanvas, int32 InTextYPos, const int32 LODLevel, int32 UVChannel, TArray<FVector2D> SelectedEdgeTexCoords, class FStaticMeshRenderData* StaticMeshRenderData, class FSkeletalMeshLODRenderData* SkeletalMeshRenderData);
 
+/** Will return the view to use taking into account VR which has 2 views */
+ENGINE_API const FSceneView& GetLODView(const FSceneView& InView);
+
 /**
  * Computes the screen size of a given sphere bounds in the given view.
  * The screen size is the projected diameter of the bounding sphere of the model.
@@ -2454,7 +2482,7 @@ struct FLODMask
 		return DitheredLODIndices[0] != DitheredLODIndices[1];
 	}
 };
-FLODMask ENGINE_API ComputeLODForMeshes(const TIndirectArray<class FStaticMesh>& StaticMeshes, const FSceneView& View, const FVector4& Origin, float SphereRadius, int32 ForcedLODLevel, float ScreenSizeScale = 1.0f);
+FLODMask ENGINE_API ComputeLODForMeshes(const TIndirectArray<class FStaticMesh>& StaticMeshes, const FSceneView& View, const FVector4& Origin, float SphereRadius, int32 ForcedLODLevel, float& OutScreenRadiusSquared, float ScreenSizeScale = 1.0f);
 
 class FSharedSamplerState : public FRenderResource
 {

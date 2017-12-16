@@ -122,6 +122,11 @@ void FStaticMeshStaticLightingTextureMapping::ExportMapping(class FLightmassExpo
 	Exporter->StaticMeshTextureMappings.AddUnique(this);
 }
 
+void FStaticLightingGlobalVolumeMapping::ExportMapping(class FLightmassExporter* Exporter)
+{
+	Exporter->VolumeMappings.AddUnique(this);
+}
+
 //
 //	Landscape
 //
@@ -133,9 +138,14 @@ void FLandscapeStaticLightingMesh::ExportMeshInstance(class FLightmassExporter* 
 {
 	Exporter->LandscapeLightingMeshes.AddUnique(this);
 
-	if (LandscapeComponent && LandscapeComponent->MaterialInstances[0])
+	if (LandscapeComponent)
 	{
-		Exporter->AddMaterial(LandscapeComponent->MaterialInstances[0], this);
+		UMaterialInstance* MaterialInstance = LandscapeComponent->GetMaterialInstance(0, false);
+
+		if (MaterialInstance)
+		{
+			Exporter->AddMaterial(MaterialInstance, this);
+		}
 	}
 
 	for( int32 LightIdx=0; LightIdx < RelevantLights.Num(); LightIdx++ )
