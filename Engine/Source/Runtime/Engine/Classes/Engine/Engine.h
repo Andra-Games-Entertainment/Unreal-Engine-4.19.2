@@ -102,6 +102,20 @@ enum EConsoleType
 	CONSOLE_MAX,
 };
 
+/** Status of dynamic resolution that depends on project setting cvar, game user settings, and pause */
+enum class EDynamicResolutionStatus
+{
+	// Dynamic resolution is disabled by project setting cvar r.DynamicRes.OperationMode=0 or disabled by game user
+	// settings with r.DynamicRes.OperationMode=1.
+	Disabled,
+
+	// Dynamic resolution has been paused by game thread.
+	Paused,
+
+	// Dynamic resolution is currently enabled.
+	Enabled
+};
+
 
 /** Struct to help hold information about packages needing to be fully-loaded for DLC, etc. */
 USTRUCT()
@@ -1567,6 +1581,21 @@ public:
 	 */
 	void RestoreSelectedMaterialColor();
 
+	/** Returns the current status of dynamic resolution. */
+	EDynamicResolutionStatus GetDynamicResolutionStatus() const;
+
+	/** Pause dynamic resolution for this frame. */
+	void PauseDynamicResolution();
+
+	/** Resume dynamic resolution for this frame. */
+	FORCEINLINE void ResumeDynamicResolution()
+	{
+		#if !UE_SERVER
+			bIsDynamicResolutionPaused = false;
+			UpdateDynamicResolutionStatus();
+		#endif // !UE_SERVER
+	}
+
 	/** Emit an event for dynamic resolution if not already done. */
 	void EmitDynamicResolutionEvent(EDynamicResolutionStateEvent Event);
 
@@ -1582,11 +1611,33 @@ public:
 		#endif
 	}
 
-	/** Override dynamic resolution state for next frame. */
+	/** Override dynamic resolution state for next frame.
+	 * Old dynamic resolution state will be disabled, and the new one will be enabled automatically at next frame.
+	 */
 	void ChangeDynamicResolutionStateAtNextFrame(TSharedPtr< class IDynamicResolutionState > NewState);
 
-private:
+	/** Get the user setting for dynamic resolution. */
+	FORCEINLINE bool GetDynamicResolutionUserSetting() const
+	{
+		#if UE_SERVER
+			return false;
+		#else
+			return bDynamicResolutionEnableUserSetting;
+		#endif
+	}
+
+	/** Set the user setting for dynamic resolution. */
+	FORCEINLINE void SetDynamicResolutionUserSetting(bool Enable)
+	{
+		#if !UE_SERVER
+			bDynamicResolutionEnableUserSetting = Enable;
+			UpdateDynamicResolutionStatus();
+		#endif
+	}
+
+
 	#if !UE_SERVER
+private:
 		/** Last dynamic resolution event. */
 		EDynamicResolutionStateEvent LastDynamicResolutionEvent;
 
@@ -1595,6 +1646,18 @@ private:
 
 		/** Next frame's Global state for dynamic resolution's heuristic. */
 		TSharedPtr< class IDynamicResolutionState > NextDynamicResolutionState;
+
+		/** Whether dynamic resolution is paused or not. */
+		bool bIsDynamicResolutionPaused;
+
+		/** Game user setting for dynamic resolution that has been committed. */
+		bool bDynamicResolutionEnableUserSetting;
+
+		/** Returns whether should be enabled or not. */
+		bool ShouldEnableDynamicResolutionState() const;
+
+		/** Enable/Disable dynamic resolution state according to ShouldEnableDynamicResolutionState(). */
+		void UpdateDynamicResolutionStatus();
 	#endif
 
 protected:

@@ -50,6 +50,8 @@ static FString	GTempFolderPath;
 static bool		GMetalLoggedRemoteCompileNotConfigured;	// This is used to reduce log spam, its not perfect because there is not a place to reset this flag so a log msg will only be given once per editor run
 static bool		GRemoteBuildConfigured = false;
 
+FString GetXcodePath();
+
 // Add (|| PLATFORM_MAC) to enable Mac to Mac remote building
 #define UNIXLIKE_TO_MAC_REMOTE_BUILDING (PLATFORM_LINUX)
 
@@ -198,6 +200,20 @@ bool IsRemoteBuildingConfigured(const FShaderCompilerEnvironment* InEnvironment)
 		GRSyncPath = FPaths::Combine(*DeltaCopyPath, TEXT("rsync.exe"));
 
 	#endif
+		UE_LOG(LogMetalShaderCompiler, Warning, TEXT("Remote Building host: '%s'"), *GRemoteBuildServerHost);
+		FString XcodePath = GetXcodePath();
+		if (XcodePath.Len() <= 0)
+		{
+			if (!GMetalLoggedRemoteCompileNotConfigured)
+			{
+				if (!PLATFORM_MAC || UNIXLIKE_TO_MAC_REMOTE_BUILDING)
+				{
+					UE_LOG(LogMetalShaderCompiler, Warning, TEXT("Remote Building is not configured: SSH run test failed."));
+				}
+				GMetalLoggedRemoteCompileNotConfigured = true;
+			}
+			return false;
+		}
 		GRemoteBuildConfigured = true;
 	}
 
@@ -222,7 +238,7 @@ bool ExecRemoteProcess(const TCHAR* Command, const TCHAR* Params, int32* OutRetu
 		return false;
 	}
 
-	FString CmdLine = FString(TEXT("-i \"")) + GRemoteBuildServerSSHKey + TEXT("\" ") + GRemoteBuildServerUser + '@' + GRemoteBuildServerHost + TEXT(" ") + Command + TEXT(" ") + (Params != nullptr ? Params : TEXT(""));
+	FString CmdLine = FString(TEXT("-i \"")) + GRemoteBuildServerSSHKey + TEXT("\" \"") + GRemoteBuildServerUser + '@' + GRemoteBuildServerHost + TEXT("\" ") + Command + TEXT(" ") + (Params != nullptr ? Params : TEXT(""));
 	return FPlatformProcess::ExecProcess(*GSSHPath, *CmdLine, OutReturnCode, OutStdOut, OutStdErr);
 #endif
 }
@@ -1525,6 +1541,7 @@ void BuildMetalShaderOutput(
 				
 #if (PLATFORM_MAC && !UNIXLIKE_TO_MAC_REMOTE_BUILDING)				
 				FString Defines = Header.bDeviceFunctionConstants ? TEXT("-D__METAL_DEVICE_CONSTANT_INDEX__=1") : TEXT("");
+				Defines += FString::Printf(TEXT(" -D__METAL_MANUAL_TEXTURE_METADATA__=%d"), !(bUsingTessellation && (Frequency == SF_Vertex || Frequency == SF_Hull)));
 				switch(TypeMode)
 				{
 					case EMetalTypeBufferModeRaw:
@@ -2254,11 +2271,14 @@ bool StripShader_Metal(TArray<uint8>& Code, class FString const& DebugPath, bool
 			{
 				int32 ObjectSize = 0;
 				const uint8* ShaderObject = ShaderCode.FindOptionalDataAndSize('o', ObjectSize);
-				check(ShaderObject && ObjectSize);
-
-				TArray<uint8> ObjectCodeArray;
-				ObjectCodeArray.Append(ShaderObject, ObjectSize);
-				SourceCode = ObjectCodeArray;
+				
+				// If ShaderObject and ObjectSize is zero then the code has already been stripped - source code should be the byte code
+				if(ShaderObject && ObjectSize)
+				{
+					TArray<uint8> ObjectCodeArray;
+					ObjectCodeArray.Append(ShaderObject, ObjectSize);
+					SourceCode = ObjectCodeArray;
+				}
 			}
 			
 			// Strip any optional data
@@ -2346,6 +2366,14 @@ uint64 AppendShader_Metal(FName const& Format, FString const& WorkingDir, const 
 				// Copy the non-optional shader bytecode
 				int32 ObjectCodeDataSize = 0;
 				uint8 const* Object = ShaderCode.FindOptionalDataAndSize('o', ObjectCodeDataSize);
+				
+				// 'o' segment missing this is a pre stripped shader
+				if(!Object)
+				{
+					ObjectCodeDataSize = ShaderCode.GetActualShaderCodeSize() - CodeOffset;
+					Object = SourceCodePtr;
+				}
+				
 				TArrayView<const uint8> ObjectCodeArray(Object, ObjectCodeDataSize);
 				
 				// Object code segment
@@ -2588,6 +2616,19 @@ bool FinalizeLibrary_Metal(FName const& Format, FString const& WorkingDir, FStri
 		//Add our preferred archive extension
 		CompressedPath += ".tgz";
 		
+		FString ArchiveCommand = TEXT("/usr/bin/tar");
+		
+		// Iterative support for pre-stripped shaders - unpack existing tgz archive without file overwrite - if it exists in cooked dir we're in iterative mode
+		if(FPaths::FileExists(CompressedPath))
+		{
+			int32 ReturnCode = -1;
+			FString Result;
+			FString Errors;
+			
+			FString ExtractCommandParams = FString::Printf(TEXT("xopfk \"%s\" -C \"%s\""), *CompressedPath, *DebugOutputDir);
+			FPlatformProcess::ExecProcess( *ArchiveCommand, *ExtractCommandParams, &ReturnCode, &Result, &Errors );
+		}
+		
 		//Due to the limitations of the 'tar' command and running through NSTask,
 		//the most reliable way is to feed it a list of local file name (-T) with a working path set (-C)
 		//if we built the list with absolute paths without -C then we'd get the full folder structure in the archive
@@ -2627,13 +2668,12 @@ bool FinalizeLibrary_Metal(FName const& Format, FString const& WorkingDir, FStri
 			}
 		}
 		
-		//Setup the NSTask command and parameter list, Archive (-c) and Compress (-z) to target file (-f) the metal file list (-T) using a local dir in archive (-C).
-		FString ArchiveCommand = TEXT("/usr/bin/tar");
-		FString ArchiveCommandParams = FString::Printf( TEXT("czf \"%s\" -C \"%s\" -T \"%s\""), *CompressedPath, *DebugOutputDir, *FileListPath );
-		
 		int32 ReturnCode = -1;
 		FString Result;
 		FString Errors;
+		
+		//Setup the NSTask command and parameter list, Archive (-c) and Compress (-z) to target file (-f) the metal file list (-T) using a local dir in archive (-C).
+		FString ArchiveCommandParams = FString::Printf( TEXT("czf \"%s\" -C \"%s\" -T \"%s\""), *CompressedPath, *DebugOutputDir, *FileListPath );
 		
 		//Execute command, this should end up with a .tgz file in the same location at the .metallib file
 		if(!FPlatformProcess::ExecProcess( *ArchiveCommand, *ArchiveCommandParams, &ReturnCode, &Result, &Errors ) || ReturnCode != 0)

@@ -201,6 +201,9 @@ extern RHI_API bool GSupportsTimestampRenderQueries;
 /** true if RQT_AbsoluteTime is supported by RHICreateRenderQuery */
 extern RHI_API bool GRHISupportsGPUTimestampBubblesRemoval;
 
+/** true if RHIGetGPUFrameCycles removes CPu generated bubbles. */
+extern RHI_API bool GRHISupportsFrameCyclesBubblesRemoval;
+
 /** true if the GPU supports hidden surface removal in hardware. */
 extern RHI_API bool GHardwareHiddenSurfaceRemoval;
 
@@ -367,6 +370,9 @@ extern RHI_API bool GRHISupportsResolveCubemapFaces;
 
 /** Whether or not the RHI can handle a non-zero FirstInstance - extra SetStreamSource calls will be needed if this is false */
 extern RHI_API bool GRHISupportsFirstInstance;
+
+/** Whether or not the RHI can handle dynamic resolution or not. */
+extern RHI_API bool GRHISupportsDynamicResolution;
 
 /** Whether or not the RHI supports an RHI thread.
 Requirements for RHI thread

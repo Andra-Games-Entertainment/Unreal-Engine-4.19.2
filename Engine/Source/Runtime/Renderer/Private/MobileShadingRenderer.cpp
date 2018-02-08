@@ -117,7 +117,7 @@ void FMobileSceneRenderer::InitViews(FRHICommandListImmediate& RHICmdList)
 	OnStartFrame(RHICmdList);
 }
 
-void FMobileSceneRenderer::UpdateViewCustomData()
+void FMobileSceneRenderer::PostInitViewCustomData()
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_UpdateViewCustomData);
 
@@ -125,7 +125,7 @@ void FMobileSceneRenderer::UpdateViewCustomData()
 	{
 		for (const FPrimitiveSceneInfo* PrimitiveSceneInfo : ViewInfo.PrimitivesWithCustomData)
 		{
-			PrimitiveSceneInfo->Proxy->UpdateViewCustomData(ViewInfo, ViewInfo.GetCustomData(PrimitiveSceneInfo->GetIndex()));
+			PrimitiveSceneInfo->Proxy->PostInitViewCustomData(ViewInfo, ViewInfo.GetCustomData(PrimitiveSceneInfo->GetIndex()));
 		}
 	}
 }
@@ -176,7 +176,7 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		Scene->FXSystem->PreRender(RHICmdList, NULL);
 	}
 
-	UpdateViewCustomData();
+	PostInitViewCustomData();
 
 	GRenderTargetPool.VisualizeTexture.OnStartFrame(Views[0]);
 
@@ -234,7 +234,7 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 	{
 		for (int32 ViewIndex = 0; ViewIndex < ViewFamily.Views.Num(); ++ViewIndex)
 		{
-			ViewFamily.ViewExtensions[ViewExt]->PostRenderMobileBasePass_RenderThread(RHICmdList, Views[ViewIndex]);
+			ViewFamily.ViewExtensions[ViewExt]->PostRenderBasePass_RenderThread(RHICmdList, Views[ViewIndex]);
 		}
 	}
 

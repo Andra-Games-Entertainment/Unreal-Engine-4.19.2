@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "ActiveSound.h"
 #include "EngineDefines.h"
@@ -1212,7 +1212,7 @@ void FActiveSound::ApplyAttenuation(FSoundParseParameters& ParseParams, const FL
 			{
 				for (UOcclusionPluginSourceSettingsBase* SettingsBase : Settings->PluginSettings.OcclusionPluginSettingsArray)
 				{
-					if (SettingsBase->IsA(PluginClass))
+					if (SettingsBase != nullptr && SettingsBase->IsA(PluginClass))
 					{
 						ParseParams.OcclusionPluginSettings = SettingsBase;
 						break;
@@ -1257,7 +1257,7 @@ void FActiveSound::ApplyAttenuation(FSoundParseParameters& ParseParams, const FL
 		{
 			for (UReverbPluginSourceSettingsBase* SettingsBase : Settings->PluginSettings.ReverbPluginSettingsArray)
 			{
-				if (SettingsBase->IsA(PluginClass))
+				if (SettingsBase != nullptr && SettingsBase->IsA(PluginClass))
 				{
 					ParseParams.ReverbPluginSettings = SettingsBase;
 					break;
