@@ -3,7 +3,7 @@
 #pragma once
 
 // moved the setup from VulkanRHIPrivate.h to the platform headers
-#include "WindowsHWrapper.h"
+#include "Windows/WindowsHWrapper.h"
 
 #define VK_USE_PLATFORM_WIN32_KHR				1
 #define VK_USE_PLATFORM_WIN32_KHX				1
@@ -21,9 +21,9 @@
 #define VULKAN_ENABLE_DESKTOP_HMD_SUPPORT		1
 #define VULKAN_SIGNAL_UNIMPLEMENTED()			checkf(false, TEXT("Unimplemented vulkan functionality: %s"), TEXT(__FUNCTION__))
 
-#include "AllowWindowsPlatformTypes.h"
+#include "Windows/AllowWindowsPlatformTypes.h"
 	#include <vulkan.h>
-#include "HideWindowsPlatformTypes.h"
+#include "Windows/HideWindowsPlatformTypes.h"
 
 
 // and now, include the GenericPlatform class

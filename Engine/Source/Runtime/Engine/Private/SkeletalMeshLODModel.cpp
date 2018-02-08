@@ -14,7 +14,7 @@
 #include "Rendering/ColorVertexBuffer.h"
 #include "Rendering/SkeletalMeshVertexClothBuffer.h"
 #include "Rendering/SkinWeightVertexBuffer.h"
-#include "ReleaseObjectVersion.h"
+#include "UObject/ReleaseObjectVersion.h"
 
 /*-----------------------------------------------------------------------------
 FSoftSkinVertex

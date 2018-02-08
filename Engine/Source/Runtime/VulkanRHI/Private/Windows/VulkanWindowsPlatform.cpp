@@ -3,7 +3,7 @@
 #include "VulkanWindowsPlatform.h"
 #include "../VulkanRHIPrivate.h"
 
-#include "AllowWindowsPlatformTypes.h"
+#include "Windows/AllowWindowsPlatformTypes.h"
 static HMODULE GVulkanDLLModule = nullptr;
 
 bool FVulkanWindowsPlatform::LoadVulkanLibrary()
@@ -49,7 +49,7 @@ void FVulkanWindowsPlatform::FreeVulkanLibrary()
 	}
 }
 
-#include "HideWindowsPlatformTypes.h"
+#include "Windows/HideWindowsPlatformTypes.h"
 
 
 

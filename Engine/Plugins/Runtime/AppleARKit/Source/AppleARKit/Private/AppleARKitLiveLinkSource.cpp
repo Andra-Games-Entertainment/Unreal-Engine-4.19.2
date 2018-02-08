@@ -1,10 +1,10 @@
 // Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
 
 #include "AppleARKitLiveLinkSource.h"
-#include "Package.h"
+#include "UObject/Package.h"
 #include "Misc/ConfigCacheIni.h"
-#include "UObjectGlobals.h"
-#include "ObjectMacros.h"
+#include "UObject/UObjectGlobals.h"
+#include "UObject/ObjectMacros.h"
 #include "ARSystem.h"
 #include "ARBlueprintLibrary.h"
 #include "AppleARKitModule.h"

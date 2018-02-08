@@ -44,7 +44,7 @@
 #include "IPinnedCommandList.h"
 #include "UICommandList_Pinnable.h"
 #include "BoneSelectionWidget.h"
-#include "SRichTextBlock.h"
+#include "Widgets/Text/SRichTextBlock.h"
 
 #define LOCTEXT_NAMESPACE "AnimViewportToolBar"
 

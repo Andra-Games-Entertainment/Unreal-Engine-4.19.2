@@ -5,7 +5,7 @@
 * A lightweight multi-threaded CSV profiler which can be used for profiling in Test/Shipping builds
 */
 
-#include "CsvProfiler.h"
+#include "ProfilingDebugging/CsvProfiler.h"
 #include "CoreGlobals.h"
 #include "HAL/RunnableThread.h"
 #include "HAL/ThreadManager.h"
@@ -21,13 +21,8 @@
 #include "Misc/CoreDelegates.h"
 #include "Misc/App.h"
 #include "HAL/Runnable.h"
-#include "RenderingThread.h"
 #include "Misc/CoreDelegates.h"
-#include "RenderCore.h"
 #include "Modules/ModuleManager.h"
-#include "EngineGlobals.h"
-#include "Engine/Engine.h"
-#include "DynamicResolutionState.h"
 
 #if CSV_PROFILER
 

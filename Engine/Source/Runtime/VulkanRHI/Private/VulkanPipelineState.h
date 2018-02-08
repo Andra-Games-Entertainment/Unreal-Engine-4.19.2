@@ -13,7 +13,7 @@
 #include "VulkanGlobalUniformBuffer.h"
 #include "VulkanPipeline.h"
 #include "VulkanRHIPrivate.h"
-#include "ArrayView.h"
+#include "Containers/ArrayView.h"
 
 class FVulkanComputePipeline;
 

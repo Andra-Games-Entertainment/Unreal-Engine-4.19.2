@@ -203,7 +203,7 @@
 #include "ProfilingDebugging/LoadTimeTracker.h"
 #include "UObject/ObjectKey.h"
 #include "AssetRegistryModule.h"
-#include "CsvProfiler.h"
+#include "ProfilingDebugging/CsvProfiler.h"
 
 #if !UE_BUILD_SHIPPING
 	#include "Interfaces/IPluginManager.h"

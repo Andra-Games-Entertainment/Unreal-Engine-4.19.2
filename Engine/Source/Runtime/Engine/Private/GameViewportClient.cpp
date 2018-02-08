@@ -57,7 +57,7 @@
 #include "ComponentRecreateRenderStateContext.h"
 #include "Framework/Application/HardwareCursor.h"
 #include "DynamicResolutionState.h"
-#include "CsvProfiler.h"
+#include "ProfilingDebugging/CsvProfiler.h"
 
 #define LOCTEXT_NAMESPACE "GameViewport"
 
