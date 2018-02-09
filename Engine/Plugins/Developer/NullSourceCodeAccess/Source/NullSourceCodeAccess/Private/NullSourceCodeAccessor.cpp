@@ -2,7 +2,7 @@
 
 #include "NullSourceCodeAccessor.h"
 #include "Misc/Paths.h"
-#include "PlatformProcess.h"
+#include "HAL/PlatformProcess.h"
 
 #define LOCTEXT_NAMESPACE "NullSourceCodeAccessor"
 bool FNullSourceCodeAccessor::CanAccessSourceCode() const
