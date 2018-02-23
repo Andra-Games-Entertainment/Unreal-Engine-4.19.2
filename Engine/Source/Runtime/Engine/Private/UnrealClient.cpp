@@ -298,6 +298,10 @@ void FScreenshotRequest::RequestScreenshot(const FString& InFilename, bool bInSh
 	else
 	{
 		Filename = GeneratedFilename;
+		if (FPaths::GetExtension(Filename).Len() == 0)
+		{
+			Filename += TEXT(".png");
+		}
 	}
 
 	// Register the screenshot
@@ -369,6 +373,11 @@ FString FScreenshotRequest::Filename;
 FString FScreenshotRequest::NextScreenshotName;
 bool FScreenshotRequest::bShowUI = false;
 TArray<FColor> FScreenshotRequest::HighresScreenshotMaskColorArray;
+
+static TAutoConsoleVariable<int32> CVarFullSizeUnitGraph(
+	TEXT("FullSizeUnitGraph"),
+	0,
+	TEXT("If true, the unit graph is the old full size, full brightness version."));
 
 
 int32 FStatUnitData::DrawStat(FViewport* InViewport, FCanvas* InCanvas, int32 InX, int32 InY)
@@ -536,7 +545,7 @@ int32 FStatUnitData::DrawStat(FViewport* InViewport, FCanvas* InCanvas, int32 In
 				const FColor GPUMaxColor = GEngine->GetFrameTimeDisplayColor(Max_GPUFrameTime);
 				InCanvas->DrawShadowedString(X3, InY, *FString::Printf(TEXT("%4.2f ms"), Max_GPUFrameTime), Font, GPUMaxColor);
 			}
-			if(GMaxRHIShaderPlatform == SP_PS4)
+			if (GMaxRHIShaderPlatform == SP_PS4)
 			{
 				FString Warnings;
 
@@ -561,7 +570,7 @@ int32 FStatUnitData::DrawStat(FViewport* InViewport, FCanvas* InCanvas, int32 In
 					}
 				}
 
-				if(!Warnings.IsEmpty())
+				if (!Warnings.IsEmpty())
 				{
 					InCanvas->DrawShadowedString(X3 + 100, InY, *Warnings, Font, FColor::Red);
 				}
@@ -591,6 +600,8 @@ int32 FStatUnitData::DrawStat(FViewport* InViewport, FCanvas* InCanvas, int32 In
 	// Draw simple unit time graph
 	if (bShowUnitTimeGraph)
 	{
+		const bool bSmallGraph = !CVarFullSizeUnitGraph.GetValueOnGameThread();
+
 		UFont* SmallFont = GEngine->GetSmallFont();
 		check(SmallFont);
 		int32 AlertPrintWidth = SmallFont->GetStringSize(TEXT("000.0"));
@@ -622,14 +633,16 @@ int32 FStatUnitData::DrawStat(FViewport* InViewport, FCanvas* InCanvas, int32 In
 		const float GraphBackgroundMarginSize = 8.0f;
 		const float GraphLeftXPos = 80.0f;
 		const float GraphBottomYPos = InViewport->GetSizeXY().Y / InCanvas->GetDPIScale() - 50.0f;
-		const float GraphHorizPixelsPerFrame = 2.0f;
-		const float GraphHeight = 350.0f;
+		const float GraphHorizPixelsPerFrame = (bSmallGraph ? 1.0f : 2.0f);
+		const float GraphHeight = (bSmallGraph ? 120.0f : 350.0f);
 
-		const float TargetTimeMSHeight = 300.0f;
+		const float TargetTimeMSHeight = GraphHeight * 0.85f;
 		const float	MaxDynresTargetTimeMSHeight = TargetTimeMSHeight * 0.75f;
 
+		const float OutOfBudgetMarginHeight = (bSmallGraph ? 1 : 3);
+
 		const float GraphTotalWidth = GraphHorizPixelsPerFrame * NumberOfSamples;
-		const float GraphTotalHeight = TargetTimeMSHeight + (3 + EGS_UnboundedHighValueCount) * AlertPrintHeight;
+		const float GraphTotalHeight = TargetTimeMSHeight + (OutOfBudgetMarginHeight + EGS_UnboundedHighValueCount) * AlertPrintHeight;
 
 		// Scale MS axis so that TargetTimeMS stays at fixed ordinate.
 		const float GraphVerticalPixelsPerMS = TargetTimeMSHeight / TargetTimeMS;
@@ -680,7 +693,7 @@ int32 FStatUnitData::DrawStat(FViewport* InViewport, FCanvas* InCanvas, int32 In
 				HitProxyId);
 
 			InCanvas->DrawShadowedString(
-				GraphLeftXPos - GraphBackgroundMarginSize, 
+				GraphLeftXPos - GraphBackgroundMarginSize,
 				GraphBottomYPos - GraphTotalHeight - GraphBackgroundMarginSize - AlertPrintHeight - 2.0f,
 				bShowRawUnitTimes ? TEXT("(Raw timings)") : TEXT("(Filtered timings)"), SmallFont, GraphBorderColor);
 		}
@@ -779,7 +792,7 @@ int32 FStatUnitData::DrawStat(FViewport* InViewport, FCanvas* InCanvas, int32 In
 				*FString::Printf(TEXT("%3.1f%% x %3.1f%% (alert)"), AlertScreenPercentage, AlertScreenPercentage), SmallFont, LineColor);
 		}
 
-		int32 AlertPrintY = GraphBottomYPos - AlertTimeMS * GraphVerticalPixelsPerMS - 3 * AlertPrintHeight;
+		int32 AlertPrintY = GraphBottomYPos - AlertTimeMS * GraphVerticalPixelsPerMS - OutOfBudgetMarginHeight * AlertPrintHeight;
 
 		const bool bShowFrameTimeInUnitGraph = InViewport->GetClient() ? InViewport->GetClient()->IsStatEnabled(TEXT("UnitTime")) : false;
 		for (int32 StatIndex = 0; StatIndex < EGS_Count; ++StatIndex)
@@ -909,7 +922,7 @@ int32 FStatUnitData::DrawStat(FViewport* InViewport, FCanvas* InCanvas, int32 In
 					}
 					for (; CheckIndex < NumberOfSamples; ++CheckIndex)
 					{
-						if ((!HigherIsBest && Values[CheckIndex] <= AlertValue) || 
+						if ((!HigherIsBest && Values[CheckIndex] <= AlertValue) ||
 							(HigherIsBest && Values[CheckIndex] >= AlertValue))
 						{
 							break;

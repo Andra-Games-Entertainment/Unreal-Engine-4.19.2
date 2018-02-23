@@ -379,10 +379,6 @@ public:
 		eHeapAliased, 
 	};
 
-	// Resource locations shouldn't be copied or moved. Use TransferOwnership to move resource locations.
-	FD3D12ResourceLocation(FD3D12ResourceLocation&&) = delete;
-	FD3D12ResourceLocation(FD3D12ResourceLocation const&) = delete;
-
 	FD3D12ResourceLocation(FD3D12Device* Parent);
 	~FD3D12ResourceLocation();
 
@@ -727,6 +723,11 @@ public:
 	void SetDynamicSRV(FD3D12ShaderResourceView* InSRV)
 	{
 		DynamicSRV = InSRV;
+	}
+
+	FD3D12ShaderResourceView* GetDynamicSRV() const
+	{
+		return DynamicSRV;
 	}
 
 	// IRefCountedObject interface.

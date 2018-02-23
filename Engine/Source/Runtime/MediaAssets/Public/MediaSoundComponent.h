@@ -19,6 +19,7 @@ class FMediaPlayerFacade;
 class IMediaAudioSample;
 class IMediaPlayer;
 class UMediaPlayer;
+class USoundClass;
 
 
 /**
@@ -68,6 +69,15 @@ public:
 public:
 
 	/**
+	 * Get the attenuation settings based on the current component settings.
+	 *
+	 * @param OutAttenuationSettings Will contain the attenuation settings, if available.
+	 * @return true if attenuation settings were returned, false if attenuation is disabled.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Media|MediaSoundComponent", meta=(DisplayName="Get Attenuation Settings To Apply", ScriptName="GetAttenuationSettingsToApply"))
+	bool BP_GetAttenuationSettingsToApply(FSoundAttenuationSettings& OutAttenuationSettings);
+
+	/**
 	 * Set the media player that provides the audio samples.
 	 *
 	 * @param NewMediaPlayer The player to set.
@@ -78,6 +88,12 @@ public:
 public:
 
 	void UpdatePlayer();
+
+public:
+
+	//~ TAttenuatedComponentVisualizer interface
+
+	void CollectAttenuationShapesForVisualization(TMultiMap<EAttenuationShape::Type, FBaseAttenuationSettings::AttenuationShapeDetails>& ShapeDetailsMap) const;
 
 public:
 
@@ -96,12 +112,21 @@ public:
 public:
 
 	//~ UObject interface
-
+	virtual void PostInitProperties() override;
 	virtual void PostLoad() override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
+
+protected:
+
+	/**
+	 * Get the attenuation settings based on the current component settings.
+	 *
+	 * @return Attenuation settings, or nullptr if attenuation is disabled.
+	 */
+	const FSoundAttenuationSettings* GetSelectedAttenuationSettings() const;
 
 protected:
 
@@ -145,4 +170,8 @@ private:
 
 	/** Audio sample queue. */
 	TSharedPtr<FMediaAudioSampleQueue, ESPMode::ThreadSafe> SampleQueue;
+
+private:
+
+	static USoundClass* DefaultMediaSoundClassObject;
 };

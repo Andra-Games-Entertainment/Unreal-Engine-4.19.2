@@ -895,13 +895,10 @@ FText SAssetViewItem::GetCheckedOutByOtherText() const
 		const FAssetData& AssetData = StaticCastSharedPtr<FAssetViewAsset>(AssetItem)->Data;
 		ISourceControlProvider& SourceControlProvider = ISourceControlModule::Get().GetProvider();
 		FSourceControlStatePtr SourceControlState = SourceControlProvider.GetState(SourceControlHelpers::PackageFilename(AssetData.PackageName.ToString()), EStateCacheUsage::Use);
-		FString UserWhichHasPackageCheckedOut;
-		if (SourceControlState.IsValid() && SourceControlState->IsCheckedOutOther(&UserWhichHasPackageCheckedOut) )
+		FString UserWhichHasPackageCheckedOut;		
+		if (SourceControlState.IsValid() && ( SourceControlState->IsCheckedOutOther(&UserWhichHasPackageCheckedOut) || SourceControlState->IsCheckedOutOrModifiedInOtherBranch()))
 		{
-			if ( !UserWhichHasPackageCheckedOut.IsEmpty() )
-			{
-				return SourceControlState->GetDisplayTooltip();
-			}
+			return SourceControlState->GetDisplayTooltip();
 		}
 	}
 

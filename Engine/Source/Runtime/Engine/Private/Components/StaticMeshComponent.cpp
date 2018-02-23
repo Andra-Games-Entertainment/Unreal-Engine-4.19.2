@@ -1809,6 +1809,15 @@ void UStaticMeshComponent::SetDistanceFieldSelfShadowBias(float NewValue)
 	}
 }
 
+void UStaticMeshComponent::SetReverseCulling(bool ReverseCulling)
+{
+	if (ReverseCulling != bReverseCulling)
+	{
+		bReverseCulling = ReverseCulling;
+		MarkRenderStateDirty();
+	}
+}
+
 void UStaticMeshComponent::GetLocalBounds(FVector& Min, FVector& Max) const
 {
 	if (GetStaticMesh())

@@ -203,6 +203,20 @@ public:
 	DECLARE_DELEGATE(FStarvedGameLoop);
 	static FStarvedGameLoop StarvedGameLoop;
 
+	// IOS-style temperature updates, allowing game to scale down to let temp drop (to avoid thermal throttling on mobile, for instance) */
+	// There is a parellel enum in ApplicationLifecycleComponent
+	enum class ETemperatureSeverity : uint8
+	{
+		Good,
+		Bad,
+		Serious,
+		Critical,
+
+		NumSeverities,
+	};
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnTemperatureChange, ETemperatureSeverity);
+	static FOnTemperatureChange OnTemperatureChange;
+
 	/** IOS-style application lifecycle delegates */
 	DECLARE_MULTICAST_DELEGATE(FApplicationLifetimeDelegate);
 

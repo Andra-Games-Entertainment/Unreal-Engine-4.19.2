@@ -70,6 +70,7 @@ FCoreDelegates::FOnInviteAccepted FCoreDelegates::OnInviteAccepted;
 FCoreDelegates::FWorldOriginOffset FCoreDelegates::PreWorldOriginOffset;
 FCoreDelegates::FWorldOriginOffset FCoreDelegates::PostWorldOriginOffset;
 FCoreDelegates::FStarvedGameLoop FCoreDelegates::StarvedGameLoop;
+FCoreDelegates::FOnTemperatureChange FCoreDelegates::OnTemperatureChange;
 
 FCoreDelegates::FApplicationLifetimeDelegate FCoreDelegates::ApplicationWillDeactivateDelegate;
 FCoreDelegates::FApplicationLifetimeDelegate FCoreDelegates::ApplicationHasReactivatedDelegate;
