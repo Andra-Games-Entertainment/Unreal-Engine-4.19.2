@@ -2902,7 +2902,7 @@ public:
 	{		
 	}
 
-	virtual FParticleVertexFactoryBase *CreateVertexFactory(ERHIFeatureLevel::Type InFeatureLevel) override
+	virtual FParticleVertexFactoryBase *CreateVertexFactory(ERHIFeatureLevel::Type InFeatureLevel, const FParticleSystemSceneProxy *InOwnerProxy) override
 	{
 		FGPUSpriteVertexFactory *VertexFactory = new FGPUSpriteVertexFactory(InFeatureLevel);
 		VertexFactory->InitResource();

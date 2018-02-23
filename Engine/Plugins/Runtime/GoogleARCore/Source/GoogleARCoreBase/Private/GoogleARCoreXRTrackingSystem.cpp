@@ -4,6 +4,7 @@
 #include "Engine/Engine.h"
 #include "RHIDefinitions.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/WorldSettings.h"
 #include "GoogleARCoreDevice.h"
 #include "GoogleARCoreXRCamera.h"
 #include "ARSessionConfig.h"

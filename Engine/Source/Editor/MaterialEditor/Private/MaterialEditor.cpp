@@ -1760,7 +1760,7 @@ void FMaterialEditor::UpdateOriginalMaterial()
 		// not used for preview materials fail to compile.
 		if (bShowMobileStats)
 		{
-			OriginalMaterial->SetFeatureLevelToCompile(ERHIFeatureLevel::ES2,true);
+			OriginalMaterial->SetFeatureLevelToCompile(ERHIFeatureLevel::ES3_1,true);
 		}
 
 		UMaterialEditingLibrary::RecompileMaterial(OriginalMaterial);
@@ -1785,7 +1785,7 @@ void FMaterialEditor::UpdateMaterialInfoList(bool bForceDisplay)
 	FeatureLevelsToDisplay[NumFeatureLevels++] = GMaxRHIFeatureLevel;
 	if (bShowMobileStats)
 	{
-		FeatureLevelsToDisplay[NumFeatureLevels++] = ERHIFeatureLevel::ES2;
+		FeatureLevelsToDisplay[NumFeatureLevels++] = ERHIFeatureLevel::ES3_1;
 	}
 
 	if (NumFeatureLevels > 0)
@@ -2028,7 +2028,7 @@ void FMaterialEditor::UpdateGraphNodeStates()
 	const FMaterialResource* ErrorMaterialResourceES2 = NULL;
 	if (bShowMobileStats)
 	{
-		ErrorMaterialResourceES2 = PreviewExpression ? ExpressionPreviewMaterial->GetMaterialResource(ERHIFeatureLevel::ES2) : Material->GetMaterialResource(ERHIFeatureLevel::ES2);
+		ErrorMaterialResourceES2 = PreviewExpression ? ExpressionPreviewMaterial->GetMaterialResource(ERHIFeatureLevel::ES3_1) : Material->GetMaterialResource(ERHIFeatureLevel::ES3_1);
 	}
 
 	bool bUpdatedErrorState = false;
@@ -2298,11 +2298,11 @@ void FMaterialEditor::ToggleMobileStats()
 			// Sync with the rendering thread but don't reregister components. We will manually do so.
 			FMaterialUpdateContext UpdateContext(FMaterialUpdateContext::EOptions::SyncWithRenderingThread);
 			UpdateContext.AddMaterial(PreviewMaterial);
-			PreviewMaterial->SetFeatureLevelToCompile(ERHIFeatureLevel::ES2,bShowMobileStats);
+			PreviewMaterial->SetFeatureLevelToCompile(ERHIFeatureLevel::ES3_1,bShowMobileStats);
 			PreviewMaterial->ForceRecompileForRendering();
 			if (!bStatsFromPreviewMaterial)
 			{
-				OriginalMaterial->SetFeatureLevelToCompile(ERHIFeatureLevel::ES2,bShowMobileStats);
+				OriginalMaterial->SetFeatureLevelToCompile(ERHIFeatureLevel::ES3_1,bShowMobileStats);
 				OriginalMaterial->ForceRecompileForRendering();
 			}
 		}
@@ -4666,7 +4666,7 @@ void FMaterialEditor::UpdateStatsMaterials()
 		FString EmptyMaterialName = FString(TEXT("MEStatsMaterial_Empty_")) + Material->GetName();
 		EmptyMaterial = (UMaterial*)StaticDuplicateObject(Material, GetTransientPackage(), *EmptyMaterialName, ~RF_Standalone, UPreviewMaterial::StaticClass());
 
-		EmptyMaterial->SetFeatureLevelToCompile(ERHIFeatureLevel::ES2, bShowMobileStats);
+		EmptyMaterial->SetFeatureLevelToCompile(ERHIFeatureLevel::ES3_1, bShowMobileStats);
 
 		EmptyMaterial->Expressions.Empty();
 

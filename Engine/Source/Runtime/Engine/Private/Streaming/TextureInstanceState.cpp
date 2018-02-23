@@ -56,6 +56,12 @@ void FTextureInstanceState::RemoveBounds(int32 BoundsIndex)
 {
 	checkSlow(!FreeBoundIndices.Contains(BoundsIndex));
 
+	// If the BoundsIndex is out of range, the next code will crash.	
+	if (!ensure(Bounds4Components.IsValidIndex(BoundsIndex)))
+	{
+		return;
+	}
+
 	// Because components can be removed in CheckRegistrationAndUnpackBounds, which iterates on BoundsToUnpack,
 	// here we invalidate the index, instead of removing it, to avoid resizing the array.
 	int32 BoundsToUnpackIndex = INDEX_NONE;

@@ -719,14 +719,12 @@ FShaderCache::FShaderCache(uint32 InOptions, EShaderPlatform InShaderPlatform)
 	// We expect the RHI to be created at this point
 	CurrentShaderPlatformCache.ShaderPlatform = CurrentPlatform;
 
-	if (IsMobilePlatform(CurrentPlatform))
-	{
-		// Make sure this is disabled on mobile
-		// Mobile only needs FShaderCache::bUseShaderCaching
-		FShaderCache::bUseShaderPredraw = 0;
-		FShaderCache::bUseShaderDrawLog = 0;
-	}
-		
+    const bool bOverridesShaderDrawLog = FParse::Param( FCommandLine::Get(), TEXT( "UseShaderDrawLog" ) );
+    if (bOverridesShaderDrawLog)
+    {
+        FShaderCache::bUseShaderDrawLog = 1;
+    }
+
 	DefaultCacheState = InternalCreateOrFindCacheStateForContext(GDynamicRHI->RHIGetDefaultContext());
 			
 	// Try to load user cache, making sure that if we fail version test we still try game-content version.
@@ -1256,7 +1254,7 @@ void FShaderCache::InternalLogShader(EShaderPlatform Platform, EShaderFrequency 
 
 			if (!(Cache->Options & SCO_NoShaderPreload) && bSubmit)
 			{
-				if (Code.Num() != UncompressedSize && RHISupportsShaderCompression(ShaderCache->CurrentPlatform))
+				if (Code.Num() && Code.Num() != UncompressedSize && RHISupportsShaderCompression(ShaderCache->CurrentPlatform))
 				{
 					TArray<uint8> UncompressedCode;
 					FShaderCacheHelperUncompressCode(UncompressedSize, Code, UncompressedCode);

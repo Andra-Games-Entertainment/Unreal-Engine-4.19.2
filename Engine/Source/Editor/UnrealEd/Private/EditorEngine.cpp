@@ -1501,9 +1501,8 @@ void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 				// Iterate over streaming levels and compute whether the ViewLocation is in their associated volumes.
 				TMap<ALevelStreamingVolume*, bool> VolumeMap;
 
-				for( int32 LevelIndex = 0 ; LevelIndex < EditorContext.World()->StreamingLevels.Num() ; ++LevelIndex )
+				for (ULevelStreaming* StreamingLevel : EditorContext.World()->GetStreamingLevels())
 				{
-					ULevelStreaming* StreamingLevel = EditorContext.World()->StreamingLevels[LevelIndex];
 					if( StreamingLevel )
 					{
 						// Assume the streaming level is invisible until we find otherwise.
@@ -1547,9 +1546,9 @@ void UEditorEngine::Tick( float DeltaSeconds, bool bIdleMode )
 						}
 
 						// Set the streaming level visibility status if we encountered at least one volume.
-						if ( bFoundValidVolume && StreamingLevel->bShouldBeVisibleInEditor != bStreamingLevelShouldBeVisible )
+						if ( bFoundValidVolume && StreamingLevel->GetShouldBeVisibleInEditor() != bStreamingLevelShouldBeVisible )
 						{
-							StreamingLevel->bShouldBeVisibleInEditor = bStreamingLevelShouldBeVisible;
+							StreamingLevel->SetShouldBeVisibleInEditor(bStreamingLevelShouldBeVisible);
 							bProcessViewer = true;
 						}
 					}
@@ -2308,6 +2307,7 @@ UAudioComponent* UEditorEngine::ResetPreviewAudioComponent( USoundBase* Sound, U
 		{
 			PreviewSoundCue->FirstNode = SoundNode;
 			PreviewAudioComponent->Sound = PreviewSoundCue;
+			PreviewSoundCue->CacheAggregateValues();
 		}
 	}
 
@@ -2399,12 +2399,11 @@ void UEditorEngine::CloseEditedWorldAssets(UWorld* InWorld)
 
 	ClosingWorlds.Add(InWorld);
 
-	for (int32 Index = 0; Index < InWorld->StreamingLevels.Num(); ++Index)
+	for (ULevelStreaming* LevelStreaming : InWorld->GetStreamingLevels())
 	{
-		ULevelStreaming* LevelStreaming = InWorld->StreamingLevels[Index];
-		if (LevelStreaming && LevelStreaming->LoadedLevel)
+		if (LevelStreaming && LevelStreaming->GetLoadedLevel())
 		{
-			ClosingWorlds.Add(CastChecked<UWorld>(LevelStreaming->LoadedLevel->GetOuter()));
+			ClosingWorlds.Add(LevelStreaming->GetWorld());
 		}
 	}
 
@@ -2503,10 +2502,9 @@ bool UEditorEngine::WarnAboutHiddenLevels( UWorld* InWorld, bool bIncludePersist
 
 	// Make a list of all hidden streaming levels.
 	TArray< ULevelStreaming* > HiddenLevels;
-	for( int32 LevelIndex = 0 ; LevelIndex< InWorld->StreamingLevels.Num() ; ++LevelIndex )
+	for (ULevelStreaming* StreamingLevel : InWorld->GetStreamingLevels())
 	{
-		ULevelStreaming* StreamingLevel = InWorld->StreamingLevels[ LevelIndex ];
-		if( StreamingLevel && !FLevelUtils::IsLevelVisible( StreamingLevel ) )
+		if( StreamingLevel && !FLevelUtils::IsStreamingLevelVisibleInEditor( StreamingLevel ) )
 		{
 			HiddenLevels.Add( StreamingLevel );
 		}
@@ -2555,7 +2553,7 @@ bool UEditorEngine::WarnAboutHiddenLevels( UWorld* InWorld, bool bIncludePersist
 			// so would be much more inefficient, resulting in several calls to UpdateLevelStreaming
 			for( int32 HiddenLevelIdx = 0; HiddenLevelIdx < HiddenLevels.Num(); ++HiddenLevelIdx )
 			{
-				HiddenLevels[ HiddenLevelIdx ]->bShouldBeVisibleInEditor = true;
+				HiddenLevels[ HiddenLevelIdx ]->SetShouldBeVisibleInEditor(true);
 			}
 
 			InWorld->FlushLevelStreaming();
@@ -6123,14 +6121,16 @@ bool UEditorEngine::ShouldThrottleCPUUsage() const
 		// Check if we should throttle due to all windows being minimized
 		if ( !bShouldThrottle )
 		{
-			return bShouldThrottle = AreAllWindowsHidden();
+			 bShouldThrottle = AreAllWindowsHidden();
 		}
-	}
 
-	// Don't throttle during amortized export, greatly increases export time
-	if (IsLightingBuildCurrentlyExporting())
-	{
-		return false;
+		static const FName AssetRegistryName(TEXT("AssetRegistry"));
+		FAssetRegistryModule* AssetRegistryModule = FModuleManager::GetModulePtr<FAssetRegistryModule>(AssetRegistryName);
+		// Don't throttle during amortized export, greatly increases export time
+		if (IsLightingBuildCurrentlyExporting() || GShaderCompilingManager->IsCompiling() || (AssetRegistryModule && AssetRegistryModule->Get().IsLoadingAssets()))
+		{
+			bShouldThrottle = false;
+		}
 	}
 
 	return bShouldThrottle && !IsRunningCommandlet();

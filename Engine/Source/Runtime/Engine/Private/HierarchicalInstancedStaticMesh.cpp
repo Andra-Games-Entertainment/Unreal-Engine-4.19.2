@@ -322,7 +322,8 @@ public:
 
 		for (int32 Index = 0; Index < ExcludedDueToDensityScaling.Num(); ++Index)
 		{
-			if (!ExcludedDueToDensityScaling[Index])
+			// don't add indices that are bigger than the original size, or many bad things will happen later!
+			if (!ExcludedDueToDensityScaling[Index] && Index < OriginalNum)
 			{
 				SortIndex.Add(Index);
 			}
@@ -1211,7 +1212,7 @@ void FHierarchicalStaticMeshSceneProxy::FillDynamicMeshElements(FMeshElementColl
 
 	for (int32 LODIndex = FirstLOD; LODIndex < LastLODPlusOne; LODIndex++)
 	{
-		const FStaticMeshLODResources& LODModel = StaticMesh->RenderData->LODResources[LODIndex];
+		const FStaticMeshLODResources& LODModel = RenderData->LODResources[LODIndex];
 
 		for (int32 SelectionGroupIndex = 0; SelectionGroupIndex < ElementParams.NumSelectionGroups; SelectionGroupIndex++)
 		{
@@ -1521,7 +1522,7 @@ void FHierarchicalStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<cons
 
 				for (int32 LODIndex = 1; LODIndex < InstanceParams.LODs; LODIndex++)
 				{
-					float Distance = ComputeBoundsDrawDistance(RenderData->ScreenSize[LODIndex], SphereRadius, View->ViewMatrices.GetProjectionMatrix()) * LODScale;
+					float Distance = ComputeBoundsDrawDistance(RenderData->ScreenSize[LODIndex].GetValueForFeatureLevel(View->GetFeatureLevel()), SphereRadius, View->ViewMatrices.GetProjectionMatrix()) * LODScale;
 					InstanceParams.LODPlanesMin[LODIndex - 1] = Distance - LODRandom;
 					InstanceParams.LODPlanesMax[LODIndex - 1] = Distance;
 				}
@@ -1687,7 +1688,7 @@ void FHierarchicalStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<cons
 
 						for (int32 LODIndex = 1; LODIndex < NumLODs; LODIndex++)
 						{
-							float Distance = ComputeBoundsDrawDistance(RenderData->ScreenSize[LODIndex], SphereRadius, View->ViewMatrices.GetProjectionMatrix()) * LODScale;
+							float Distance = ComputeBoundsDrawDistance(RenderData->ScreenSize[LODIndex].GetValueForFeatureLevel(View->GetFeatureLevel()), SphereRadius, View->ViewMatrices.GetProjectionMatrix()) * LODScale;
 							LODPlanesMin[LODIndex - 1] = Distance - LODRandom;
 							LODPlanesMax[LODIndex - 1] = Distance;
 						}

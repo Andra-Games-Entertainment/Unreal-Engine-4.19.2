@@ -1,4 +1,4 @@
-﻿// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 using System;
 using System.Collections;
@@ -904,6 +904,7 @@ namespace UnrealBuildTool
 		/// Whether to deploy the executable after compilation on platforms that require deployment.
 		/// </summary>
 		[CommandLine("-Deploy")]
+		[CommandLine("-SkipDeploy", Value = "false")]
 		public bool bDeployAfterCompile = false;
 
 		/// <summary>
@@ -962,6 +963,12 @@ namespace UnrealBuildTool
 		/// </summary>
 		[CommandLine("-HideSymbolsByDefault")]
 		public bool bHideSymbolsByDefault;
+
+		/// <summary>
+		/// Allows overriding the toolchain to be created for this target. This must match the name of a class declared in the UnrealBuildTool assembly.
+		/// </summary>
+		[CommandLine("-ToolChain")]
+		public string ToolChainName = null;
 
         /// <summary>
         /// Whether to load generated ini files in cooked build
@@ -1927,6 +1934,11 @@ namespace UnrealBuildTool
 		public bool bHideSymbolsByDefault
 		{
 			get { return Inner.bHideSymbolsByDefault; }
+		}
+
+		public string ToolChainName
+		{
+			get { return Inner.ToolChainName; }
 		}
 
 		public bool bLegacyPublicIncludePaths
