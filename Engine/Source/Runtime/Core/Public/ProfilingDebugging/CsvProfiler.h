@@ -1,4 +1,4 @@
-// Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /**
 *
@@ -15,6 +15,12 @@
   #define CSV_PROFILER (WITH_ENGINE && 1)
 #else
   #define CSV_PROFILER (WITH_ENGINE && !UE_BUILD_SHIPPING)
+
+  #if CSV_PROFILER && !ALLOW_DEBUG_FILES
+	#undef CSV_PROFILER
+	#define CSV_PROFILER 0
+  #endif
+
 #endif
 
 #if CSV_PROFILER
@@ -45,8 +51,8 @@
 #define CSV_DECLARE_CATEGORY_MODULE_EXTERN(Module_API,CategoryName)			extern Module_API FCsvCategory _GCsvCategory_##CategoryName
 
 // Events
-#define CSV_EVENT(Category, Format, ...) 						FCsvProfiler::Get()->RecordEventf( CSV_CATEGORY_INDEX(Category), Format, __VA_ARGS__ )
-#define CSV_EVENT_GLOBAL(Format, ...) 							FCsvProfiler::Get()->RecordEventf( CSV_CATEGORY_INDEX_GLOBAL, Format, __VA_ARGS__ )
+#define CSV_EVENT(Category, Format, ...) 						FCsvProfiler::Get()->RecordEventf( CSV_CATEGORY_INDEX(Category), Format, ##__VA_ARGS__ )
+#define CSV_EVENT_GLOBAL(Format, ...) 							FCsvProfiler::Get()->RecordEventf( CSV_CATEGORY_INDEX_GLOBAL, Format, ##__VA_ARGS__ )
 
 #else
   #define CSV_CATEGORY_INDEX(CategoryName)						
@@ -108,17 +114,19 @@ struct FCsvCaptureCommand
 		, Value(-1)
 	{}
 
-	FCsvCaptureCommand(ECsvCommandType InCommandType, uint32 InFrameRequested, uint32 InValue = -1, FString InFilenameOverride = FString())
+	FCsvCaptureCommand(ECsvCommandType InCommandType, uint32 InFrameRequested, uint32 InValue = -1, const FString& InDestinationFolder = FString(), bool InbWriteCompletionFile = false)
 		: CommandType(InCommandType)
 		, FrameRequested(InFrameRequested)
 		, Value(InValue)
-		, FilenameOverride(InFilenameOverride)
+		, DestinationFolder(InDestinationFolder)
+		, bWriteCompletionFile(InbWriteCompletionFile)
 	{}
 
 	ECsvCommandType CommandType;
 	uint32 FrameRequested;
 	uint32 Value;
-	FString FilenameOverride;
+	FString DestinationFolder;
+	bool bWriteCompletionFile;
 };
 
 /**
@@ -151,9 +159,9 @@ public:
 	template <typename FmtType, typename... Types>
 	inline void RecordEventf(int32 CategoryIndex, const FmtType& Fmt, Types... Args)
 	{
-		static_assert(TIsArrayOrRefOfType<FmtType, TCHAR>::Value, "Formatting string must be a TCHAR array.");
-		static_assert(TAnd<TIsValidVariadicFunctionArg<Types>...>::Value, "Invalid argument(s) passed to FCsvProfiler::RecordEventf");
-
+		// Intentional merge conflict - uncomment when we merge from UE4/main 
+		//static_assert(TIsArrayOrRefOfType<FmtType, TCHAR>::Value, "Formatting string must be a TCHAR array.");
+		//static_assert(TAnd<TIsValidVariadicFunctionArg<Types>...>::Value, "Invalid argument(s) passed to FCsvProfiler::RecordEventf");
 		if (!bCapturing)
 		{
 			return;
@@ -171,7 +179,9 @@ public:
 	CORE_API void EndFrame();
 
 	/** Begin/End Capture */
-	CORE_API void BeginCapture(int InNumFramesToCapture = -1, const FString& InDestinationFilenameOverride = FString());
+	CORE_API void BeginCapture(int InNumFramesToCapture = -1,
+		const FString& InDestinationFolder = FString(),
+		bool bInWriteCompletionFile = false);
 
 	CORE_API void EndCapture();
 
@@ -210,7 +220,8 @@ private:
 	TArray<FCsvProfilerThreadData*> ProfilerThreadDataArray;
 	FCriticalSection ProfilerThreadDataArrayLock;
 
-	FString DestinationFilenameOverride;
+	bool bWriteCompletionFile;
+	FString DestinationFolder;
 	TQueue<FCsvCaptureCommand> CommandQueue;
 	FCsvProfilerProcessingThread* ProcessingThread;
 };

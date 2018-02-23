@@ -1103,7 +1103,7 @@ static void GameThreadWaitForTask(const FGraphEventRef& Task, bool bEmptyGameThr
 				if (!bDone && !bRenderThreadEnsured && !FPlatformMisc::IsDebuggerPresent())
 				{
 					if (bOverdue && !bDisabled)
-						{
+					{
 						UE_LOG(LogRendererCore, Fatal, TEXT("GameThread timed out waiting for RenderThread after %.02f secs"), FPlatformTime::Seconds() - StartTime);
 					}
 				}
@@ -1174,19 +1174,21 @@ void AdvanceFrameRenderPrerequisite()
 /**
  * Waits for the rendering thread to finish executing all pending rendering commands.  Should only be used from the game thread.
  */
-void FlushRenderingCommands()
+void FlushRenderingCommands(bool bFlushDeferredDeletes)
 {
 	if (!GIsRHIInitialized)
 	{
 		return;
 	}
 
-	ENQUEUE_UNIQUE_RENDER_COMMAND(
-		FlushPendingDeleteRHIResources,
+	ENQUEUE_RENDER_COMMAND(FlushPendingDeleteRHIResourcesCmd)(
+		[bFlushDeferredDeletes](FRHICommandList&)
 	{
-		GRHICommandList.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
-	}
-	);
+		GRHICommandList.GetImmediateCommandList().ImmediateFlush(
+			bFlushDeferredDeletes ?
+			EImmediateFlushType::FlushRHIThreadFlushResourcesFlushDeferredDeletes :
+			EImmediateFlushType::FlushRHIThreadFlushResources);
+	});
 
 	AdvanceFrameRenderPrerequisite();
 

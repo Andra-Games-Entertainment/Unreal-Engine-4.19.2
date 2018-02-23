@@ -326,7 +326,7 @@ void SScaleBox::RefreshSafeZoneScale()
 			TSharedPtr<ISlateViewport> ViewportInterface = GameViewport->GetViewportInterface().Pin();
 			if (ViewportInterface.IsValid())
 			{
-				FIntPoint ViewportSize = ViewportInterface->GetSize();
+				const FIntPoint ViewportSize = ViewportInterface->GetSize();
 
 				FDisplayMetrics Metrics;
 				FSlateApplication::Get().GetDisplayMetrics(Metrics);

@@ -1389,10 +1389,6 @@ public:
 	UPROPERTY(transient)
 	TArray<struct FDropNoteInfo> PendingDroppedNotes;
 
-	/** Error correction data for replicating simulated physics (rigid bodies) */
-	UPROPERTY(config)
-	FRigidBodyErrorCorrection PhysicErrorCorrection;
-
 	/** Number of times to tick each client per second */
 	UPROPERTY(globalconfig)
 	float NetClientTicksPerSecond;
@@ -1636,8 +1632,8 @@ public:
 	}
 
 
-	#if !UE_SERVER
 private:
+	#if !UE_SERVER
 		/** Last dynamic resolution event. */
 		EDynamicResolutionStateEvent LastDynamicResolutionEvent;
 
@@ -1897,6 +1893,8 @@ public:
 	bool HandleDumpLevelScriptActorsCommand( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleKismetEventCommand( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleListTexturesCommand( const TCHAR* Cmd, FOutputDevice& Ar );
+	bool HandleListStaticMeshesCommand(const TCHAR* Cmd, FOutputDevice& Ar);
+	bool HandleListSkeletalMeshesCommand(const TCHAR* Cmd, FOutputDevice& Ar);
 	bool HandleRemoteTextureStatsCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleListParticleSystemsCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleListSpawnedActorsCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorld* InWorld );

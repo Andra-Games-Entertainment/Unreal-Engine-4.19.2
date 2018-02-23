@@ -8,6 +8,7 @@
 /* FAndroidTargetPlatform structors
  *****************************************************************************/
 
+#include "AndroidTargetPlatform.h"
 #include "CoreTypes.h"
 #include "Misc/AssertionMacros.h"
 #include "Containers/Array.h"
@@ -22,6 +23,12 @@
 #include "HAL/PlatformFilemanager.h"
 #include "Interfaces/IAndroidDeviceDetectionModule.h"
 #include "Interfaces/IAndroidDeviceDetection.h"
+#include "Modules/ModuleManager.h"
+#include "Misc/SecureHash.h"
+
+#if WITH_ENGINE
+#include "AudioCompressionSettings.h"
+#endif
 
 #define LOCTEXT_NAMESPACE "FAndroidTargetPlatform"
 
@@ -38,50 +45,9 @@ class UTexture;
 class UTextureLODSettings;
 struct FAndroidDeviceInfo;
 enum class ETargetPlatformFeatures;
-template<class TPlatformProperties> class FAndroidTargetPlatform;
 template<typename TPlatformProperties> class TTargetPlatformBase;
 
-static bool SupportsES2()
-{
-	// default to support ES2
-	bool bBuildForES2 = true;
-	GConfig->GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bBuildForES2"), bBuildForES2, GEngineIni);
-	return bBuildForES2;
-}
 
-static bool SupportsES31()
-{
-	// default no support for ES31
-	bool bBuildForES31 = false;
-	GConfig->GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bBuildForES31"), bBuildForES31, GEngineIni);
-	return bBuildForES31;
-}
-
-static bool SupportsAEP()
-{
-	return false;
-}
-
-static bool SupportsVulkan()
-{
-	// default to not supporting Vulkan
-	bool bSupportsVulkan = false;
-	GConfig->GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bSupportsVulkan"), bSupportsVulkan, GEngineIni);
-
-	// glslang library is needed for vulkan shader compiling
-	bool GlslangAvailable = false;
-#if PLATFORM_WINDOWS
-	#if PLATFORM_64BITS
-		GlslangAvailable = true;
-	#endif
-#elif PLATFORM_MAC
-	GlslangAvailable = true;
-#elif PLATFORM_LINUX
-	GlslangAvailable = true;
-#endif
-
-	return bSupportsVulkan && GlslangAvailable;
-}
 
 static FString GetLicensePath()
 {
@@ -108,6 +74,7 @@ static FString GetLicensePath()
 	return LicensePath;
 }
 
+#if WITH_ENGINE
 static bool GetLicenseHash(FSHAHash& LicenseHash)
 {
 	bool bLicenseValid = false;
@@ -168,9 +135,11 @@ static bool GetLicenseHash(FSHAHash& LicenseHash)
 
 	return bLicenseValid;
 }
+#endif
 
 static bool HasLicense()
 {
+#if WITH_ENGINE
 	FString LicensePath = GetLicensePath();
 
 	if (LicensePath.IsEmpty())
@@ -212,17 +181,19 @@ static bool HasLicense()
 			return true;
 		}
 	}
+#endif
 
 	// doesn't match
 	return false;
 }
 
-template<class TPlatformProperties>
-inline FAndroidTargetPlatform<TPlatformProperties>::FAndroidTargetPlatform( ) :
-	DeviceDetection(nullptr)
+FAndroidTargetPlatform::FAndroidTargetPlatform(bool bInIsClient )
+	: bIsClient(bInIsClient)
+	, DeviceDetection(nullptr)
+
 {
 	#if WITH_ENGINE
-		FConfigCacheIni::LoadLocalIniFile(EngineSettings, TEXT("Engine"), true, *TTargetPlatformBase<TPlatformProperties>::PlatformName());
+		FConfigCacheIni::LoadLocalIniFile(EngineSettings, TEXT("Engine"), true, *IniPlatformName());
 			TextureLODSettings = nullptr; // These are registered by the device profile system.
 		StaticMeshLODSettings.Initialize(EngineSettings);
 	#endif
@@ -232,18 +203,75 @@ inline FAndroidTargetPlatform<TPlatformProperties>::FAndroidTargetPlatform( ) :
 }
 
 
-template<class TPlatformProperties>
-inline FAndroidTargetPlatform<TPlatformProperties>::~FAndroidTargetPlatform()
+FAndroidTargetPlatform::~FAndroidTargetPlatform()
 { 
 	 FTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
 }
 
+bool FAndroidTargetPlatform::SupportsES2() const
+{
+	// default to support ES2
+	bool bBuildForES2 = true;
+#if WITH_ENGINE
+	EngineSettings.GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bBuildForES2"), bBuildForES2);
+#endif
+	return bBuildForES2;
+}
+
+bool FAndroidTargetPlatform::SupportsES31() const
+{
+	// default no support for ES31
+	bool bBuildForES31 = false;
+#if WITH_ENGINE
+	EngineSettings.GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bBuildForES31"), bBuildForES31);
+#endif
+	return bBuildForES31;
+}
+
+bool FAndroidTargetPlatform::SupportsAEP() const
+{
+	return false;
+}
+
+bool FAndroidTargetPlatform::SupportsVulkan() const
+{
+	// default to not supporting Vulkan
+	bool bSupportsVulkan = false;
+#if WITH_ENGINE
+	EngineSettings.GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bSupportsVulkan"), bSupportsVulkan);
+#endif
+
+	// glslang library is needed for vulkan shader compiling
+	bool GlslangAvailable = false;
+#if PLATFORM_WINDOWS
+#if PLATFORM_64BITS
+	GlslangAvailable = true;
+#endif
+#elif PLATFORM_MAC
+	GlslangAvailable = true;
+#elif PLATFORM_LINUX
+	GlslangAvailable = false;	// @TODO: change when glslang library compiled for Linux
+#endif
+
+	return bSupportsVulkan && GlslangAvailable;
+}
+
+bool FAndroidTargetPlatform::SupportsSoftwareOcclusion() const
+{
+	// default to not supporting
+	bool bSupportsSoftwareOcclusion = false;
+#if WITH_ENGINE
+	int32 IntValue = 0;
+	EngineSettings.GetInt(TEXT("ConsoleVariables"), TEXT("r.Mobile.AllowSoftwareOcclusion"), IntValue);
+	bSupportsSoftwareOcclusion = (IntValue != 0);
+#endif
+	return bSupportsSoftwareOcclusion;
+}
 
 /* ITargetPlatform overrides
  *****************************************************************************/
 
-template<class TPlatformProperties>
-inline void FAndroidTargetPlatform<TPlatformProperties>::GetAllDevices( TArray<ITargetDevicePtr>& OutDevices ) const
+void FAndroidTargetPlatform::GetAllDevices( TArray<ITargetDevicePtr>& OutDevices ) const
 {
 	OutDevices.Reset();
 
@@ -253,14 +281,12 @@ inline void FAndroidTargetPlatform<TPlatformProperties>::GetAllDevices( TArray<I
 	}
 }
 
-template<class TPlatformProperties>
-inline ECompressionFlags FAndroidTargetPlatform<TPlatformProperties>::GetBaseCompressionMethod( ) const
+ECompressionFlags FAndroidTargetPlatform::GetBaseCompressionMethod( ) const
 {
 	return COMPRESS_ZLIB;
 }
 
-template<class TPlatformProperties>
-inline ITargetDevicePtr FAndroidTargetPlatform<TPlatformProperties>::GetDefaultDevice( ) const
+ITargetDevicePtr FAndroidTargetPlatform::GetDefaultDevice( ) const
 {
 	// return the first device in the list
 	if (Devices.Num() > 0)
@@ -275,10 +301,9 @@ inline ITargetDevicePtr FAndroidTargetPlatform<TPlatformProperties>::GetDefaultD
 	return nullptr;
 }
 
-template<class TPlatformProperties>
-inline ITargetDevicePtr FAndroidTargetPlatform<TPlatformProperties>::GetDevice( const FTargetDeviceId& DeviceId )
+ITargetDevicePtr FAndroidTargetPlatform::GetDevice( const FTargetDeviceId& DeviceId )
 {
-	if (DeviceId.GetPlatformName() == TTargetPlatformBase<TPlatformProperties>::PlatformName())
+	if (DeviceId.GetPlatformName() == PlatformName())
 	{
 		return Devices.FindRef(DeviceId.GetDeviceName());
 	}
@@ -286,22 +311,19 @@ inline ITargetDevicePtr FAndroidTargetPlatform<TPlatformProperties>::GetDevice( 
 	return nullptr;
 }
 
-template<class TPlatformProperties>
-inline bool FAndroidTargetPlatform<TPlatformProperties>::IsRunningPlatform( ) const
+bool FAndroidTargetPlatform::IsRunningPlatform( ) const
 {
 	return false; // This platform never runs the target platform framework
 }
 
 
-template<class TPlatformProperties>
-inline bool FAndroidTargetPlatform<TPlatformProperties>::IsSdkInstalled(bool bProjectHasCode, FString& OutDocumentationPath) const
+bool FAndroidTargetPlatform::IsSdkInstalled(bool bProjectHasCode, FString& OutDocumentationPath) const
 {
 	OutDocumentationPath = FString("Shared/Tutorials/SettingUpAndroidTutorial");
 	return true;
 }
 
-template<class TPlatformProperties>
-inline int32 FAndroidTargetPlatform<TPlatformProperties>::CheckRequirements(const FString& ProjectPath, bool bProjectHasCode, FString& OutTutorialPath, FString& OutDocumentationPath, FText& CustomizedLogMessage) const
+int32 FAndroidTargetPlatform::CheckRequirements(const FString& ProjectPath, bool bProjectHasCode, FString& OutTutorialPath, FString& OutDocumentationPath, FText& CustomizedLogMessage) const
 {
 	OutDocumentationPath = TEXT("Platforms/Android/GettingStarted");
 
@@ -328,8 +350,7 @@ inline int32 FAndroidTargetPlatform<TPlatformProperties>::CheckRequirements(cons
 	return bReadyToBuild;
 }
 
-template<class TPlatformProperties>
-inline bool FAndroidTargetPlatform<TPlatformProperties>::SupportsFeature( ETargetPlatformFeatures Feature ) const
+bool FAndroidTargetPlatform::SupportsFeature( ETargetPlatformFeatures Feature ) const
 {
 	switch (Feature)
 	{
@@ -345,18 +366,20 @@ inline bool FAndroidTargetPlatform<TPlatformProperties>::SupportsFeature( ETarge
 		case ETargetPlatformFeatures::DeferredRendering:
 			return SupportsAEP();
 			
+		case ETargetPlatformFeatures::SoftwareOcclusion:
+			return SupportsSoftwareOcclusion();
+			
 		default:
 			break;
 	}
 	
-	return TTargetPlatformBase<TPlatformProperties>::SupportsFeature(Feature);
+	return TTargetPlatformBase<FAndroidPlatformProperties>::SupportsFeature(Feature);
 }
 
 
 #if WITH_ENGINE
 
-template<class TPlatformProperties>
-inline void FAndroidTargetPlatform<TPlatformProperties>::GetAllPossibleShaderFormats( TArray<FName>& OutFormats ) const
+void FAndroidTargetPlatform::GetAllPossibleShaderFormats( TArray<FName>& OutFormats ) const
 {
 	static FName NAME_OPENGL_ES2(TEXT("GLSL_ES2"));
 	static FName NAME_GLSL_310_ES_EXT(TEXT("GLSL_310_ES_EXT"));
@@ -384,22 +407,19 @@ inline void FAndroidTargetPlatform<TPlatformProperties>::GetAllPossibleShaderFor
 	}
 }
 
-template<class TPlatformProperties>
-inline void FAndroidTargetPlatform<TPlatformProperties>::GetAllTargetedShaderFormats( TArray<FName>& OutFormats ) const
+void FAndroidTargetPlatform::GetAllTargetedShaderFormats( TArray<FName>& OutFormats ) const
 {
 	GetAllPossibleShaderFormats(OutFormats);
 }
 
 
-template<class TPlatformProperties>
-inline const FStaticMeshLODSettings& FAndroidTargetPlatform<TPlatformProperties>::GetStaticMeshLODSettings( ) const
+const FStaticMeshLODSettings& FAndroidTargetPlatform::GetStaticMeshLODSettings( ) const
 {
 	return StaticMeshLODSettings;
 }
 
 
-template<class TPlatformProperties>
-inline void FAndroidTargetPlatform<TPlatformProperties>::GetTextureFormats( const UTexture* InTexture, TArray<FName>& OutFormats ) const
+void FAndroidTargetPlatform::GetTextureFormats( const UTexture* InTexture, TArray<FName>& OutFormats ) const
 {
 	check(InTexture);
 
@@ -446,7 +466,7 @@ inline void FAndroidTargetPlatform<TPlatformProperties>::GetTextureFormats( cons
 		AddTextureFormatIfSupports(AndroidTexFormat::NamePVRTC4, OutFormats, bIsNonPOT);
 		AddTextureFormatIfSupports(AndroidTexFormat::NameDXT5, OutFormats, bIsNonPOT);
 		AddTextureFormatIfSupports(AndroidTexFormat::NameATC_RGBA_I, OutFormats, bIsNonPOT);
-		AddTextureFormatIfSupports(AndroidTexFormat::NameAutoETC2, OutFormats, bIsNonPOT);
+		AddTextureFormatIfSupports(AndroidTexFormat::NameETC2_RGB, OutFormats, bIsNonPOT);
 		AddTextureFormatIfSupports(AndroidTexFormat::NameAutoETC1a, OutFormats, bIsNonPOT);
 		AddTextureFormatIfSupports(AndroidTexFormat::NameAutoETC1, OutFormats, bIsNonPOT);
 	}
@@ -511,8 +531,7 @@ inline void FAndroidTargetPlatform<TPlatformProperties>::GetTextureFormats( cons
 
 
 
-template<class TPlatformProperties>
-inline void FAndroidTargetPlatform<TPlatformProperties>::GetAllTextureFormats(TArray<FName>& OutFormats) const
+void FAndroidTargetPlatform::GetAllTextureFormats(TArray<FName>& OutFormats) const
 {
 
 
@@ -552,8 +571,7 @@ inline void FAndroidTargetPlatform<TPlatformProperties>::GetAllTextureFormats(TA
 }
 
 
-template<class TPlatformProperties>
-void FAndroidTargetPlatform<TPlatformProperties>::GetReflectionCaptureFormats( TArray<FName>& OutFormats ) const
+void FAndroidTargetPlatform::GetReflectionCaptureFormats( TArray<FName>& OutFormats ) const
 {
 	if (SupportsAEP())
 	{
@@ -566,15 +584,13 @@ void FAndroidTargetPlatform<TPlatformProperties>::GetReflectionCaptureFormats( T
 }
 
 
-template<class TPlatformProperties>
-const UTextureLODSettings& FAndroidTargetPlatform<TPlatformProperties>::GetTextureLODSettings() const
+const UTextureLODSettings& FAndroidTargetPlatform::GetTextureLODSettings() const
 {
 	return *TextureLODSettings;
 }
 
 
-template<class TPlatformProperties>
-FName FAndroidTargetPlatform<TPlatformProperties>::GetWaveFormat( const class USoundWave* Wave ) const
+FName FAndroidTargetPlatform::GetWaveFormat( const class USoundWave* Wave ) const
 {
 	static bool formatRead = false;
 	static FName NAME_FORMAT;
@@ -613,8 +629,7 @@ FName FAndroidTargetPlatform<TPlatformProperties>::GetWaveFormat( const class US
 }
 
 
-template<class TPlatformProperties>
-void FAndroidTargetPlatform<TPlatformProperties>::GetAllWaveFormats(TArray<FName>& OutFormats) const
+void FAndroidTargetPlatform::GetAllWaveFormats(TArray<FName>& OutFormats) const
 {
 	static FName NAME_OGG(TEXT("OGG"));
 	static FName NAME_ADPCM(TEXT("ADPCM"));
@@ -623,16 +638,70 @@ void FAndroidTargetPlatform<TPlatformProperties>::GetAllWaveFormats(TArray<FName
 	OutFormats.Add(NAME_ADPCM);
 }
 
+void CachePlatformAudioCookOverrides(FPlatformAudioCookOverrides& OutOverrides)
+{
+	const TCHAR* CategoryName = TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings");
+
+	GConfig->GetBool(CategoryName, TEXT("bResampleForDevice"), OutOverrides.bResampleForDevice, GEngineIni);
+	
+	GConfig->GetFloat(CategoryName, TEXT("CompressionQualityModifier"), OutOverrides.CompressionQualityModifier, GEngineIni);
+
+	//Cache sample rate map.
+	OutOverrides.PlatformSampleRates.Reset();
+
+	float RetrievedSampleRate = -1.0f;
+
+	GConfig->GetFloat(CategoryName, TEXT("MaxSampleRate"), RetrievedSampleRate, GEngineIni);
+	OutOverrides.PlatformSampleRates.Add(ESoundwaveSampleRateSettings::Max, RetrievedSampleRate);
+
+	RetrievedSampleRate = -1.0f;
+
+	GConfig->GetFloat(CategoryName, TEXT("HighSampleRate"), RetrievedSampleRate, GEngineIni);
+	OutOverrides.PlatformSampleRates.Add(ESoundwaveSampleRateSettings::High, RetrievedSampleRate);
+
+	RetrievedSampleRate = -1.0f;
+
+	GConfig->GetFloat(CategoryName, TEXT("MedSampleRate"), RetrievedSampleRate, GEngineIni);
+	OutOverrides.PlatformSampleRates.Add(ESoundwaveSampleRateSettings::Medium, RetrievedSampleRate);
+
+	RetrievedSampleRate = -1.0f;
+
+	GConfig->GetFloat(CategoryName, TEXT("LowSampleRate"), RetrievedSampleRate, GEngineIni);
+	OutOverrides.PlatformSampleRates.Add(ESoundwaveSampleRateSettings::Low, RetrievedSampleRate);
+
+	RetrievedSampleRate = -1.0f;
+
+	GConfig->GetFloat(CategoryName, TEXT("MinSampleRate"), RetrievedSampleRate, GEngineIni);
+	OutOverrides.PlatformSampleRates.Add(ESoundwaveSampleRateSettings::Min, RetrievedSampleRate);
+}
+
+FPlatformAudioCookOverrides* FAndroidTargetPlatform::GetAudioCompressionSettings() const
+{
+	static FPlatformAudioCookOverrides Settings;
+
+#if !WITH_EDITOR
+	static bool bCachedPlatformSettings = false;
+
+	if (!bCachedPlatformSettings)
+	{
+		CachePlatformAudioCookOverrides(Settings);
+		bCachedPlatformSettings = true;
+	}
+#else
+	CachePlatformAudioCookOverrides(Settings);
+#endif
+
+	return &Settings;
+}
+
 #endif //WITH_ENGINE
 
-template<class TPlatformProperties>
-bool FAndroidTargetPlatform<TPlatformProperties>::SupportsVariants() const
+bool FAndroidTargetPlatform::SupportsVariants() const
 {
 	return true;
 }
 
-template<class TPlatformProperties>
-FText FAndroidTargetPlatform<TPlatformProperties>::GetVariantTitle() const
+FText FAndroidTargetPlatform::GetVariantTitle() const
 {
 	return LOCTEXT("AndroidVariantTitle", "Texture Format");
 }
@@ -640,8 +709,7 @@ FText FAndroidTargetPlatform<TPlatformProperties>::GetVariantTitle() const
 /* FAndroidTargetPlatform implementation
  *****************************************************************************/
 
-template<class TPlatformProperties>
-inline void FAndroidTargetPlatform<TPlatformProperties>::AddTextureFormatIfSupports( FName Format, TArray<FName>& OutFormats, bool bIsCompressedNonPOT ) const
+void FAndroidTargetPlatform::AddTextureFormatIfSupports( FName Format, TArray<FName>& OutFormats, bool bIsCompressedNonPOT ) const
 {
 	if (SupportsTextureFormat(Format))
 	{
@@ -660,8 +728,7 @@ inline void FAndroidTargetPlatform<TPlatformProperties>::AddTextureFormatIfSuppo
 /* FAndroidTargetPlatform callbacks
  *****************************************************************************/
 
-template<class TPlatformProperties>
-inline bool FAndroidTargetPlatform<TPlatformProperties>::HandleTicker( float DeltaTime )
+bool FAndroidTargetPlatform::HandleTicker( float DeltaTime )
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_FAndroidTargetPlatform_HandleTicker);
 

@@ -42,6 +42,7 @@ FStreamingManagerTexture::FStreamingManagerTexture()
 ,	bTriggerDumpTextureGroupStats( false )
 ,	bDetailedDumpTextureGroupStats( false )
 ,	AsyncWork( nullptr )
+,	CurrentPendingMipCopyRequestIdx(0)
 ,	ProcessingStage( 0 )
 ,	NumTextureProcessingStages(5)
 ,	bUseDynamicStreaming( false )
@@ -891,7 +892,24 @@ void FStreamingManagerTexture::UpdateStreamingTextures( int32 StageIndex, int32 
 	CurrentUpdateStreamingTextureIndex = EndIndex;
 }
 
+static TAutoConsoleVariable<int32> CVarTextureStreamingAmortizeCPUToGPUCopy(
+	TEXT("r.Streaming.AmortizeCPUToGPUCopy"),
+	0,
+	TEXT("If set and r.Streaming.MaxNumTexturesToStreamPerFrame > 0, limit the number of 2D textures ")
+	TEXT("streamed from CPU memory to GPU memory each frame"),
+	ECVF_Scalability);
+static TAutoConsoleVariable<int32> CVarTextureStreamingMaxNumTexturesToStreamPerFrame(
+	TEXT("r.Streaming.MaxNumTexturesToStreamPerFrame"),
+	0,
+	TEXT("Maximum number of 2D textures allowed to stream from CPU memory to GPU memory each frame. ")
+	TEXT("<= 0 means no limit. This has no effect if r.Streaming.AmortizeCPUToGPUCopy is not set"),
+	ECVF_Scalability);
 
+static FORCEINLINE bool ShouldAmortizeMipCopies()
+{
+	return CVarTextureStreamingAmortizeCPUToGPUCopy.GetValueOnGameThread()
+		&& CVarTextureStreamingMaxNumTexturesToStreamPerFrame.GetValueOnGameThread() > 0;
+}
 
 /**
  * Stream textures in/out, based on the priorities calculated by the async work.
@@ -914,11 +932,32 @@ void FStreamingManagerTexture::StreamTextures( bool bProcessEverything )
 			}
 		}
 
-		for (int32 TextureIndex : AsyncTask.GetLoadRequests())
+		if (!bProcessEverything && ShouldAmortizeMipCopies())
 		{
-			if (StreamingTextures.IsValidIndex(TextureIndex))
+			// Ignore remaining requests since they may be outdated already
+			PendingMipCopyRequests.Reset();
+			CurrentPendingMipCopyRequestIdx = 0;
+
+			// Make copies of the requests so that they can be processed later
+			for (int32 TextureIndex : AsyncTask.GetLoadRequests())
 			{
-				StreamingTextures[TextureIndex].StreamWantedMips(*this);
+				if (StreamingTextures.IsValidIndex(TextureIndex)
+					&& StreamingTextures[TextureIndex].Texture)
+				{
+					FStreamingTexture& StreamingTexture = StreamingTextures[TextureIndex];
+					StreamingTexture.CacheStreamingMetaData();
+					new (PendingMipCopyRequests) FPendingMipCopyRequest(StreamingTexture.Texture, TextureIndex);
+				}
+			}
+		}
+		else
+		{
+			for (int32 TextureIndex : AsyncTask.GetLoadRequests())
+			{
+				if (StreamingTextures.IsValidIndex(TextureIndex))
+				{
+					StreamingTextures[TextureIndex].StreamWantedMips(*this);
+				}
 			}
 		}
 	}
@@ -935,6 +974,45 @@ void FStreamingManagerTexture::StreamTextures( bool bProcessEverything )
 			if (StreamingTexture.Texture)
 			{
 				StreamingTexture.Texture->bHasStreamingUpdatePending = bNewState;
+			}
+		}
+	}
+}
+
+void FStreamingManagerTexture::ProcessPendingMipCopyRequests()
+{
+	if (!ShouldAmortizeMipCopies())
+	{
+		return;
+	}
+
+	int32 NumRemainingRequests = CVarTextureStreamingMaxNumTexturesToStreamPerFrame.GetValueOnGameThread();
+
+	while (NumRemainingRequests
+		&& CurrentPendingMipCopyRequestIdx < PendingMipCopyRequests.Num())
+	{
+		const FPendingMipCopyRequest& Request = PendingMipCopyRequests[CurrentPendingMipCopyRequestIdx++];
+
+		if (Request.Texture)
+		{
+			FStreamingTexture* StreamingTexture = nullptr;
+
+			if (StreamingTextures.IsValidIndex(Request.CachedIdx)
+				&& StreamingTextures[Request.CachedIdx].Texture == Request.Texture)
+			{
+				StreamingTexture = &StreamingTextures[Request.CachedIdx];
+			}
+			else if (ReferencedTextures.Contains(Request.Texture))
+			{
+				// Texture is still valid but its index has been changed
+				check(StreamingTextures.IsValidIndex(Request.Texture->StreamingIndex));
+				StreamingTexture = &StreamingTextures[Request.Texture->StreamingIndex];
+			}
+
+			if (StreamingTexture)
+			{
+				StreamingTexture->StreamWantedMipsUsingCachedData(*this);
+				--NumRemainingRequests;
 			}
 		}
 	}
@@ -1129,6 +1207,11 @@ void FStreamingManagerTexture::UpdateResourceStreaming( float DeltaTime, bool bP
 
 		STAT(GatheredStats.StreamTexturesCycles += FPlatformTime::Cycles();)
 		STAT(UpdateStats();)
+	}
+
+	if (!bProcessEverything)
+	{
+		ProcessPendingMipCopyRequests();
 	}
 
 	TextureInstanceAsyncWork->StartBackgroundTask(CVarUseBackgroundThreadPool.GetValueOnGameThread() ? GBackgroundPriorityThreadPool : GThreadPool);

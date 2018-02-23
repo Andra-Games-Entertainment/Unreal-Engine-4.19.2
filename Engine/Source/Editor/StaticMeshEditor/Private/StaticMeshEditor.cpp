@@ -1513,10 +1513,13 @@ void FStaticMeshEditor::SetEditorMesh(UStaticMesh* InStaticMesh, bool bResetCame
 	NumUVChannels.Empty(ArraySize);
 	NumUVChannels.AddZeroed(ArraySize);
 
-	int32 NumLODs = StaticMesh->GetNumLODs();
-	for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
+	if(StaticMesh)
 	{
-		UpdateLODStats(LODIndex);
+		int32 NumLODs = StaticMesh->GetNumLODs();
+		for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
+		{
+			UpdateLODStats(LODIndex);
+		}
 	}
 
 	// Set the details view.
