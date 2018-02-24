@@ -7,6 +7,7 @@
 #include "EngineGlobals.h"
 #include "Engine/Engine.h"
 #include "GameFramework/HUD.h"
+#include "GameFramework/WorldSettings.h"
 
 namespace ARDebugHelpers
 {
