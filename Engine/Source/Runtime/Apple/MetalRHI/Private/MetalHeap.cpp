@@ -328,8 +328,8 @@ APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMetalResourceData)
 			DEC_MEMORY_STAT_BY(STAT_MetalFreePooledBufferMem, self->size);
 			INC_DWORD_STAT(STAT_MetalBufferNativeFreed);
 			INC_DWORD_STAT_BY(STAT_MetalBufferNativeMemFreed, self->size);
-            LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(Tag, 0 - self->size, ELLMTracker::Default);
-            LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, 0 - self->size, ELLMTracker::Platform);
+            LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(Tag, 0 - self->size, ELLMTracker::Default, ELLMAllocType::None);
+            LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, 0 - self->size, ELLMTracker::Platform, ELLMAllocType::None);
 			break;
 		}
 		case FMetalResouceTypeTexture:
@@ -344,8 +344,8 @@ APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMetalResourceData)
 				{
 					DEC_DWORD_STAT(STAT_MetalPrivateTextureCount);
 					DEC_MEMORY_STAT_BY(STAT_MetalPrivateTextureMem, self->size);
-                    LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(self->type == FMetalResouceTypeRenderTarget ? ELLMTag::RenderTargets : ELLMTag::Textures, 0 - self->size, ELLMTracker::Default);
-                    LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, 0 - self->size, ELLMTracker::Platform);
+                    LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(self->type == FMetalResouceTypeRenderTarget ? ELLMTag::RenderTargets : ELLMTag::Textures, 0 - self->size, ELLMTracker::Default, ELLMAllocType::None);
+                    LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, 0 - self->size, ELLMTracker::Platform, ELLMAllocType::None);
 					break;
 				}
 				case FMetalHeap::EMetalHeapStorageCPUCached:
@@ -355,8 +355,8 @@ APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMetalResourceData)
 				{
 					DEC_DWORD_STAT(STAT_MetalManagedTextureCount);
 					DEC_MEMORY_STAT_BY(STAT_MetalManagedTextureMem, self->size);
-                    LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(self->type == FMetalResouceTypeRenderTarget ? ELLMTag::RenderTargets : ELLMTag::Textures, 0 - self->size, ELLMTracker::Default);
-                    LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, 0 - self->size, ELLMTracker::Platform);
+                    LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(self->type == FMetalResouceTypeRenderTarget ? ELLMTag::RenderTargets : ELLMTag::Textures, 0 - self->size, ELLMTracker::Default, ELLMAllocType::None);
+                    LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, 0 - self->size, ELLMTracker::Platform, ELLMAllocType::None);
 					break;
 				}
 				default:
@@ -506,8 +506,8 @@ APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMTLHeap)
 		INC_MEMORY_STAT_BY(STAT_MetalFreePooledBufferMem, Size);
 		INC_DWORD_STAT(STAT_MetalBufferNativeAlloctations);
 		INC_DWORD_STAT_BY(STAT_MetalBufferNativeMemAlloc, Size);
-        LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(Tag, Size, ELLMTracker::Default);
-        LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, Size, ELLMTracker::Platform);
+        LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(Tag, Size, ELLMTracker::Default, ELLMAllocType::None);
+        LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, Size, ELLMTracker::Platform, ELLMAllocType::None);
 	}
 	if (Buffer.resourceData == nil)
 	{
@@ -587,8 +587,8 @@ APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMTLHeap)
 			{
 				INC_DWORD_STAT(STAT_MetalPrivateTextureCount);
 				INC_MEMORY_STAT_BY(STAT_MetalPrivateTextureMem, TextureSizeAndAlignForDescriptor(desc).size);
-                LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(Usage == FMetalHeap::EMetalHeapTextureUsageRenderTarget ? ELLMTag::RenderTargets : ELLMTag::Textures, TextureSizeAndAlignForDescriptor(desc).size, ELLMTracker::Default);
-                LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, TextureSizeAndAlignForDescriptor(desc).size, ELLMTracker::Platform);
+                LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(Usage == FMetalHeap::EMetalHeapTextureUsageRenderTarget ? ELLMTag::RenderTargets : ELLMTag::Textures, TextureSizeAndAlignForDescriptor(desc).size, ELLMTracker::Default, ELLMAllocType::None);
+                LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, TextureSizeAndAlignForDescriptor(desc).size, ELLMTracker::Platform, ELLMAllocType::None);
 				break;
 			}
 			case MTLStorageModeShared:
@@ -598,8 +598,8 @@ APPLE_PLATFORM_OBJECT_ALLOC_OVERRIDES(FMTLHeap)
 			{
 				INC_DWORD_STAT(STAT_MetalManagedTextureCount);
 				INC_MEMORY_STAT_BY(STAT_MetalManagedTextureMem, TextureSizeAndAlignForDescriptor(desc).size);
-                LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(Usage == FMetalHeap::EMetalHeapTextureUsageRenderTarget ? ELLMTag::RenderTargets : ELLMTag::Textures, TextureSizeAndAlignForDescriptor(desc).size, ELLMTracker::Default);
-                LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, TextureSizeAndAlignForDescriptor(desc).size, ELLMTracker::Platform);
+                LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(Usage == FMetalHeap::EMetalHeapTextureUsageRenderTarget ? ELLMTag::RenderTargets : ELLMTag::Textures, TextureSizeAndAlignForDescriptor(desc).size, ELLMTracker::Default, ELLMAllocType::None);
+                LLM_SCOPED_PAUSE_TRACKING_WITH_ENUM_AND_AMOUNT(ELLMTag::GraphicsPlatform, TextureSizeAndAlignForDescriptor(desc).size, ELLMTracker::Platform, ELLMAllocType::None);
 				break;
 			}
 			default:
