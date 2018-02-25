@@ -8,6 +8,7 @@
 #include "Engine/Engine.h"
 #include "GameFramework/HUD.h"
 #include "GameFramework/WorldSettings.h"
+#include "GameFramework/PlayerController.h"
 
 namespace ARDebugHelpers
 {
