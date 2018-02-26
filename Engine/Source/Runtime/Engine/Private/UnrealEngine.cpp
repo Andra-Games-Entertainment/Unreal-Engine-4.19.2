@@ -9795,6 +9795,10 @@ bool UEngine::ShouldEnableDynamicResolutionState() const
 
 void UEngine::UpdateDynamicResolutionStatus()
 {
+	if (!DynamicResolutionState.IsValid())
+	{
+		return;
+	}
 	bool bShouldEnabledDynamicResolutionState = ShouldEnableDynamicResolutionState();
 	bool bIsEnabled = DynamicResolutionState->IsEnabled();
 	if (bShouldEnabledDynamicResolutionState != bIsEnabled)
