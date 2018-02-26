@@ -115,6 +115,14 @@ void FRHIResource::FlushPendingDeletes()
 	FRHICommandListExecutor::GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 	FRHICommandListExecutor::CheckNoOutstandingCmdLists();
 
+	// Predicate on PLATFORM_SUPPORTS_VIRTUAL_TEXTURES for 4.18.4 only in order to avoid breaking ABI compatibility
+#if PLATFORM_SUPPORTS_VIRTUAL_TEXTURES
+	if (GDynamicRHI)
+	{
+		GDynamicRHI->RHIPerFrameRHIFlushComplete();
+	}
+#endif
+
 	auto Delete = [](TArray<FRHIResource*>& ToDelete)
 	{
 		for (int32 Index = 0; Index < ToDelete.Num(); Index++)

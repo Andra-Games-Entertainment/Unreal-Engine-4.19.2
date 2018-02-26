@@ -790,6 +790,19 @@ public:
 	// FlushType: Wait RHI Thread
 	virtual void RHIVirtualTextureSetFirstMipVisible(FTexture2DRHIParamRef Texture, uint32 FirstMip) = 0;
 
+	/**
+	* Called once per frame just before deferred deletion in FRHIResource::FlushPendingDeletes
+	*/
+	// FlushType: called from render thread when RHI thread is flushed 
+
+	// Predicate on PLATFORM_SUPPORTS_VIRTUAL_TEXTURES for 4.18.4 only in order to avoid breaking ABI compatibility
+#if PLATFORM_SUPPORTS_VIRTUAL_TEXTURES
+	virtual void RHIPerFrameRHIFlushComplete()
+	{
+
+	}
+#endif
+
 	// FlushType: Wait RHI Thread
 	virtual void RHIExecuteCommandList(FRHICommandList* CmdList) = 0;
 
