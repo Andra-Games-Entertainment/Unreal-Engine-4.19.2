@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanSwapChain.h: Vulkan viewport RHI definitions.
@@ -6,10 +6,15 @@
 
 #include "VulkanRHIPrivate.h"
 #include "VulkanSwapChain.h"
+#include "VulkanPlatform.h"
 
-#if PLATFORM_LINUX
-#include <SDL.h>
-#endif
+int32 GShouldCpuWaitForFence = 1;
+static FAutoConsoleVariableRef CVarCpuWaitForFence(
+	TEXT("r.Vulkan.CpuWaitForFence"),
+	GShouldCpuWaitForFence,
+	TEXT("Whether to have the Cpu wait for the fence in AcquireImageIndex"),
+	ECVF_RenderThreadSafe
+);
 
 extern FAutoConsoleVariable GCVarDelayAcquireBackBuffer;
 
@@ -24,29 +29,10 @@ FVulkanSwapChain::FVulkanSwapChain(VkInstance InInstance, FVulkanDevice& InDevic
 	, NumAcquireCalls(0)
 	, Instance(InInstance)
 {
-#if PLATFORM_WINDOWS
-	VkWin32SurfaceCreateInfoKHR SurfaceCreateInfo;
-	FMemory::Memzero(SurfaceCreateInfo);
-	SurfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-	SurfaceCreateInfo.hinstance = GetModuleHandle(nullptr);
-	SurfaceCreateInfo.hwnd = (HWND)WindowHandle;
-	VERIFYVULKANRESULT(vkCreateWin32SurfaceKHR(Instance, &SurfaceCreateInfo, nullptr, &Surface));
-#elif PLATFORM_ANDROID
-	VkAndroidSurfaceCreateInfoKHR SurfaceCreateInfo;
-	FMemory::Memzero(SurfaceCreateInfo);
-	SurfaceCreateInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
-	SurfaceCreateInfo.window = (ANativeWindow*)WindowHandle;
+	check(FVulkanPlatform::SupportsStandardSwapchain());
 
-	VERIFYVULKANRESULT(vkCreateAndroidSurfaceKHR(Instance, &SurfaceCreateInfo, nullptr, &Surface));
-#elif PLATFORM_LINUX
-	if(SDL_VK_CreateSurface((SDL_Window*)WindowHandle, (SDL_VkInstance)Instance, (SDL_VkSurface*)&Surface) == SDL_FALSE)
-	{
-		UE_LOG(LogInit, Error, TEXT("Error initializing SDL Vulkan Surface: %s"), SDL_GetError());
-		check(0);
-	}
-#else
-	static_assert(false, "Unsupported Vulkan platform!");
-#endif
+	// let the platform create the surface
+	FVulkanPlatform::CreateSurface(WindowHandle, Instance, &Surface);
 
 	// Find Pixel format for presentable images
 	VkSurfaceFormatKHR CurrFormat;
@@ -101,7 +87,7 @@ FVulkanSwapChain::FVulkanSwapChain(VkInstance InInstance, FVulkanDevice& InDevic
 					{
 						InOutPixelFormat = (EPixelFormat)PFIndex;
 						CurrFormat = Formats[Index];
-						UE_LOG(LogVulkanRHI, Display, TEXT("No swapchain format requested, picking up VulkanFormat %d"), (uint32)CurrFormat.format);
+						UE_LOG(LogVulkanRHI, Verbose, TEXT("No swapchain format requested, picking up VulkanFormat %d"), (uint32)CurrFormat.format);
 						break;
 					}
 				}
@@ -160,7 +146,7 @@ FVulkanSwapChain::FVulkanSwapChain(VkInstance InInstance, FVulkanDevice& InDevic
 
 	// Fetch present mode
 	VkPresentModeKHR PresentMode = VK_PRESENT_MODE_FIFO_KHR;
-#if !PLATFORM_ANDROID
+	if (FVulkanPlatform::SupportsQuerySurfaceProperties())
 	{
 		uint32 NumFoundPresentModes = 0;
 		VERIFYVULKANRESULT(VulkanRHI::vkGetPhysicalDeviceSurfacePresentModesKHR(Device.GetPhysicalHandle(), Surface, &NumFoundPresentModes, nullptr));
@@ -185,10 +171,9 @@ FVulkanSwapChain::FVulkanSwapChain(VkInstance InInstance, FVulkanDevice& InDevic
 			PresentMode = FoundPresentModes[0];
 		}
 	}
-#endif
 
 	// Check the surface properties and formats
-	
+
 	VkSurfaceCapabilitiesKHR SurfProperties;
 	VERIFYVULKANRESULT_EXPANDED(VulkanRHI::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Device.GetPhysicalHandle(),
 		Surface,
@@ -208,12 +193,12 @@ FVulkanSwapChain::FVulkanSwapChain(VkInstance InInstance, FVulkanDevice& InDevic
 	{
 		CompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	}
-	
+
 	// 0 means no limit, so use the requested number
 	uint32 DesiredNumBuffers = SurfProperties.maxImageCount > 0 ? FMath::Clamp(*InOutDesiredNumBackBuffers, SurfProperties.minImageCount, SurfProperties.maxImageCount) : *InOutDesiredNumBackBuffers;
 
-	uint32 SizeX = PLATFORM_ANDROID ? Width : (SurfProperties.currentExtent.width == 0xFFFFFFFF ? Width : SurfProperties.currentExtent.width);
-	uint32 SizeY = PLATFORM_ANDROID ? Height : (SurfProperties.currentExtent.height == 0xFFFFFFFF ? Height : SurfProperties.currentExtent.height);
+	uint32 SizeX = FVulkanPlatform::SupportsQuerySurfaceProperties() ? (SurfProperties.currentExtent.width == 0xFFFFFFFF ? Width : SurfProperties.currentExtent.width) : Width;
+	uint32 SizeY = FVulkanPlatform::SupportsQuerySurfaceProperties() ? (SurfProperties.currentExtent.height == 0xFFFFFFFF ? Height : SurfProperties.currentExtent.height) : Height;
 	//FPlatformMisc::LowLevelOutputDebugStringf(TEXT("Create swapchain: %ux%u \n"), SizeX, SizeY);
 
 
@@ -268,7 +253,7 @@ FVulkanSwapChain::FVulkanSwapChain(VkInstance InInstance, FVulkanDevice& InDevic
 	OutImages.AddUninitialized(NumSwapChainImages);
 	VERIFYVULKANRESULT_EXPANDED(VulkanRHI::vkGetSwapchainImagesKHR(Device.GetInstanceHandle(), SwapChain, &NumSwapChainImages, OutImages.GetData()));
 
-#if USE_IMAGE_ACQUIRE_FENCES
+#if VULKAN_USE_IMAGE_ACQUIRE_FENCES
 	ImageAcquiredFences.AddUninitialized(NumSwapChainImages);
 	VulkanRHI::FFenceManager& FenceMgr = Device.GetFenceManager();
 	for (uint32 BufferIndex = 0; BufferIndex < NumSwapChainImages; ++BufferIndex)
@@ -285,10 +270,12 @@ FVulkanSwapChain::FVulkanSwapChain(VkInstance InInstance, FVulkanDevice& InDevic
 
 void FVulkanSwapChain::Destroy()
 {
+	check(FVulkanPlatform::SupportsStandardSwapchain());
+
 	VulkanRHI::vkDestroySwapchainKHR(Device.GetInstanceHandle(), SwapChain, nullptr);
 	SwapChain = VK_NULL_HANDLE;
 
-#if USE_IMAGE_ACQUIRE_FENCES
+#if VULKAN_USE_IMAGE_ACQUIRE_FENCES
 	VulkanRHI::FFenceManager& FenceMgr = Device.GetFenceManager();
 	for (int32 Index = 0; Index < ImageAcquiredFences.Num(); ++Index)
 	{
@@ -308,15 +295,18 @@ void FVulkanSwapChain::Destroy()
 
 int32 FVulkanSwapChain::AcquireImageIndex(FVulkanSemaphore** OutSemaphore)
 {
+	check(FVulkanPlatform::SupportsStandardSwapchain());
+
 	// Get the index of the next swapchain image we should render to.
 	// We'll wait with an "infinite" timeout, the function will block until an image is ready.
 	// The ImageAcquiredSemaphore[ImageAcquiredSemaphoreIndex] will get signaled when the image is ready (upon function return).
 	uint32 ImageIndex = 0;
+	const int32 PrevSemaphoreIndex = SemaphoreIndex;
 	SemaphoreIndex = (SemaphoreIndex + 1) % ImageAcquiredSemaphore.Num();
 
 	// If we have not called present for any of the swapchain images, it will cause a crash/hang
 	checkf(!(NumAcquireCalls == ImageAcquiredSemaphore.Num() - 1 && NumPresentCalls == 0), TEXT("vkAcquireNextImageKHR will fail as no images have been presented before acquiring all of them"));
-#if USE_IMAGE_ACQUIRE_FENCES
+#if VULKAN_USE_IMAGE_ACQUIRE_FENCES
 	VulkanRHI::FFenceManager& FenceMgr = Device.GetFenceManager();
 	FenceMgr.ResetFence(ImageAcquiredFences[SemaphoreIndex]);
 #endif
@@ -325,12 +315,24 @@ int32 FVulkanSwapChain::AcquireImageIndex(FVulkanSemaphore** OutSemaphore)
 		SwapChain,
 		UINT64_MAX,
 		ImageAcquiredSemaphore[SemaphoreIndex]->GetHandle(),
-#if USE_IMAGE_ACQUIRE_FENCES
+#if VULKAN_USE_IMAGE_ACQUIRE_FENCES
 		ImageAcquiredFences[SemaphoreIndex]->GetHandle(),
 #else
 		VK_NULL_HANDLE,
 #endif
 		&ImageIndex);
+	if (Result == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		SemaphoreIndex = PrevSemaphoreIndex;
+		return (int32)EStatus::OutOfDate;
+	}
+
+	if (Result == VK_ERROR_SURFACE_LOST_KHR)
+	{
+		SemaphoreIndex = PrevSemaphoreIndex;
+		return (int32)EStatus::SurfaceLost;
+	}
+
 	++NumAcquireCalls;
 	*OutSemaphore = ImageAcquiredSemaphore[SemaphoreIndex];
 
@@ -347,8 +349,8 @@ int32 FVulkanSwapChain::AcquireImageIndex(FVulkanSemaphore** OutSemaphore)
 		checkf(Result == VK_SUCCESS || Result == VK_SUBOPTIMAL_KHR, TEXT("vkAcquireNextImageKHR failed Result = %d"), int32(Result));
 	}
 	CurrentImageIndex = (int32)ImageIndex;
-	
-#if USE_IMAGE_ACQUIRE_FENCES
+
+#if VULKAN_USE_IMAGE_ACQUIRE_FENCES
 	{
 		SCOPE_CYCLE_COUNTER(STAT_VulkanWaitSwapchain);
 		bool bResult = FenceMgr.WaitForFence(ImageAcquiredFences[SemaphoreIndex], UINT64_MAX);
@@ -358,9 +360,15 @@ int32 FVulkanSwapChain::AcquireImageIndex(FVulkanSemaphore** OutSemaphore)
 	return CurrentImageIndex;
 }
 
-bool FVulkanSwapChain::Present(FVulkanQueue* GfxQueue, FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore)
+FVulkanSwapChain::EStatus FVulkanSwapChain::Present(FVulkanQueue* GfxQueue, FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore)
 {
-	check(CurrentImageIndex != -1);
+	check(FVulkanPlatform::SupportsStandardSwapchain());
+
+	if (CurrentImageIndex == -1)
+	{
+		// Skip present silently if image has not been acquired
+		return EStatus::Healthy;
+	}
 
 	//ensure(GfxQueue == PresentQueue);
 
@@ -380,12 +388,26 @@ bool FVulkanSwapChain::Present(FVulkanQueue* GfxQueue, FVulkanQueue* PresentQueu
 
 	{
 		SCOPE_CYCLE_COUNTER(STAT_VulkanQueuePresent);
-		VERIFYVULKANRESULT(VulkanRHI::vkQueuePresentKHR(PresentQueue->GetHandle(), &Info));
+		VkResult PresentResult = VulkanRHI::vkQueuePresentKHR(PresentQueue->GetHandle(), &Info);
+		if (PresentResult == VK_ERROR_OUT_OF_DATE_KHR)
+		{
+			return EStatus::OutOfDate;
+		}
+
+		if (PresentResult == VK_ERROR_SURFACE_LOST_KHR)
+		{
+			return EStatus::SurfaceLost;
+		}
+
+		if (PresentResult != VK_SUCCESS && PresentResult != VK_SUBOPTIMAL_KHR)
+		{
+			VERIFYVULKANRESULT(PresentResult);
+		}
 	}
 
 	++NumPresentCalls;
 
-	return true;
+	return EStatus::Healthy;
 }
 
 

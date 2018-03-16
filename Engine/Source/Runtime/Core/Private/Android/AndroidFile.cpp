@@ -4,7 +4,9 @@
 	AndroidFile.cpp: Android platform implementations of File functions
 =============================================================================*/
 
-#include "AndroidFile.h"
+#include "Android/AndroidFile.h"
+
+#if USE_ANDROID_FILE
 #include "Misc/App.h"
 #include "Misc/Paths.h"
 
@@ -1967,3 +1969,4 @@ IAndroidPlatformFile & IAndroidPlatformFile::GetPlatformPhysical()
 {
 	return FAndroidPlatformFile::GetPlatformPhysical();
 }
+#endif

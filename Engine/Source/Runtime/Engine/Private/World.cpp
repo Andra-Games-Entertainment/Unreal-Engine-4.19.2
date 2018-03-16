@@ -935,6 +935,16 @@ bool UWorld::PreSaveRoot(const TCHAR* Filename)
 	bool bCleanupIsRequired = false;
 	if(!PersistentLevel->bAreComponentsCurrentlyRegistered)
 	{
+		// --- HACK (DO NOT MERGE):  Get the default physics volume to prevent crashing ---
+		// For one of the LuminSample levels, it tries to rerun construction scripts, which
+		// causes the DPV to try and spawn, which fails and causes a crash due to CS being
+		// run.  Work around it by making sure we have a DPV before rerunning all CS's
+		GetDefaultPhysicsVolume();
+		if (UWorld* PLevelWorld = PersistentLevel->GetWorld())
+		{
+			PLevelWorld->GetDefaultPhysicsVolume();
+		}
+		// --- END HACK (DO NOT MERGE) ----------------------------------------------------
 		PersistentLevel->UpdateLevelComponents(true);
 		bCleanupIsRequired = true;
 	}

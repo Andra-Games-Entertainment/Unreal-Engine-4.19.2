@@ -29,7 +29,7 @@ public class libcurl : ModuleRules
 			PrivateDependencyModuleNames.Add("SSL");
 		}
 
-		else if (Target.Platform == UnrealTargetPlatform.Android)
+		else if (Target.IsInPlatformGroup(UnrealPlatformGroup.Android))
 		{
 			// toolchain will filter properly
             PublicIncludePaths.Add(OldLibCurlPath + "include/Android/ARMv7");
@@ -46,7 +46,6 @@ public class libcurl : ModuleRules
 //			PublicAdditionalLibraries.Add("ssl");
 //			PublicAdditionalLibraries.Add("dl");
         }
-
    		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
 			string PlatformSubdir = "/Mac/";

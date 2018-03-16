@@ -208,13 +208,24 @@ public class Launch : ModuleRules
 			PrivateDependencyModuleNames.Add("LaunchDaemonMessages");
 		}
 
-		if (Target.Platform == UnrealTargetPlatform.Android)
+		if (Target.IsInPlatformGroup(UnrealPlatformGroup.Android))
 		{
 			PrivateDependencyModuleNames.Add("OpenGLDrv");
-			PrivateDependencyModuleNames.Add("AndroidAudio");
-			PrivateDependencyModuleNames.Add("AudioMixerAndroid");
-			DynamicallyLoadedModuleNames.Add("AndroidRuntimeSettings");
-			DynamicallyLoadedModuleNames.Add("AndroidLocalNotification");
+			if (Target.Platform != UnrealTargetPlatform.Lumin)
+			{
+				PrivateDependencyModuleNames.Add("AndroidAudio");
+				PrivateDependencyModuleNames.Add("AudioMixerAndroid");
+			}
+			// these are, for now, only for basic android
+			if (Target.Platform == UnrealTargetPlatform.Android)
+			{
+				DynamicallyLoadedModuleNames.Add("AndroidRuntimeSettings");
+				DynamicallyLoadedModuleNames.Add("AndroidLocalNotification");
+			}
+			else if (Target.Platform == UnrealTargetPlatform.Lumin)
+			{
+				DynamicallyLoadedModuleNames.Add("LuminRuntimeSettings");
+			}
 		}
 
 		if ((Target.Platform == UnrealTargetPlatform.Win32) ||

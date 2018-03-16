@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved..
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved..
 
 /*=============================================================================
 	VulkanQueue.h: Private Vulkan RHI definitions.
@@ -11,7 +11,6 @@
 class FVulkanDevice;
 class FVulkanCmdBuffer;
 struct FVulkanSemaphore;
-class FVulkanSwapChain;
 class FVulkanCommandListContext;
 
 namespace VulkanRHI
@@ -32,6 +31,7 @@ public:
 	}
 
 	void Submit(FVulkanCmdBuffer* CmdBuffer, FVulkanSemaphore* WaitSemaphore, VkPipelineStageFlags WaitStageFlags, FVulkanSemaphore* SignalSemaphore);
+	void Submit(FVulkanCmdBuffer* CmdBuffer, uint32 NumSignalSemaphores, VkSemaphore* SignalSemaphore);
 
 	inline VkQueue GetHandle() const
 	{

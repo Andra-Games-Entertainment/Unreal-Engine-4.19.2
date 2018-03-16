@@ -481,7 +481,7 @@ static FMetalShaderPipeline* CreateMTLRenderPipeline(bool const bSync, FMetalGra
             RenderPipelineDesc.stencilAttachmentPixelFormat = (MTLPixelFormat)GPixelFormats[PF_DepthStencil].PlatformFormat;
         }
         
-        RenderPipelineDesc.sampleCount = FMath::Max(Init.NumSamples, 1u);
+        RenderPipelineDesc.sampleCount = FMath::Max((uint32)Init.NumSamples, 1u);
     #if PLATFORM_MAC
         RenderPipelineDesc.inputPrimitiveTopology = TranslatePrimitiveTopology(Init.PrimitiveType);
     #endif

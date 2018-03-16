@@ -313,6 +313,11 @@ void PlatformDestroyOpenGLDevice( FPlatformOpenGLDevice* Device )
 	delete Device;
 }
 
+FPlatformOpenGLContext* PlatformGetOpenGLRenderingContext(FPlatformOpenGLDevice* Device)
+{
+	return &Device->RenderingContext;
+}
+
 /**
  * Create an OpenGL context.
  */
@@ -911,6 +916,10 @@ EOpenGLCurrentContext PlatformOpenGLCurrentContext( FPlatformOpenGLDevice* Devic
 	return CONTEXT_Invalid;
 }
 
+void* PlatformOpenGLCurrentContextHandle(FPlatformOpenGLDevice* Device)
+{
+	return Linux_GetCurrentContext();
+}
 
 void PlatformGetBackbufferDimensions( uint32& OutWidth, uint32& OutHeight )
 {

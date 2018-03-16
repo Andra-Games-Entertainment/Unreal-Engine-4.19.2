@@ -28,6 +28,12 @@ public class ICU : ModuleRules
 
 		string TargetSpecificPath = ICURootPath + PlatformFolderName + "/";
 
+		// make all Androids use the Android directory
+		if (Target.IsInPlatformGroup(UnrealPlatformGroup.Android))
+		{
+			TargetSpecificPath = ICURootPath + "Android/";
+		}
+
 		if ((Target.Platform == UnrealTargetPlatform.Win64) ||
 			(Target.Platform == UnrealTargetPlatform.Win32))
 		{
@@ -87,21 +93,21 @@ public class ICU : ModuleRules
 				break;
 			}
 		}
-		else if	(Target.Platform == UnrealTargetPlatform.Linux || Target.Platform == UnrealTargetPlatform.Android)
-		{
-			string StaticLibraryExtension = "a";
+        else if	(Target.Platform == UnrealTargetPlatform.Linux ||
+				Target.IsInPlatformGroup(UnrealPlatformGroup.Android))
+        {
+            string StaticLibraryExtension = "a";
 
-			switch (Target.Platform)
+			if (Target.IsInPlatformGroup(UnrealPlatformGroup.Android))
 			{
-				case UnrealTargetPlatform.Linux:
-					TargetSpecificPath += Target.Architecture + "/";
-					break;
-				case UnrealTargetPlatform.Android:
-					PublicLibraryPaths.Add(TargetSpecificPath + "ARMv7/lib");
-					PublicLibraryPaths.Add(TargetSpecificPath + "ARM64/lib");
-					PublicLibraryPaths.Add(TargetSpecificPath + "x86/lib");
-					PublicLibraryPaths.Add(TargetSpecificPath + "x64/lib");
-					break;
+				PublicLibraryPaths.Add(TargetSpecificPath + "ARMv7/lib");
+				PublicLibraryPaths.Add(TargetSpecificPath + "ARM64/lib");
+				PublicLibraryPaths.Add(TargetSpecificPath + "x86/lib");
+				PublicLibraryPaths.Add(TargetSpecificPath + "x64/lib");
+			}
+			else // Linux
+			{
+				TargetSpecificPath += Target.Architecture + "/";
 			}
 
 			string[] LibraryNameStems =
@@ -120,20 +126,21 @@ public class ICU : ModuleRules
 			// Temporarily? only link statically on Linux too
 			//EICULinkType ICULinkType = (Target.Platform == UnrealTargetPlatform.Android || Target.IsMonolithic) ? EICULinkType.Static : EICULinkType.Dynamic;
 			EICULinkType ICULinkType = EICULinkType.Static;
-			switch (ICULinkType)
-			{
-				case EICULinkType.Static:
-					foreach (string Stem in LibraryNameStems)
-					{
-						string LibraryName = "icu" + Stem + LibraryNamePostfix;
-						if (Target.Platform == UnrealTargetPlatform.Android)
+            switch (ICULinkType)
+            {
+                case EICULinkType.Static:
+                    foreach (string Stem in LibraryNameStems)
+                    {
+                        string LibraryName = "icu" + Stem + LibraryNamePostfix;
+						if (Target.Platform == UnrealTargetPlatform.Linux)
 						{
-							// we will filter out in the toolchain
-							PublicAdditionalLibraries.Add(LibraryName); // Android requires only the filename.
-						}
+							// Linux seems to need the path, not just the filename.
+                            PublicAdditionalLibraries.Add(TargetSpecificPath + "lib/" + "lib" + LibraryName + "." + StaticLibraryExtension); 
+                        }
 						else
 						{
-							PublicAdditionalLibraries.Add(TargetSpecificPath + "lib/" + "lib" + LibraryName + "." + StaticLibraryExtension); // Linux seems to need the path, not just the filename.
+							// other platforms will just use the library name
+							PublicAdditionalLibraries.Add(LibraryName);
 						}
 					}
 					break;
@@ -315,27 +322,12 @@ public class ICU : ModuleRules
 		}
 
 		// common defines
-		if ((Target.Platform == UnrealTargetPlatform.Win64) ||
-			(Target.Platform == UnrealTargetPlatform.Win32) ||
-			(Target.Platform == UnrealTargetPlatform.Linux) ||
-			(Target.Platform == UnrealTargetPlatform.Android) ||
-			(Target.Platform == UnrealTargetPlatform.Mac) ||
-			(Target.Platform == UnrealTargetPlatform.IOS) ||
-			(Target.Platform == UnrealTargetPlatform.TVOS) ||
-			(Target.Platform == UnrealTargetPlatform.PS4) ||
-			(Target.Platform == UnrealTargetPlatform.XboxOne) ||
-			(Target.Platform == UnrealTargetPlatform.HTML5) ||
-			(Target.Platform == UnrealTargetPlatform.Switch)
-			)
-		{
-			// Definitions
-			Definitions.Add("U_USING_ICU_NAMESPACE=0"); // Disables a using declaration for namespace "icu".
-			Definitions.Add("U_STATIC_IMPLEMENTATION"); // Necessary for linking to ICU statically.
-			Definitions.Add("U_NO_DEFAULT_INCLUDE_UTF_HEADERS=1"); // Disables unnecessary inclusion of headers - inclusions are for ease of use.
-			Definitions.Add("UNISTR_FROM_CHAR_EXPLICIT=explicit"); // Makes UnicodeString constructors for ICU character types explicit.
-			Definitions.Add("UNISTR_FROM_STRING_EXPLICIT=explicit"); // Makes UnicodeString constructors for "char"/ICU string types explicit.
-			Definitions.Add("UCONFIG_NO_TRANSLITERATION=1"); // Disables declarations and compilation of unused ICU transliteration functionality.
-		}
+		Definitions.Add("U_USING_ICU_NAMESPACE=0"); // Disables a using declaration for namespace "icu".
+		Definitions.Add("U_STATIC_IMPLEMENTATION"); // Necessary for linking to ICU statically.
+		Definitions.Add("U_NO_DEFAULT_INCLUDE_UTF_HEADERS=1"); // Disables unnecessary inclusion of headers - inclusions are for ease of use.
+		Definitions.Add("UNISTR_FROM_CHAR_EXPLICIT=explicit"); // Makes UnicodeString constructors for ICU character types explicit.
+		Definitions.Add("UNISTR_FROM_STRING_EXPLICIT=explicit"); // Makes UnicodeString constructors for "char"/ICU string types explicit.
+        Definitions.Add("UCONFIG_NO_TRANSLITERATION=1"); // Disables declarations and compilation of unused ICU transliteration functionality.
 
 		if (Target.Platform == UnrealTargetPlatform.PS4)
 		{

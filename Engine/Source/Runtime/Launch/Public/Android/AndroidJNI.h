@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+
+#if USE_ANDROID_JNI
 #include <jni.h>
 #include <android/log.h>
 
@@ -133,3 +135,4 @@ private:
 	/** Find GooglePlay billing classes and methods */
 	static void FindGooglePlayBillingMethods(JNIEnv* Env);
 };
+#endif

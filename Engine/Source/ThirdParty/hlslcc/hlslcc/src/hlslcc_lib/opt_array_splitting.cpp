@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 // This code is modified from that in the Mesa3D Graphics library available at
 // http://mesa3d.org/
@@ -45,6 +45,7 @@
 #include "ir_rvalue_visitor.h"
 #include "ir_print_visitor.h"
 #include "glsl_types.h"
+#include "IRDump.h"
 
 static bool debug = false;
 

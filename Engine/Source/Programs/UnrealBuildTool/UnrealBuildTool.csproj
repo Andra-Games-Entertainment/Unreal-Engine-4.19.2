@@ -70,7 +70,6 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
-      <RequiredTargetFramework>3.5</RequiredTargetFramework>
     </Reference>
     <Reference Include="System.Data" />
     <Reference Include="System.Management" />
@@ -113,6 +112,9 @@
     </When>
   </Choose>
   <Choose>
+    <When Condition="Exists('Platform\Seal\UEBuildSeal.cs')" />
+  </Choose>
+  <Choose>
     <When Condition="Exists('Platform\Mac\UEBuildMac.cs')">
       <ItemGroup>
         <Compile Include="Platform\Mac\MacExports.cs" />
@@ -132,6 +134,7 @@
     <Compile Include="Configuration\UEBuildPlatformFactory.cs" />
     <Compile Include="Configuration\UEBuildPlatformSDK.cs" />
     <Compile Include="Configuration\UEBuildPlugin.cs" />
+    <Compile Include="Platform\Lumin\UEDeployLumin.cs" />
     <Compile Include="ProjectFiles\CMake\CMakefileGenerator.cs" />
     <Compile Include="ProjectFiles\CodeLite\CodeLiteGenerator.cs" />
     <Compile Include="ProjectFiles\CodeLite\CodeLiteProject.cs" />
@@ -254,6 +257,16 @@
         <Compile Include="Platform\Linux\LinuxProjectGenerator.cs" />
         <Compile Include="Platform\Linux\LinuxToolChain.cs" />
         <Compile Include="Platform\Linux\UEBuildLinux.cs" />
+      </ItemGroup>
+    </When>
+  </Choose>
+  <Choose>
+    <When Condition="Exists('Platform\Lumin\UEBuildLumin.cs')">
+      <ItemGroup>
+        <Compile Include="Platform\Lumin\LuminExports.cs" />
+        <Compile Include="Platform\Lumin\LuminProjectGenerator.cs" />
+        <Compile Include="Platform\Lumin\LuminToolChain.cs" />
+        <Compile Include="Platform\Lumin\UEBuildLumin.cs" />
       </ItemGroup>
     </When>
   </Choose>

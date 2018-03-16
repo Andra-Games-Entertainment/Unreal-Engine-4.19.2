@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanPipeline.cpp: Vulkan device RHI implementation.
@@ -361,10 +361,12 @@ FVulkanGraphicsPipelineState* FVulkanPipelineStateCache::CreateAndAdd(const FGra
 	FVulkanGfxPipeline* Pipeline = new FVulkanGfxPipeline(Device);
 
 	check(GfxEntry);
-	GfxPipelineEntries.Add(GfxEntry->GetEntryHash(), GfxEntry);
+	{
+		FScopeLock ScopeLock(&GfxPipelineEntriesCS);
+		GfxPipelineEntries.Add(GfxEntry->GetEntryHash(), GfxEntry);
+	}
 
 	// Create the pipeline
-
 	double BeginTime = FPlatformTime::Seconds();
 	CreateGfxPipelineFromEntry(GfxEntry, Pipeline);
 	Pipeline->CreateRuntimeObjects(PSOInitializer);
@@ -533,24 +535,25 @@ FArchive& operator << (FArchive& Ar, FVulkanPipelineStateCache::FGfxPipelineEntr
 
 void FVulkanPipelineStateCache::FGfxPipelineEntry::FDepthStencil::ReadFrom(const VkPipelineDepthStencilStateCreateInfo& InState)
 {
-	DepthCompareOp =		(uint8)InState.depthCompareOp;
-	bDepthTestEnable =		InState.depthTestEnable != VK_FALSE;
-	bDepthWriteEnable =		InState.depthWriteEnable != VK_FALSE;
-	bStencilTestEnable =	InState.stencilTestEnable != VK_FALSE;
-	FrontFailOp =			(uint8)InState.front.failOp;
-	FrontPassOp =			(uint8)InState.front.passOp;
-	FrontDepthFailOp =		(uint8)InState.front.depthFailOp;
-	FrontCompareOp =		(uint8)InState.front.compareOp;
-	FrontCompareMask =		(uint8)InState.front.compareMask;
-	FrontWriteMask =		InState.front.writeMask;
-	FrontReference =		InState.front.reference;
-	BackFailOp =			(uint8)InState.back.failOp;
-	BackPassOp =			(uint8)InState.back.passOp;
-	BackDepthFailOp =		(uint8)InState.back.depthFailOp;
-	BackCompareOp =			(uint8)InState.back.compareOp;
-	BackCompareMask =		(uint8)InState.back.compareMask;
-	BackWriteMask =			InState.back.writeMask;
-	BackReference =			InState.back.reference;
+	DepthCompareOp =			(uint8)InState.depthCompareOp;
+	bDepthTestEnable =			InState.depthTestEnable != VK_FALSE;
+	bDepthWriteEnable =			InState.depthWriteEnable != VK_FALSE;
+	bDepthBoundsTestEnable =	InState.depthBoundsTestEnable != VK_FALSE;
+	bStencilTestEnable =		InState.stencilTestEnable != VK_FALSE;
+	FrontFailOp =				(uint8)InState.front.failOp;
+	FrontPassOp =				(uint8)InState.front.passOp;
+	FrontDepthFailOp =			(uint8)InState.front.depthFailOp;
+	FrontCompareOp =			(uint8)InState.front.compareOp;
+	FrontCompareMask =			(uint8)InState.front.compareMask;
+	FrontWriteMask =			InState.front.writeMask;
+	FrontReference =			InState.front.reference;
+	BackFailOp =				(uint8)InState.back.failOp;
+	BackPassOp =				(uint8)InState.back.passOp;
+	BackDepthFailOp =			(uint8)InState.back.depthFailOp;
+	BackCompareOp =				(uint8)InState.back.compareOp;
+	BackCompareMask =			(uint8)InState.back.compareMask;
+	BackWriteMask =				InState.back.writeMask;
+	BackReference =				InState.back.reference;
 }
 
 void FVulkanPipelineStateCache::FGfxPipelineEntry::FDepthStencil::WriteInto(VkPipelineDepthStencilStateCreateInfo& Out) const
@@ -558,9 +561,7 @@ void FVulkanPipelineStateCache::FGfxPipelineEntry::FDepthStencil::WriteInto(VkPi
 	Out.depthCompareOp =		(VkCompareOp)DepthCompareOp;
 	Out.depthTestEnable =		bDepthTestEnable;
 	Out.depthWriteEnable =		bDepthWriteEnable;
-	Out.depthBoundsTestEnable =	VK_FALSE;	// What is this?
-	Out.minDepthBounds =		0;
-	Out.maxDepthBounds =		0;
+	Out.depthBoundsTestEnable =	bDepthBoundsTestEnable;
 	Out.stencilTestEnable =		bStencilTestEnable;
 	Out.front.failOp =			(VkStencilOp)FrontFailOp;
 	Out.front.passOp =			(VkStencilOp)FrontPassOp;
@@ -584,6 +585,7 @@ FArchive& operator << (FArchive& Ar, FVulkanPipelineStateCache::FGfxPipelineEntr
 	Ar << DepthStencil.DepthCompareOp;
 	Ar << DepthStencil.bDepthTestEnable;
 	Ar << DepthStencil.bDepthWriteEnable;
+	Ar << DepthStencil.bDepthBoundsTestEnable;
 	Ar << DepthStencil.bStencilTestEnable;
 	Ar << DepthStencil.FrontFailOp;
 	Ar << DepthStencil.FrontPassOp;
@@ -925,6 +927,7 @@ void FVulkanPipelineStateCache::CreateGfxPipelineFromEntry(const FGfxPipelineEnt
 	DynamicStatesEnabled[DynamicState.dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT;
 	DynamicStatesEnabled[DynamicState.dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR;
 	DynamicStatesEnabled[DynamicState.dynamicStateCount++] = VK_DYNAMIC_STATE_STENCIL_REFERENCE;
+	DynamicStatesEnabled[DynamicState.dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_BOUNDS;
 
 	PipelineInfo.pDynamicState = &DynamicState;
 
@@ -1210,8 +1213,11 @@ FVulkanPipelineStateCache::FGfxPipelineEntry* FVulkanPipelineStateCache::CreateG
 	}
 
 	OutGfxEntry->Rasterizer.ReadFrom(ResourceCast(PSOInitializer.RasterizerState)->RasterizerState);
-
-	OutGfxEntry->DepthStencil.ReadFrom(ResourceCast(PSOInitializer.DepthStencilState)->DepthStencilState);
+	{
+		VkPipelineDepthStencilStateCreateInfo DSInfo;
+		ResourceCast(PSOInitializer.DepthStencilState)->SetupCreateInfo(PSOInitializer, DSInfo);
+		OutGfxEntry->DepthStencil.ReadFrom(DSInfo);
+	}
 
 	int32 NumShaders = 0;
 	for (int32 Index = 0; Index < SF_Compute; ++Index)
@@ -1280,7 +1286,9 @@ FVulkanGraphicsPipelineState* FVulkanPipelineStateCache::FindInLoadedLibrary(con
 
 FGraphicsPipelineStateRHIRef FVulkanDynamicRHI::RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& PSOInitializer)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanGetOrCreatePipeline);
+#endif
 
 	FBoundShaderStateRHIRef BoundShaderState = RHICreateBoundShaderState(
 		PSOInitializer.BoundShaderState.VertexDeclarationRHI,
@@ -1320,6 +1328,8 @@ FGraphicsPipelineStateRHIRef FVulkanDynamicRHI::RHICreateGraphicsPipelineState(c
 
 FVulkanComputePipeline* FVulkanPipelineStateCache::GetOrCreateComputePipeline(FVulkanComputeShader* ComputeShader)
 {
+	FScopeLock ScopeLock(&CreateComputePipelineCS);
+
 	// Fast path, try based on FVulkanComputeShader pointer
 	FVulkanComputePipeline** ComputePipelinePtr = ComputeShaderToPipelineMap.Find(ComputeShader);
 	if (ComputePipelinePtr)
@@ -1418,7 +1428,7 @@ FVulkanComputePipeline* FVulkanPipelineStateCache::CreateComputePipelineFromEntr
 	PipelineInfo.stage.pName = "main";
 	PipelineInfo.layout = ComputeEntry->Layout->GetPipelineLayout();
 		
-	VERIFYVULKANRESULT(VulkanRHI::vkCreateComputePipelines(Device->GetInstanceHandle(), VK_NULL_HANDLE, 1, &PipelineInfo, nullptr, &Pipeline->Pipeline));	
+	VERIFYVULKANRESULT(VulkanRHI::vkCreateComputePipelines(Device->GetInstanceHandle(), PipelineCache, 1, &PipelineInfo, nullptr, &Pipeline->Pipeline));	
 
 	Pipeline->Layout = ComputeEntry->Layout;
 

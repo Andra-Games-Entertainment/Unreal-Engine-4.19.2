@@ -50,8 +50,8 @@ public class OpenGLDrv : ModuleRules
 			);
 		}
 		
-		if (Target.Platform == UnrealTargetPlatform.Android)
-		{
+		if ((Target.Platform == UnrealTargetPlatform.Android) || (Target.Platform == UnrealTargetPlatform.Lumin))
+        {
 			PrivateDependencyModuleNames.Add("detex");
 		}
 

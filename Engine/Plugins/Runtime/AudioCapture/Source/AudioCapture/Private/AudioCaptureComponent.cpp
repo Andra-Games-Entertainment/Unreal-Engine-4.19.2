@@ -68,9 +68,9 @@ void UAudioCaptureComponent::OnBeginGenerate()
 		bIsStreamOpen = CaptureSynth.OpenDefaultStream();
 		if (bIsStreamOpen)
 		{
-			check(CaptureSynth.IsStreamOpen());
+			checkf(CaptureSynth.IsStreamOpen(), TEXT("Warning: Open stream capture failed!"));
 			CaptureSynth.StartCapturing();
-			check(CaptureSynth.IsCapturing());
+			checkf(CaptureSynth.IsCapturing(), TEXT("Warning: Start Stream capture failed!"));
 
 			// Don't allow this component to be destroyed until the stream is closed again
 			bIsReadyForForFinishDestroy = false;
@@ -110,13 +110,10 @@ void UAudioCaptureComponent::OnStop()
 void UAudioCaptureComponent::OnGenerateAudio(float* OutAudio, int32 NumSamples)
 {
 	// Don't do anything if the stream isn't open
-	if (!bIsStreamOpen)
+	if (!bIsStreamOpen || !CaptureSynth.IsStreamOpen() || !CaptureSynth.IsCapturing())
 	{
 		return;
 	}
-
-	check(CaptureSynth.IsStreamOpen());
-	check(CaptureSynth.IsCapturing());
 
 	// Allow the mic capture to buffer up some audio before starting to consume it
 	if (FramesSinceStarting >= 1024)

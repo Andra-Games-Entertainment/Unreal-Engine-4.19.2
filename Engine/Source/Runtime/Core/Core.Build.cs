@@ -120,7 +120,7 @@ public class Core : ModuleRules
 				PublicFrameworks.AddRange(new string[] { "iAD" });
 			}
 		}
-		else if (Target.Platform == UnrealTargetPlatform.Android)
+		else if (Target.IsInPlatformGroup(UnrealPlatformGroup.Android))
 		{
 			PublicIncludePaths.Add("Runtime/Core/Public/Android");
 			AddEngineThirdPartyPrivateStaticDependencies(Target,

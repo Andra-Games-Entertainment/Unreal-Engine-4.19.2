@@ -1,0 +1,45 @@
+{
+	"FileVersion" : 3,
+	"Version" : 1,
+	"VersionName" : "1.0",
+	"FriendlyName" : "Magic Leap Media Player",
+	"CreatedBy" : "Magic Leap, Inc.",
+	"CreatedByURL" : "http://magicleap.com",
+	"EngineVersion" : "4.19.0",
+	"Description" : "Implements a media player using the Magic Leap Media library.",
+	"Category" : "Media Players",
+	"DocsURL" : "",
+	"MarketplaceURL" : "",
+	"SupportURL" : "",
+	"EnabledByDefault" : true,
+	"CanContainContent" : false,
+	"IsBetaVersion" : false,
+	"Installed" : false,
+	"Modules" :
+	[
+		{
+			"Name" : "MagicLeapMedia",
+			"Type" : "RuntimeNoCommandlet",
+			"LoadingPhase" : "PreLoadingScreen",
+			"WhitelistPlatforms" : [ "Lumin" ]
+		},
+		{
+			"Name" : "MagicLeapMediaEditor",
+			"Type" : "Editor",
+			"LoadingPhase": "PostEngineInit"
+		},
+		{
+			"Name" : "MagicLeapMediaFactory",
+			"Type" : "RuntimeNoCommandlet",
+			"LoadingPhase" : "PostEngineInit",
+			"WhitelistPlatforms" : [ "Lumin", "Mac", "Linux", "Win64" ]
+		}
+	],
+	"Plugins":
+	[
+		{
+			"Name": "MagicLeap",
+			"Enabled": true
+		}
+	]
+}

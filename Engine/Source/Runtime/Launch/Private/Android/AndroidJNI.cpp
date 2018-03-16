@@ -1,6 +1,8 @@
 // Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
 
-#include "AndroidJNI.h"
+#include "Android/AndroidJNI.h"
+
+#if USE_ANDROID_JNI
 #include "ExceptionHandling.h"
 #include "AndroidPlatformCrashContext.h"
 #include "Runtime/Core/Public/Misc/DateTime.h"
@@ -1395,7 +1397,6 @@ JNI_METHOD void Java_com_epicgames_ue4_GameActivity_nativeOnActivityResult(JNIEn
 	FJavaWrapper::OnActivityResultDelegate.Broadcast(jenv, thiz, activity, requestCode, resultCode, data);
 }
 
-
 JNI_METHOD void Java_com_epicgames_ue4_GameActivity_nativeHandleSensorEvents(JNIEnv* jenv, jobject thiz, jfloatArray tilt, jfloatArray rotation_rate, jfloatArray gravity, jfloatArray acceleration)
 {
 	jfloat* tiltFloatValues = jenv->GetFloatArrayElements(tilt, 0);
@@ -1417,3 +1418,5 @@ JNI_METHOD void Java_com_epicgames_ue4_GameActivity_nativeHandleSensorEvents(JNI
 	FAndroidInputInterface::QueueMotionData(current_tilt, current_rotation_rate, current_gravity, current_acceleration);
 
 }
+
+#endif

@@ -1,8 +1,8 @@
 // Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
 
-#include "AndroidApplication.h"
-#include "AndroidInputInterface.h"
-#include "AndroidWindow.h"
+#include "Android/AndroidApplication.h"
+#include "Android/AndroidInputInterface.h"
+#include "Android/AndroidWindow.h"
 #include "IInputDeviceModule.h"
 #include "HAL/OutputDevices.h"
 #include "Misc/AssertionMacros.h"
@@ -19,8 +19,16 @@ FAndroidApplication* FAndroidApplication::CreateAndroidApplication()
 }
 
 FAndroidApplication::FAndroidApplication()
-	: GenericApplication( NULL )
-	, InputInterface( FAndroidInputInterface::Create( MessageHandler ) )
+	: GenericApplication(NULL)
+	, InputInterface(FAndroidInputInterface::Create(MessageHandler))
+	, bHasLoadedInputPlugins(false)
+{
+	_application = this;
+}
+
+FAndroidApplication::FAndroidApplication(TSharedPtr<class FAndroidInputInterface> InInputInterface)
+	: GenericApplication(NULL)
+	, InputInterface(InInputInterface)
 	, bHasLoadedInputPlugins(false)
 {
 	_application = this;

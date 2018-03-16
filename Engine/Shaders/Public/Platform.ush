@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	Prefix.usf: USF file automatically included by shader preprocessor.
@@ -26,7 +26,7 @@
 	#include "MetalCommon.ush"
 #endif
 
-#if VULKAN_PROFILE
+#if COMPILER_VULKAN
 	// Helps with iteration when changing Vulkan shader code generation backend.
 	#include "VulkanCommon.ush"
 #endif
@@ -103,6 +103,10 @@
 #define METAL_SM5_PROFILE 0
 #endif
 
+#ifndef COMPILER_VULKAN
+#define	COMPILER_VULKAN 0
+#endif
+
 #ifndef VULKAN_PROFILE
 #define	VULKAN_PROFILE 0
 #endif
@@ -124,7 +128,7 @@
 #endif
 
 // 'static' asserts
-#if COMPILER_GLSL || COMPILER_GLSL_ES2 || COMPILER_GLSL_ES3_1 || VULKAN_PROFILE || METAL_PROFILE || METAL_MRT_PROFILE || METAL_SM5_NOTESS_PROFILE || METAL_SM5_PROFILE
+#if COMPILER_GLSL || COMPILER_GLSL_ES2 || COMPILER_GLSL_ES3_1 || COMPILER_VULKAN || COMPILER_METAL
 #if !COMPILER_HLSLCC
 #error "Missing COMPILER_HLSLCC define!"
 #endif

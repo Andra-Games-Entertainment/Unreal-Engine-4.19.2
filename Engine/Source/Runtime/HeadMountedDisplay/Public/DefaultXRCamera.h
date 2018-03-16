@@ -44,7 +44,13 @@ public:
 		bUseImplicitHMDPosition = bInImplicitHMDPosition;
 	}
 
-	virtual bool GetUseImplicitHMDPosition() override { return bUseImplicitHMDPosition; }
+	/**
+	* Returns current setting controlling whether to assume an implied hmd position
+	*/
+	virtual bool GetUseImplicitHMDPosition() const override
+	{
+		return bUseImplicitHMDPosition;
+	}
 
 	/**
 	 * Optionally called by APlayerController to apply the orientation of the

@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	RHICommandList.inl: RHI Command List inline definitions.
@@ -57,11 +57,6 @@ FORCEINLINE_DEBUGGABLE FScopedRHIThreadStaller::~FScopedRHIThreadStaller()
 	{
 		Immed->UnStallRHIThread();
 	}
-}
-
-FORCEINLINE_DEBUGGABLE void FRHIRenderPassCommandList::ApplyCachedRenderTargets(FGraphicsPipelineStateInitializer& GraphicsPSOInit)
-{
-	return GetParent().ApplyCachedRenderTargets(GraphicsPSOInit);
 }
 
 namespace PipelineStateCache

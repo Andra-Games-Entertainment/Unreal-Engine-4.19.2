@@ -1,7 +1,9 @@
 // Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
 
-#include "AndroidJavaMediaPlayer.h"
-#include "AndroidApplication.h"
+#include "Android/AndroidJavaMediaPlayer.h"
+#include "Android/AndroidApplication.h"
+
+#if USE_ANDROID_JNI
 
 #if UE_BUILD_SHIPPING
 // always clear any exceptions in SHipping
@@ -43,6 +45,7 @@ FJavaAndroidMediaPlayer::FJavaAndroidMediaPlayer(bool swizzlePixels, bool vulkan
 	, GetVideoWidthMethod(GetClassMethod("getVideoWidth", "()I"))
 	, SetVideoEnabledMethod(GetClassMethod("setVideoEnabled", "(Z)V"))
 	, SetAudioEnabledMethod(GetClassMethod("setAudioEnabled", "(Z)V"))
+	, SetAudioVolumeMethod(GetClassMethod("setAudioVolume", "(F)V"))
 	, GetVideoLastFrameDataMethod(GetClassMethod("getVideoLastFrameData", "()Ljava/nio/Buffer;"))
 	, StartMethod(GetClassMethod("start", "()V"))
 	, PauseMethod(GetClassMethod("pause", "()V"))
@@ -241,6 +244,11 @@ void FJavaAndroidMediaPlayer::SetVideoEnabled(bool enabled /*= true*/)
 void FJavaAndroidMediaPlayer::SetAudioEnabled(bool enabled /*= true*/)
 {
 	CallMethod<void>(SetAudioEnabledMethod, enabled);
+}
+
+void FJavaAndroidMEdiaPlayer::SetAudioVolume(float Volume)
+{
+	CallMethod<void>(SetAudioVolumeMethod, Volume);
 }
 
 bool FJavaAndroidMediaPlayer::GetVideoLastFrameData(void* & outPixels, int64 & outCount)
@@ -528,3 +536,5 @@ bool FJavaAndroidMediaPlayer::GetVideoTracks(TArray<FVideoTrack>& VideoTracks)
 	}
 	return false;
 }
+
+#endif

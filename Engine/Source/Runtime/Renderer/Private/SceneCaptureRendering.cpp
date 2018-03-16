@@ -314,21 +314,8 @@ static void UpdateSceneCaptureContent_RenderThread(
 
 void BuildProjectionMatrix(FIntPoint RenderTargetSize, ECameraProjectionMode::Type ProjectionType, float FOV, float InOrthoWidth, FMatrix& ProjectionMatrix)
 {
-	float XAxisMultiplier;
-	float YAxisMultiplier;
-
-	if (RenderTargetSize.X > RenderTargetSize.Y)
-	{
-		// if the viewport is wider than it is tall
-		XAxisMultiplier = 1.0f;
-		YAxisMultiplier = RenderTargetSize.X / (float)RenderTargetSize.Y;
-	}
-	else
-	{
-		// if the viewport is taller than it is wide
-		XAxisMultiplier = RenderTargetSize.Y / (float)RenderTargetSize.X;
-		YAxisMultiplier = 1.0f;
-	}
+	float const XAxisMultiplier = 1.0f;
+	float const YAxisMultiplier = RenderTargetSize.X / (float)RenderTargetSize.Y;
 
 	if (ProjectionType == ECameraProjectionMode::Orthographic)
 	{

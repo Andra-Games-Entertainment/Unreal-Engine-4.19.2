@@ -14,6 +14,7 @@
 #include "Delegates/Delegate.h"
 #include "Containers/Ticker.h"
 #include "Misc/ScopeLock.h"
+#include "AndroidTargetDevice.h"
 
 #if WITH_ENGINE
 #include "Internationalization/Text.h"
@@ -89,7 +90,7 @@ public:
 	/**
 	 * Destructor
 	 */
-	~FAndroidTargetPlatform();
+	virtual ~FAndroidTargetPlatform();
 
 public:
 
@@ -203,6 +204,10 @@ public:
 
 	//~ End ITargetPlatform Interface
 
+	virtual bool SupportsDesktopRendering() const;
+	virtual bool SupportsMobileRendering() const;
+	virtual void InitializeDeviceDetection();
+
 protected:
 
 	/**
@@ -230,7 +235,7 @@ protected:
 	FConfigFile EngineSettings;
 #endif //WITH_ENGINE
 
-private:
+protected:
 
 	// Handles when the ticker fires.
 	bool HandleTicker( float DeltaTime );

@@ -22,6 +22,11 @@
 #include "Runtime/OpenGLDrv/Private/Linux/OpenGLLinux.h"
 #elif PLATFORM_IOS
 #include "IOS/IOSOpenGL.h"
+#elif PLATFORM_LUMIN
+// these guys will self-select
+#include "Lumin/LuminESDeferredOpenGL.h"
+#include "Lumin/LuminOpenGL.h"
+#include "Lumin/LuminGL4.h"
 #elif PLATFORM_ANDROIDESDEFERRED
 #include "Android/AndroidESDeferredOpenGL.h"
 #elif PLATFORM_ANDROID
@@ -570,6 +575,8 @@ public:
 	FOpenGLSamplerState* GetPointSamplerState() const { return (FOpenGLSamplerState*)PointSamplerState.GetReference(); }
 
 	FRHITexture* CreateOpenGLTexture(uint32 SizeX, uint32 SizeY, bool CubeTexture, bool ArrayTexture, bool bIsExternal, uint8 Format, uint32 NumMips, uint32 NumSamples, uint32 ArraySize, uint32 Flags, const FClearValueBinding& InClearValue, FResourceBulkDataInterface* BulkData = NULL);
+
+	void* GetOpenGLCurrentContextHandle();
 
 	void SetCustomPresent(class FRHICustomPresent* InCustomPresent);
 private:

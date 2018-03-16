@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	RHICommandListCommandExecutes.inl: RHI Command List execute functions.
@@ -277,39 +277,25 @@ void FRHICommandSetScissorRect::Execute(FRHICommandListBase& CmdList)
 void FRHICommandBeginRenderPass::Execute(FRHICommandListBase& CmdList)
 {
 	RHISTAT(BeginRenderPass);
-	check(!LocalRenderPass->RenderPass.GetReference());
-	LocalRenderPass->RenderPass = INTERNAL_DECORATOR(RHIBeginRenderPass)(Info, Name);
+	INTERNAL_DECORATOR(RHIBeginRenderPass)(Info, Name);
 }
 
 void FRHICommandEndRenderPass::Execute(FRHICommandListBase& CmdList)
 {
 	RHISTAT(EndRenderPass);
-	check(LocalRenderPass->RenderPass.GetReference());
-	INTERNAL_DECORATOR(RHIEndRenderPass)(LocalRenderPass->RenderPass);
+	INTERNAL_DECORATOR(RHIEndRenderPass)();
 }
 
-void FRHICommandBeginParallelRenderPass::Execute(FRHICommandListBase& CmdList)
+void FRHICommandBeginComputePass::Execute(FRHICommandListBase& CmdList)
 {
-	RHISTAT(BeginParallelRenderPass);
-	LocalRenderPass->RenderPass = INTERNAL_DECORATOR(RHIBeginParallelRenderPass)(Info, Name);
+	RHISTAT(BeginComputePass);
+	INTERNAL_DECORATOR(RHIBeginComputePass)(Name);
 }
 
-void FRHICommandEndParallelRenderPass::Execute(FRHICommandListBase& CmdList)
+void FRHICommandEndComputePass::Execute(FRHICommandListBase& CmdList)
 {
-	RHISTAT(EndParallelRenderPass);
-	INTERNAL_DECORATOR(RHIEndParallelRenderPass)(LocalRenderPass->RenderPass);
-}
-
-void FRHICommandBeginRenderSubPass::Execute(FRHICommandListBase& CmdList)
-{
-	RHISTAT(BeginRenderSubPass);
-	LocalRenderSubPass->RenderSubPass = INTERNAL_DECORATOR(RHIBeginRenderSubPass)(LocalRenderPass->RenderPass);
-}
-
-void FRHICommandEndRenderSubPass::Execute(FRHICommandListBase& CmdList)
-{
-	RHISTAT(EndRenderSubPass);
-	INTERNAL_DECORATOR(RHIEndRenderSubPass)(LocalRenderPass->RenderPass, LocalRenderSubPass->RenderSubPass);
+	RHISTAT(EndComputePass);
+	INTERNAL_DECORATOR(RHIEndComputePass)();
 }
 
 void FRHICommandSetRenderTargets::Execute(FRHICommandListBase& CmdList)

@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanState.cpp: Vulkan state implementation.
@@ -233,13 +233,7 @@ FVulkanSamplerState::FVulkanSamplerState(const FSamplerStateInitializerRHI& Init
 	SamplerInfo.magFilter = TranslateMagFilterMode(Initializer.Filter);
 	SamplerInfo.minFilter = TranslateMinFilterMode(Initializer.Filter);
 	SamplerInfo.mipmapMode = TranslateMipFilterMode(Initializer.Filter);
-#if PLATFORM_ANDROID
-	// Some Android devices might not support this extension
 	const bool bSupportsMirrorClampToEdge = InDevice.GetOptionalExtensions().HasMirrorClampToEdge;
-#else
-	// All major desktop devices supports this extension
-	const bool bSupportsMirrorClampToEdge = true;
-#endif
 	SamplerInfo.addressModeU = TranslateWrapMode(Initializer.AddressU, bSupportsMirrorClampToEdge);
 	SamplerInfo.addressModeV = TranslateWrapMode(Initializer.AddressV, bSupportsMirrorClampToEdge);
 	SamplerInfo.addressModeW = TranslateWrapMode(Initializer.AddressW, bSupportsMirrorClampToEdge);
@@ -286,44 +280,44 @@ FVulkanRasterizerState::FVulkanRasterizerState(const FRasterizerStateInitializer
 	//RasterizerState.lineWidth = 1.0f;
 }
 
-FVulkanDepthStencilState::FVulkanDepthStencilState(const FDepthStencilStateInitializerRHI& Initializer)
+void FVulkanDepthStencilState::SetupCreateInfo(const FGraphicsPipelineStateInitializer& GfxPSOInit, VkPipelineDepthStencilStateCreateInfo& OutDepthStencilState)
 {
-	FMemory::Memzero(DepthStencilState);
-	DepthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	FMemory::Memzero(OutDepthStencilState);
+	OutDepthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 
-	DepthStencilState.depthTestEnable = (Initializer.DepthTest != CF_Always || Initializer.bEnableDepthWrite) ? VK_TRUE : VK_FALSE;
-	DepthStencilState.depthCompareOp = CompareOpToVulkan(Initializer.DepthTest);
-	DepthStencilState.depthWriteEnable = Initializer.bEnableDepthWrite ? VK_TRUE : VK_FALSE;
+	OutDepthStencilState.depthTestEnable = (Initializer.DepthTest != CF_Always || Initializer.bEnableDepthWrite) ? VK_TRUE : VK_FALSE;
+	OutDepthStencilState.depthCompareOp = CompareOpToVulkan(Initializer.DepthTest);
+	OutDepthStencilState.depthWriteEnable = Initializer.bEnableDepthWrite ? VK_TRUE : VK_FALSE;
 
-	DepthStencilState.depthBoundsTestEnable = VK_FALSE;	// What is this?
-	DepthStencilState.minDepthBounds = 0;
-	DepthStencilState.maxDepthBounds = 0;
+	OutDepthStencilState.depthBoundsTestEnable = VK_FALSE;	// What is this?
+	OutDepthStencilState.minDepthBounds = 0;
+	OutDepthStencilState.maxDepthBounds = 0;
 
-	DepthStencilState.stencilTestEnable = (Initializer.bEnableFrontFaceStencil || Initializer.bEnableBackFaceStencil) ? VK_TRUE : VK_FALSE;
+	OutDepthStencilState.stencilTestEnable = (Initializer.bEnableFrontFaceStencil || Initializer.bEnableBackFaceStencil) ? VK_TRUE : VK_FALSE;
 
 	// Front
-	DepthStencilState.back.failOp = StencilOpToVulkan(Initializer.FrontFaceStencilFailStencilOp);
-	DepthStencilState.back.passOp = StencilOpToVulkan(Initializer.FrontFacePassStencilOp);
-	DepthStencilState.back.depthFailOp = StencilOpToVulkan(Initializer.FrontFaceDepthFailStencilOp);
-	DepthStencilState.back.compareOp = CompareOpToVulkan(Initializer.FrontFaceStencilTest);
-	DepthStencilState.back.compareMask = Initializer.StencilReadMask;
-	DepthStencilState.back.writeMask = Initializer.StencilWriteMask;
-	DepthStencilState.back.reference = 0;
+	OutDepthStencilState.back.failOp = StencilOpToVulkan(Initializer.FrontFaceStencilFailStencilOp);
+	OutDepthStencilState.back.passOp = StencilOpToVulkan(Initializer.FrontFacePassStencilOp);
+	OutDepthStencilState.back.depthFailOp = StencilOpToVulkan(Initializer.FrontFaceDepthFailStencilOp);
+	OutDepthStencilState.back.compareOp = CompareOpToVulkan(Initializer.FrontFaceStencilTest);
+	OutDepthStencilState.back.compareMask = Initializer.StencilReadMask;
+	OutDepthStencilState.back.writeMask = Initializer.StencilWriteMask;
+	OutDepthStencilState.back.reference = 0;
 
 	if (Initializer.bEnableBackFaceStencil)
 	{
 		// Back
-		DepthStencilState.front.failOp = StencilOpToVulkan(Initializer.BackFaceStencilFailStencilOp);
-		DepthStencilState.front.passOp = StencilOpToVulkan(Initializer.BackFacePassStencilOp);
-		DepthStencilState.front.depthFailOp = StencilOpToVulkan(Initializer.BackFaceDepthFailStencilOp);
-		DepthStencilState.front.compareOp = CompareOpToVulkan(Initializer.BackFaceStencilTest);
-		DepthStencilState.front.compareMask = Initializer.StencilReadMask;
-		DepthStencilState.front.writeMask = Initializer.StencilWriteMask;
-		DepthStencilState.front.reference = 0;
+		OutDepthStencilState.front.failOp = StencilOpToVulkan(Initializer.BackFaceStencilFailStencilOp);
+		OutDepthStencilState.front.passOp = StencilOpToVulkan(Initializer.BackFacePassStencilOp);
+		OutDepthStencilState.front.depthFailOp = StencilOpToVulkan(Initializer.BackFaceDepthFailStencilOp);
+		OutDepthStencilState.front.compareOp = CompareOpToVulkan(Initializer.BackFaceStencilTest);
+		OutDepthStencilState.front.compareMask = Initializer.StencilReadMask;
+		OutDepthStencilState.front.writeMask = Initializer.StencilWriteMask;
+		OutDepthStencilState.front.reference = 0;
 	}
 	else
 	{
-		DepthStencilState.front = DepthStencilState.back;
+		OutDepthStencilState.front = OutDepthStencilState.back;
 	}
 }
 

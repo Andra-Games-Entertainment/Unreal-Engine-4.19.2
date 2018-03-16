@@ -957,7 +957,7 @@ namespace AutomationTool
 				Version.Major,
 				Version.Minor,
 				Version.Build,
-                Changelist.ToString("0000000"),
+                Changelist.ToString(),
                 BranchName);
         }
 

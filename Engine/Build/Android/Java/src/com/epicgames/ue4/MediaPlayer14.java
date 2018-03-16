@@ -29,6 +29,7 @@ public class MediaPlayer14
 	private boolean VulkanRenderer = false;
 	private boolean Looping = false;
 	private boolean AudioEnabled = true;
+	private float AudioVolume = 1.0f;
 	private volatile boolean WaitOnBitmapRender = false;
 	private volatile boolean Prepared = false;
 	private volatile boolean Completed = false;
@@ -84,6 +85,7 @@ public class MediaPlayer14
 		VulkanRenderer = vulkanRenderer;
 		WaitOnBitmapRender = false;
 		AudioEnabled = true;
+		AudioVolume = 1.0f;
 
 		setOnErrorListener(new MediaPlayer.OnErrorListener() {
 			@Override
@@ -384,12 +386,18 @@ public class MediaPlayer14
 		AudioEnabled = enabled;
 		if (enabled)
 		{
-			setVolume(1,1);
+			setVolume(AudioVolume,AudioVolume);
 		}
 		else
 		{
 			setVolume(0,0);
 		}
+	}
+
+	public void setAudioVolume(float volume)
+	{
+		AudioVolume = volume;
+		setAudioEnabled(AudioEnabled);
 	}
 	
 	public boolean didResolutionChange()

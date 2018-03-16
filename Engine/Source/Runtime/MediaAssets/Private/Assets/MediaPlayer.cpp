@@ -505,6 +505,12 @@ bool UMediaPlayer::SetRate(float Rate)
 }
 
 
+bool UMediaPlayer::SetNativeVolume(float Volume)
+{
+	return PlayerFacade->SetNativeVolume(Volume);
+}
+
+
 bool UMediaPlayer::SetTrackFormat(EMediaPlayerTrack TrackType, int32 TrackIndex, int32 FormatIndex)
 {
 	return PlayerFacade->SetTrackFormat((EMediaTrackType)TrackType, TrackIndex, FormatIndex);

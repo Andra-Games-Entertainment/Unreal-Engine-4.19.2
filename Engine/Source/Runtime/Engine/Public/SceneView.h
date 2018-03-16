@@ -861,6 +861,8 @@ private:
 	FVector		PreShadowTranslation;
 
 public:
+	FSceneViewInitOptions SceneViewInitOptions;
+
 	/** The actor which is being viewed from. */
 	const AActor* ViewActor;
 	 
@@ -1181,6 +1183,8 @@ public:
 	 * returns a the occlusion frame counter or MAX_uint32 if there is no view state
 	 */
 	uint32 GetOcclusionFrameCounter() const;
+
+  void UpdateProjectionMatrix(const FMatrix& NewProjectionMatrix);
 
 	/** Allow things like HMD displays to update the view matrix at the last minute, to minimize perceived latency */
 	void UpdateViewMatrix();

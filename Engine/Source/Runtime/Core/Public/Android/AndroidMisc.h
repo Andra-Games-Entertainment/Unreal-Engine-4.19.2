@@ -69,6 +69,7 @@ public:
 
 	static FCPUState& GetCPUState();
 	static int32 NumberOfCores();
+	static int32 NumberOfCoresIncludingHyperthreads();
 	static bool SupportsLocalCaching();
 	static void SetCrashHandler(void (* CrashHandler)(const FGenericCrashContext& Context));
 	// NOTE: THIS FUNCTION IS DEFINED IN ANDROIDOPENGL.CPP
@@ -80,10 +81,15 @@ public:
 	static void SetVolumeButtonsHandledBySystem(bool enabled);
 	// Returns current volume, 0-15
 	static int GetVolumeState(double* OutTimeOfChangeInSec = nullptr);
+
+#if USE_ANDROID_FILE
 	static const TCHAR* GamePersistentDownloadDir();
-	static FString GetDeviceId();
 	static FString GetLoginId();
+#endif
+#if USE_ANDROID_JNI
+	static FString GetDeviceId();
 	static FString GetUniqueAdvertisingId();
+#endif
 	static FString GetCPUVendor();
 	static FString GetCPUBrand();
 	static void GetOSVersions(FString& out_OSVersionLabel, FString& out_OSSubVersionLabel);
@@ -108,7 +114,9 @@ public:
 	static int GetBatteryLevel();
 	static bool IsRunningOnBattery();
 	static bool AreHeadPhonesPluggedIn();
+#if USE_ANDROID_JNI
 	static bool HasActiveWiFiConnection();
+#endif
 
 	static void RegisterForRemoteNotifications();
 	static void UnregisterForRemoteNotifications();
@@ -130,14 +138,18 @@ public:
 	static bool SupportsFloatingPointRenderTargets();
 	static bool SupportsShaderFramebufferFetch();
 	static bool SupportsShaderIOBlocks();
+#if USE_ANDROID_JNI
 	static int GetAndroidBuildVersion();
+#endif
 	static bool ShouldUseVulkan();
+	static bool ShouldUseDesktopVulkan();
 	static FString GetVulkanVersion();
 	static bool IsDaydreamApplication();
 	typedef TFunction<void(void* NewNativeHandle)> ReInitWindowCallbackType;
 	static ReInitWindowCallbackType GetOnReInitWindowCallback();
 	static void SetOnReInitWindowCallback(ReInitWindowCallbackType InOnReInitWindowCallback);
 	static FString GetOSVersion();
+	static bool GetOverrideResolution(int32 &ResX, int32& ResY);
 
 #if !UE_BUILD_SHIPPING
 	static bool IsDebuggerPresent();
@@ -219,4 +231,6 @@ public:
 	static uint32 GetCoreFrequency(int32 CoreIndex, ECoreFrequencyProperty CoreFrequencyProperty);
 };
 
+#if !PLATFORM_LUMIN
 typedef FAndroidMisc FPlatformMisc;
+#endif

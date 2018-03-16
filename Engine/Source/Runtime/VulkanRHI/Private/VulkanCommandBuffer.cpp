@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanCommandBuffer.cpp: Vulkan device RHI implementation.
@@ -6,6 +6,7 @@
 
 #include "VulkanRHIPrivate.h"
 #include "VulkanContext.h"
+#include "VulkanDescriptorSets.h"
 
 static int32 GUseSingleQueue = 0;
 static FAutoConsoleVariableRef CVarVulkanUseSingleQueue(
@@ -25,6 +26,8 @@ static FAutoConsoleVariableRef CVarVulkanProfileCmdBuffers(
 	ECVF_Default
 );
 
+const uint32 GNumberOfFramesBeforeDeletingDescriptorPool = 300;
+
 FVulkanCmdBuffer::FVulkanCmdBuffer(FVulkanDevice* InDevice, FVulkanCommandBufferPool* InCommandBufferPool)
 	: bNeedsDynamicStateSet(true)
 	, bHasPipeline(false)
@@ -37,6 +40,7 @@ FVulkanCmdBuffer::FVulkanCmdBuffer(FVulkanDevice* InDevice, FVulkanCommandBuffer
 	, State(EState::ReadyForBegin)
 	, Fence(nullptr)
 	, FenceSignaledCounter(0)
+	, SubmittedFenceCounter(0)
 	, CommandBufferPool(InCommandBufferPool)
 	, Timing(nullptr)
 	, LastValidTiming(0)
@@ -82,7 +86,7 @@ FVulkanCmdBuffer::~FVulkanCmdBuffer()
 
 void FVulkanCmdBuffer::BeginRenderPass(const FVulkanRenderTargetLayout& Layout, FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer, const VkClearValue* AttachmentClearValues)
 {
-	check(IsOutsideRenderPass());
+	checkf(IsOutsideRenderPass(), TEXT("Can't BeginRP as already inside one! CmdBuffer 0x%p State=%d"), CommandBufferHandle, (int32)State);
 
 	VkRenderPassBeginInfo Info;
 	FMemory::Memzero(Info);
@@ -99,11 +103,19 @@ void FVulkanCmdBuffer::BeginRenderPass(const FVulkanRenderTargetLayout& Layout, 
 	VulkanRHI::vkCmdBeginRenderPass(CommandBufferHandle, &Info, VK_SUBPASS_CONTENTS_INLINE);
 
 	State = EState::IsInsideRenderPass;
+
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	// Acquire a descriptor pool set on a first render pass
+	if (CurrentDescriptorPoolSetContainer == nullptr)
+	{
+		AcquirePoolSet();
+	}
+#endif
 }
 
 void FVulkanCmdBuffer::End()
 {
-	check(IsOutsideRenderPass());
+	checkf(IsOutsideRenderPass(), TEXT("Can't End as we're inside a render pass! CmdBuffer 0x%p State=%d"), CommandBufferHandle, (int32)State);
 
 	if (GVulkanProfileCmdBuffers)
 	{
@@ -132,7 +144,7 @@ inline void FVulkanCmdBuffer::InitializeTimings(FVulkanCommandListContext* InCon
 
 void FVulkanCmdBuffer::Begin()
 {
-	check(State == EState::ReadyForBegin);
+	checkf(State == EState::ReadyForBegin, TEXT("Can't Begin as we're NOT ready! CmdBuffer 0x%p State=%d"), CommandBufferHandle, (int32)State);
 
 	VkCommandBufferBeginInfo CmdBufBeginInfo;
 	FMemory::Memzero(CmdBufBeginInfo);
@@ -149,10 +161,21 @@ void FVulkanCmdBuffer::Begin()
 			Timing->StartTiming(this);
 		}
 	}
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	check(!CurrentDescriptorPoolSetContainer);
+#endif
 
 	bNeedsDynamicStateSet = true;
 	State = EState::IsInsideBegin;
 }
+
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+void FVulkanCmdBuffer::AcquirePoolSet()
+{
+	check(!CurrentDescriptorPoolSetContainer);
+	CurrentDescriptorPoolSetContainer = &Device->GetDescriptorPoolsManager().AcquirePoolSetContainer();
+}
+#endif
 
 void FVulkanCmdBuffer::RefreshFenceStatus()
 {
@@ -180,6 +203,14 @@ void FVulkanCmdBuffer::RefreshFenceStatus()
 			FenceMgr->ReleaseFence(PrevFence);
 #endif
 			++FenceSignaledCounter;
+
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+			if (CurrentDescriptorPoolSetContainer)
+			{
+				Device->GetDescriptorPoolsManager().ReleasePoolSet(*CurrentDescriptorPoolSetContainer);
+				CurrentDescriptorPoolSetContainer = nullptr;
+			}
+#endif
 		}
 	}
 	else
@@ -260,9 +291,28 @@ void FVulkanCommandBufferManager::WaitForCmdBuffer(FVulkanCmdBuffer* CmdBuffer, 
 void FVulkanCommandBufferManager::SubmitUploadCmdBuffer(bool bWaitForFence)
 {
 	check(UploadCmdBuffer);
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	check(UploadCmdBuffer->CurrentDescriptorPoolSetContainer == nullptr);
+#endif
+	if (!UploadCmdBuffer->IsSubmitted() && UploadCmdBuffer->HasBegun())
+	{
+		check(UploadCmdBuffer->IsOutsideRenderPass());
+		UploadCmdBuffer->End();
+		Queue->Submit(UploadCmdBuffer, nullptr, 0, nullptr);
+	}
+
+	UploadCmdBuffer = nullptr;
+}
+
+void FVulkanCommandBufferManager::SubmitUploadCmdBuffer(uint32 NumSignalSemaphore, VkSemaphore* Semaphores, bool bWaitForFence)
+{
+	check(UploadCmdBuffer);
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	check(UploadCmdBuffer->CurrentDescriptorPoolSetContainer == nullptr);
+#endif
 	check(UploadCmdBuffer->IsOutsideRenderPass());
 	UploadCmdBuffer->End();
-	Queue->Submit(UploadCmdBuffer, nullptr, 0, nullptr);
+	Device->GetGraphicsQueue()->Submit(UploadCmdBuffer, NumSignalSemaphore, Semaphores);
 	if (bWaitForFence)
 	{
 		if (UploadCmdBuffer->IsSubmitted())
@@ -278,13 +328,17 @@ void FVulkanCommandBufferManager::SubmitActiveCmdBuffer(bool bWaitForFence)
 {
 	check(!UploadCmdBuffer);
 	check(ActiveCmdBuffer);
-	if (!ActiveCmdBuffer->IsOutsideRenderPass())
+	if (!ActiveCmdBuffer->IsSubmitted() && ActiveCmdBuffer->HasBegun())
 	{
-		UE_LOG(LogVulkanRHI, Warning, TEXT("Forcing EndRenderPass() for submission"));
-		ActiveCmdBuffer->EndRenderPass();
+		if (!ActiveCmdBuffer->IsOutsideRenderPass())
+		{
+			UE_LOG(LogVulkanRHI, Warning, TEXT("Forcing EndRenderPass() for submission"));
+			ActiveCmdBuffer->EndRenderPass();
+		}
+		ActiveCmdBuffer->End();
+		Queue->Submit(ActiveCmdBuffer, nullptr, 0, nullptr);
 	}
-	ActiveCmdBuffer->End();
-	Queue->Submit(ActiveCmdBuffer, nullptr, 0, nullptr);
+
 	if (bWaitForFence)
 	{
 		if (ActiveCmdBuffer->IsSubmitted())

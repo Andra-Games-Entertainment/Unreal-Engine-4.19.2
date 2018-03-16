@@ -35,8 +35,8 @@ public class HTTP : ModuleRules
 			PrivateDependencyModuleNames.Add("SSL");
 		}
         else if (Target.Platform == UnrealTargetPlatform.Linux ||
-			Target.Platform == UnrealTargetPlatform.Android ||
-			Target.Platform == UnrealTargetPlatform.Switch)
+				Target.IsInPlatformGroup(UnrealPlatformGroup.Android) ||
+				Target.Platform == UnrealTargetPlatform.Switch)
 		{
             AddEngineThirdPartyPrivateStaticDependencies(Target, "libcurl");
             PrivateDependencyModuleNames.Add("SSL");

@@ -2448,3 +2448,11 @@ static TAutoConsoleVariable<int32> GLSLCvar(
 	TEXT("2 to use ES GLSL\n1 to use GLSL\n0 to use SPIRV")
 );
 
+static TAutoConsoleVariable<int32> CVarSkyLightingQuality(
+	TEXT("r.SkyLightingQuality"),
+	1,
+	TEXT("Defines the sky lighting quality which allows to adjust for performance.\n")
+	TEXT("<=0: off (fastest)\n")
+	TEXT("  1: on\n"),
+	ECVF_Scalability | ECVF_RenderThreadSafe
+);

@@ -1,0 +1,147 @@
+{
+	"FileVersion" : 3,
+	"Version" : 1,
+	"VersionName": "1.0",
+	"FriendlyName" : "MagicLeap",
+	"CreatedBy" : "Magic Leap, Inc.",
+	"CreatedByURL" : "http://magicleap.com",
+	"EngineVersion" : "4.19.0",
+	"Description" : "Support for the Magic Leap Head Mounted Display.",
+	"Category" : "Augmented Reality",
+	"EnabledByDefault" : true,
+	"DocsURL" : "",
+	"MarketplaceURL" : "",
+	"SupportURL" : "",
+	"CanContainContent" : true,
+	"IsBetaVersion" : false,
+	"Installed" : false,
+	"Modules" :
+	[
+		{
+			"Name" : "MagicLeap",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapAudio",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PreDefault",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapController",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapEyeTracker",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapGestures",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapSecureStorage",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapHelperOpenGL",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapHelperVulkan",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapIdentity",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		},
+		{
+			"Name" : "MagicLeapPrivileges",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PostConfigInit",
+			"WhitelistPlatforms" :
+			[
+				"Win64",
+				"Mac",
+				"Lumin",
+				"Linux"
+			]
+		}
+	],
+	"Plugins":
+	[
+    {
+      "Name": "ProceduralMeshComponent",
+      "Enabled": true
+    }
+	]
+}

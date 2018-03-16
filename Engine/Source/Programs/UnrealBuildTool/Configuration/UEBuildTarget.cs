@@ -82,6 +82,11 @@ namespace UnrealBuildTool
 		/// Nintendo Switch
 		/// </summary>
 		Switch,
+
+		/// <summary>
+		/// Confidential platform
+		/// </summary>
+		Lumin,
 	}
 
 	/// <summary>

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#if USE_ANDROID_JNI
 #include "AndroidJava.h"
 #include "RHI.h"
 #include "RHIResources.h"
@@ -65,6 +66,7 @@ public:
 	int32 GetVideoWidth();
 	void SetVideoEnabled(bool enabled = true);
 	void SetAudioEnabled(bool enabled = true);
+	void SetAudioVolume(float Volume);
 	bool GetVideoLastFrameData(void* & outPixels, int64 & outCount);
 	void Start();
 	void Pause();
@@ -184,3 +186,5 @@ public:
 	float GetVScale() { return VScale; }
 	float GetVOffset() { return VOffset; }
 };
+
+#endif

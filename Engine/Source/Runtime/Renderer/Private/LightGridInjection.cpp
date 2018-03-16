@@ -28,6 +28,10 @@
 #include "Components/LightComponent.h"
 #include "Engine/MapBuildDataRegistry.h"
 
+// Workaround for platforms that don't support 16bit integers
+#define	CHANGE_LIGHTINDEXTYPE_SIZE	(PLATFORM_MAC || PLATFORM_IOS)
+
+
 int32 GLightGridPixelSize = 64;
 FAutoConsoleVariableRef CVarLightGridPixelSize(
 	TEXT("r.Forward.LightGridPixelSize"),
@@ -59,6 +63,16 @@ FAutoConsoleVariableRef CVarLightLinkedListCulling(
 	TEXT("Uses a reverse linked list to store culled lights, removing the fixed limit on how many lights can affect a cell - it becomes a global limit instead."),
 	ECVF_Scalability | ECVF_RenderThreadSafe
 	);
+
+int32 GLightCullingQuality = 1;
+FAutoConsoleVariableRef CVarLightCullingQuality(
+	TEXT("r.LightCulling.Quality"),
+	GLightCullingQuality,
+	TEXT("Whether to run compute light culling pass.\n")
+	TEXT(" 0: off \n")
+	TEXT(" 1: on (default)\n"),
+	ECVF_RenderThreadSafe
+);
 
 IMPLEMENT_UNIFORM_BUFFER_STRUCT(FForwardGlobalLightData,TEXT("ForwardGlobalLightData"));
 IMPLEMENT_UNIFORM_BUFFER_STRUCT(FInstancedForwardGlobalLightData, TEXT("InstancedForwardGlobalLightData"));
@@ -331,7 +345,7 @@ void FDeferredShadingSceneRenderer::ComputeLightGrid(FRHICommandListImmediate& R
 			bAnyViewUsesForwardLighting |= View.bTranslucentSurfaceLighting || ShouldRenderVolumetricFog();
 		}
 
-		const bool bCullLightsToGrid = (IsForwardShadingEnabled(FeatureLevel) || bAnyViewUsesForwardLighting) && ViewFamily.EngineShowFlags.DirectLighting;
+		const bool bCullLightsToGrid = GLightCullingQuality && ((IsForwardShadingEnabled(FeatureLevel) || bAnyViewUsesForwardLighting) && ViewFamily.EngineShowFlags.DirectLighting);
 
 		FSimpleLightArray SimpleLights;
 
@@ -540,7 +554,7 @@ void FDeferredShadingSceneRenderer::ComputeLightGrid(FRHICommandListImmediate& R
 				if (View.ForwardLightingResources->ForwardLocalLightBuffer.NumBytes < NumBytesRequired)
 				{
 					View.ForwardLightingResources->ForwardLocalLightBuffer.Release();
-					View.ForwardLightingResources->ForwardLocalLightBuffer.Initialize(sizeof(FVector4), NumBytesRequired / sizeof(FVector4), PF_A32B32G32R32F, BUF_Volatile);
+					View.ForwardLightingResources->ForwardLocalLightBuffer.Initialize(sizeof(FVector4), NumBytesRequired / sizeof(FVector4), PF_R32G32B32A32_UINT, BUF_Volatile);
 				}
 
 				View.ForwardLightingResources->ForwardLocalLightBuffer.Lock();
@@ -561,8 +575,8 @@ void FDeferredShadingSceneRenderer::ComputeLightGrid(FRHICommandListImmediate& R
 			FVector ZParams = GetLightGridZParams(View.NearClippingDistance, FarPlane + 10.f);
 			GlobalLightData.LightGridZParams = ZParams;
 
-            // @todo Metal lacks efficient SRV/UAV format conversions.
-#if PLATFORM_MAC || PLATFORM_IOS
+			// @todo Metal lacks efficient SRV/UAV format conversions.
+#if CHANGE_LIGHTINDEXTYPE_SIZE
 			static bool const bNoFormatConversion = (IsMetalPlatform(GMaxRHIShaderPlatform));
 			const uint64 NumIndexableLights = bNoFormatConversion ? (1llu << (sizeof(FLightIndexType32) * 8llu)) : (1llu << (sizeof(FLightIndexType) * 8llu));
 #else
@@ -584,7 +598,7 @@ void FDeferredShadingSceneRenderer::ComputeLightGrid(FRHICommandListImmediate& R
 		}
 
 		// @todo Metal lacks efficient SRV/UAV format conversions.
-#if PLATFORM_MAC || PLATFORM_IOS
+#if CHANGE_LIGHTINDEXTYPE_SIZE
 		static bool const bNoFormatConversion = (IsMetalPlatform(GMaxRHIShaderPlatform));
 		const SIZE_T LightIndexTypeSize = bNoFormatConversion ? sizeof(FLightIndexType32) : sizeof(FLightIndexType);
 #else
@@ -761,3 +775,5 @@ void FDeferredShadingSceneRenderer::RenderForwardShadingShadowProjections(FRHICo
 		SceneRenderTargets.FinishRenderingLightAttenuation(RHICmdList);
 	}
 }
+
+#undef CHANGE_LIGHTINDEXTYPE_SIZE

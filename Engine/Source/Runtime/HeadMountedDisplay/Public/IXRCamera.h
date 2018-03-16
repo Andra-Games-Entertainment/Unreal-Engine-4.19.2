@@ -29,9 +29,9 @@ public:
 	virtual void UseImplicitHMDPosition(bool bInImplicitHMDPosition) = 0;
 
 	/**
-	* Get the view offset mode
-	*/
-	virtual bool GetUseImplicitHMDPosition() = 0;
+	 * Gets the view offset mode to assume an implied HMD position
+	 */
+	virtual bool GetUseImplicitHMDPosition() const = 0;
 
 	/**
 	 * Optionally called by APlayerController to apply the orientation of the

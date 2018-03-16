@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanCommands.cpp: Vulkan RHI commands implementation.
@@ -9,9 +9,6 @@
 #include "VulkanContext.h"
 #include "EngineGlobals.h"
 
-//#todo-rco: One of this per Context!
-static TGlobalResource< TBoundShaderStateHistory<10000, false> > GBoundShaderStateHistory;
-
 static TAutoConsoleVariable<int32> GCVarSubmitOnDispatch(
 	TEXT("r.Vulkan.SubmitOnDispatch"),
 	0,
@@ -20,10 +17,32 @@ static TAutoConsoleVariable<int32> GCVarSubmitOnDispatch(
 	ECVF_RenderThreadSafe
 );
 
+int32 GVulkanSubmitAfterEveryEndRenderPass = 0;
+static FAutoConsoleVariableRef CVarVulkanSubmitAfterEveryEndRenderPass(
+	TEXT("r.Vulkan.SubmitAfterEveryEndRenderPass"),
+	GVulkanSubmitAfterEveryEndRenderPass,
+	TEXT("Forces a submit after every end render pass.\n")
+	TEXT(" 0: Don't(default)\n")
+	TEXT(" 1: Enable submitting"),
+	ECVF_Default
+);
+
 static inline bool UseRealUBs()
 {
-	static TConsoleVariableData<int32>* CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.Vulkan.UseRealUBs"));
-	return (CVar && CVar->GetValueOnAnyThread() != 0);
+	static int32 Status = -1;
+	if (Status == -1)
+	{
+		TConsoleVariableData<int32>* CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.Vulkan.UseRealUBs"));
+		if (CVar)
+		{
+			Status = CVar->GetValueOnAnyThread() != 0;
+		}
+		else
+		{
+			Status = 0;
+		}
+	}
+	return Status > 0;
 }
 
 void FVulkanCommandListContext::RHISetStreamSource(uint32 StreamIndex, FVertexBufferRHIParamRef VertexBufferRHI, uint32 Offset)
@@ -57,9 +76,21 @@ void FVulkanCommandListContext::RHISetComputePipelineState(FRHIComputePipelineSt
 	FVulkanCmdBuffer* CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
 	if (CmdBuffer->IsInsideRenderPass())
 	{
-		TransitionState.EndRenderPass(CmdBuffer);
+		TransitionAndLayoutManager.EndRenderPass(CmdBuffer);
+		if (GVulkanSubmitAfterEveryEndRenderPass)
+		{
+			CommandBufferManager->SubmitActiveCmdBuffer(false);
+			CommandBufferManager->PrepareForNewActiveCommandBuffer();
+			CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
+		}
 	}
 
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	if (CmdBuffer->CurrentDescriptorPoolSetContainer == nullptr)
+	{
+		CmdBuffer->CurrentDescriptorPoolSetContainer = &Device->GetDescriptorPoolsManager().AcquirePoolSetContainer();
+	}
+#endif
 	//#todo-rco: Set PendingGfx to null
 	FVulkanComputePipeline* ComputePipeline = ResourceCast(ComputePipelineState);
 	PendingComputeState->SetComputePipeline(ComputePipeline);
@@ -67,7 +98,9 @@ void FVulkanCommandListContext::RHISetComputePipelineState(FRHIComputePipelineSt
 
 void FVulkanCommandListContext::RHIDispatchComputeShader(uint32 ThreadGroupCountX, uint32 ThreadGroupCountY, uint32 ThreadGroupCountZ)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanDispatchCallTime);
+#endif
 
 	FVulkanCmdBuffer* Cmd = CommandBufferManager->GetActiveCmdBuffer();
 	ensure(Cmd->IsOutsideRenderPass());
@@ -150,35 +183,40 @@ void FVulkanCommandListContext::RHISetShaderTexture(FVertexShaderRHIParamRef Ver
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Vertex) == ResourceCast(VertexShaderRHI));
 	FVulkanTextureBase* Texture = GetVulkanTextureFromRHITexture(NewTextureRHI);
-	PendingGfxState->SetTexture(SF_Vertex, TextureIndex, Texture);
+	VkImageLayout Layout = GetLayoutForDescriptor(Texture->Surface);
+	PendingGfxState->SetTexture(SF_Vertex, TextureIndex, Texture, Layout);
 }
 
 void FVulkanCommandListContext::RHISetShaderTexture(FHullShaderRHIParamRef HullShaderRHI, uint32 TextureIndex, FTextureRHIParamRef NewTextureRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Hull) == ResourceCast(HullShaderRHI));
 	FVulkanTextureBase* Texture = GetVulkanTextureFromRHITexture(NewTextureRHI);
-	PendingGfxState->SetTexture(SF_Hull, TextureIndex, Texture);
+	VkImageLayout Layout = GetLayoutForDescriptor(Texture->Surface);
+	PendingGfxState->SetTexture(SF_Hull, TextureIndex, Texture, Layout);
 }
 
 void FVulkanCommandListContext::RHISetShaderTexture(FDomainShaderRHIParamRef DomainShaderRHI, uint32 TextureIndex, FTextureRHIParamRef NewTextureRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Domain) == ResourceCast(DomainShaderRHI));
 	FVulkanTextureBase* Texture = GetVulkanTextureFromRHITexture(NewTextureRHI);
-	PendingGfxState->SetTexture(SF_Domain, TextureIndex, Texture);
+	VkImageLayout Layout = GetLayoutForDescriptor(Texture->Surface);
+	PendingGfxState->SetTexture(SF_Domain, TextureIndex, Texture, Layout);
 }
 
 void FVulkanCommandListContext::RHISetShaderTexture(FGeometryShaderRHIParamRef GeometryShaderRHI, uint32 TextureIndex, FTextureRHIParamRef NewTextureRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Geometry) == ResourceCast(GeometryShaderRHI));
 	FVulkanTextureBase* Texture = GetVulkanTextureFromRHITexture(NewTextureRHI);
-	PendingGfxState->SetTexture(SF_Geometry, TextureIndex, Texture);
+	VkImageLayout Layout = GetLayoutForDescriptor(Texture->Surface);
+	PendingGfxState->SetTexture(SF_Geometry, TextureIndex, Texture, Layout);
 }
 
 void FVulkanCommandListContext::RHISetShaderTexture(FPixelShaderRHIParamRef PixelShaderRHI, uint32 TextureIndex, FTextureRHIParamRef NewTextureRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Pixel) == ResourceCast(PixelShaderRHI));
 	FVulkanTextureBase* Texture = GetVulkanTextureFromRHITexture(NewTextureRHI);
-	PendingGfxState->SetTexture(SF_Pixel, TextureIndex, Texture);
+	VkImageLayout Layout = GetLayoutForDescriptor(Texture->Surface);
+	PendingGfxState->SetTexture(SF_Pixel, TextureIndex, Texture, Layout);
 }
 
 void FVulkanCommandListContext::RHISetShaderTexture(FComputeShaderRHIParamRef ComputeShader, uint32 TextureIndex, FTextureRHIParamRef NewTextureRHI)
@@ -186,42 +224,43 @@ void FVulkanCommandListContext::RHISetShaderTexture(FComputeShaderRHIParamRef Co
 	check(PendingComputeState->GetCurrentShader() == ResourceCast(ComputeShader));
 
 	FVulkanTextureBase* VulkanTexture = GetVulkanTextureFromRHITexture(NewTextureRHI);
-	PendingComputeState->SetTexture(TextureIndex, VulkanTexture);
+	VkImageLayout Layout = GetLayoutForDescriptor(VulkanTexture->Surface);
+	PendingComputeState->SetTexture(TextureIndex, VulkanTexture, Layout);
 }
 
 void FVulkanCommandListContext::RHISetShaderResourceViewParameter(FVertexShaderRHIParamRef VertexShaderRHI, uint32 TextureIndex, FShaderResourceViewRHIParamRef SRVRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Vertex) == ResourceCast(VertexShaderRHI));
 	FVulkanShaderResourceView* SRV = ResourceCast(SRVRHI);
-	PendingGfxState->SetSRV(SF_Vertex, TextureIndex, SRV);
+	PendingGfxState->SetSRV(TransitionAndLayoutManager.RenderingMipChainInfo, SF_Vertex, TextureIndex, SRV);
 }
 
 void FVulkanCommandListContext::RHISetShaderResourceViewParameter(FHullShaderRHIParamRef HullShaderRHI,uint32 TextureIndex,FShaderResourceViewRHIParamRef SRVRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Hull) == ResourceCast(HullShaderRHI));
 	FVulkanShaderResourceView* SRV = ResourceCast(SRVRHI);
-	PendingGfxState->SetSRV(SF_Hull, TextureIndex, SRV);
+	PendingGfxState->SetSRV(TransitionAndLayoutManager.RenderingMipChainInfo, SF_Hull, TextureIndex, SRV);
 }
 
 void FVulkanCommandListContext::RHISetShaderResourceViewParameter(FDomainShaderRHIParamRef DomainShaderRHI,uint32 TextureIndex,FShaderResourceViewRHIParamRef SRVRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Domain) == ResourceCast(DomainShaderRHI));
 	FVulkanShaderResourceView* SRV = ResourceCast(SRVRHI);
-	PendingGfxState->SetSRV(SF_Domain, TextureIndex, SRV);
+	PendingGfxState->SetSRV(TransitionAndLayoutManager.RenderingMipChainInfo, SF_Domain, TextureIndex, SRV);
 }
 
 void FVulkanCommandListContext::RHISetShaderResourceViewParameter(FGeometryShaderRHIParamRef GeometryShaderRHI,uint32 TextureIndex,FShaderResourceViewRHIParamRef SRVRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Geometry) == ResourceCast(GeometryShaderRHI));
 	FVulkanShaderResourceView* SRV = ResourceCast(SRVRHI);
-	PendingGfxState->SetSRV(SF_Geometry, TextureIndex, SRV);
+	PendingGfxState->SetSRV(TransitionAndLayoutManager.RenderingMipChainInfo, SF_Geometry, TextureIndex, SRV);
 }
 
 void FVulkanCommandListContext::RHISetShaderResourceViewParameter(FPixelShaderRHIParamRef PixelShaderRHI,uint32 TextureIndex,FShaderResourceViewRHIParamRef SRVRHI)
 {
 	check(PendingGfxState->CurrentBSS && PendingGfxState->CurrentBSS->GetShader(SF_Pixel) == ResourceCast(PixelShaderRHI));
 	FVulkanShaderResourceView* SRV = ResourceCast(SRVRHI);
-	PendingGfxState->SetSRV(SF_Pixel, TextureIndex, SRV);
+	PendingGfxState->SetSRV(TransitionAndLayoutManager.RenderingMipChainInfo, SF_Pixel, TextureIndex, SRV);
 }
 
 void FVulkanCommandListContext::RHISetShaderResourceViewParameter(FComputeShaderRHIParamRef ComputeShaderRHI,uint32 TextureIndex,FShaderResourceViewRHIParamRef SRVRHI)
@@ -348,9 +387,7 @@ static void GatherUniformBufferResources(
 	// Expected to get an empty array
 	check(OutResourcesBindings.Num() == 0);
 
-	OutResourcesBindings.Empty(ResourceArray.Num());
-
-	// Verify mask and array corelational validity
+	// Verify mask and array correlational validity
 	check(InBindingMask == 0 ? (InBindingArray.Num() == 0) : (InBindingArray.Num() > 0));
 
 	// InBindingArray contains index to the buffer offset and also buffer offsets
@@ -358,38 +395,42 @@ static void GatherUniformBufferResources(
 	const uint32* ResourceInfos = &InBindingArray[BufferOffset];
 	uint32 ResourceInfo = *ResourceInfos++;
 
-	// Extract all resources related to the current BufferIndex
-	do
+	// The mask check at the top of this function does not appear to replace this check completely.  The mask only tells you if data exists for a given descriptor set; doesn't tell you what kind of data exists.
+	// Because different data types are stored in different arrays, it is possible to end up trying to parse the token stream for one array solely because another array happened to have valid data in it 
+	// for the current descriptors.  Bad things can (and do) result - like trying to push a sampler resource as if it were a texture resource.
+	if (BufferOffset > 0)
 	{
-		// Verify that we have correct buffer index
-		check(FRHIResourceTableEntry::GetUniformBufferIndex(ResourceInfo) == BufferIndex);
-
-		// Extract binding index from ResourceInfo
-		const uint32 BindingIndex = FRHIResourceTableEntry::GetBindIndex(ResourceInfo);
-
-		// Extract index of the resource stored in the resource table from ResourceInfo
-		const uint16 ResourceIndex = FRHIResourceTableEntry::GetResourceIndex(ResourceInfo);
-
-		if(ResourceIndex < ResourceArray.Num())
+		// Extract all resources related to the current BufferIndex
+		do
 		{
-			check(ResourceArray[ResourceIndex]);
-			OutResourcesBindings.Add(FSrtResourceBinding(BindingIndex, ResourceArray[ResourceIndex]));
-		}
+			// Verify that we have correct buffer index
+			check(FRHIResourceTableEntry::GetUniformBufferIndex(ResourceInfo) == BufferIndex);
 
-		// Iterate to next info
-		ResourceInfo = *ResourceInfos++;
+			// Extract binding index from ResourceInfo
+			const uint32 BindingIndex = FRHIResourceTableEntry::GetBindIndex(ResourceInfo);
+
+			// Extract index of the resource stored in the resource table from ResourceInfo
+			const uint16 ResourceIndex = FRHIResourceTableEntry::GetResourceIndex(ResourceInfo);
+
+			if (ResourceIndex < ResourceArray.Num())
+			{
+				check(ResourceArray[ResourceIndex]);
+				OutResourcesBindings.Add(FSrtResourceBinding(BindingIndex, ResourceArray[ResourceIndex]));
+			}
+
+			// Iterate to next info
+			ResourceInfo = *ResourceInfos++;
+		}
+		while (FRHIResourceTableEntry::GetUniformBufferIndex(ResourceInfo) == BufferIndex);
 	}
-	while(FRHIResourceTableEntry::GetUniformBufferIndex(ResourceInfo) == BufferIndex);
 }
 
-inline void FVulkanCommandListContext::SetShaderUniformBuffer(EShaderFrequency Stage, const FVulkanUniformBuffer* UniformBuffer, int32 BindingIndex, FVulkanShader* ExpectedShader)
+inline void FVulkanCommandListContext::SetShaderUniformBuffer(EShaderFrequency Stage, const FVulkanUniformBuffer* UniformBuffer, int32 BindingIndex, const FVulkanShader* Shader)
 {
 #if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanSetUniformBufferTime);
 #endif
-
-	const FVulkanShader* Shader = PendingGfxState->CurrentBSS->GetShader(Stage);
-	check(Shader == ExpectedShader);
+	check(Shader == PendingGfxState->CurrentBSS->GetShader(Stage));
 	if (UniformBuffer->GetLayout().ConstantBufferSize > 0)
 	{
 		if (UseRealUBs())
@@ -433,7 +474,8 @@ inline void FVulkanCommandListContext::SetShaderUniformBuffer(EShaderFrequency S
 			const FVulkanTextureBase* BaseTexture = FVulkanTextureBase::Cast(TexRef);
 			if(BaseTexture)
 			{
-				PendingGfxState->SetTexture(Stage, CurrTextureBinding.BindingIndex, BaseTexture);
+				VkImageLayout Layout = GetLayoutForDescriptor(BaseTexture->Surface);
+				PendingGfxState->SetTexture(Stage, CurrTextureBinding.BindingIndex, BaseTexture, Layout);
 				TexRef->SetLastRenderTime(CurrentTime);
 			}
 			else
@@ -547,7 +589,8 @@ void FVulkanCommandListContext::RHISetShaderUniformBuffer(FComputeShaderRHIParam
 		const FVulkanTextureBase* BaseTexture = FVulkanTextureBase::Cast(TexRef);
 		if (BaseTexture)
 		{
-			State.SetTexture(CurrTextureBinding.BindingIndex, BaseTexture);
+			VkImageLayout Layout = GetLayoutForDescriptor(BaseTexture->Surface);
+			State.SetTexture(CurrTextureBinding.BindingIndex, BaseTexture, Layout);
 			TexRef->SetLastRenderTime(CurrentTime);
 		}
 		else
@@ -588,11 +631,13 @@ void FVulkanCommandListContext::RHISetStencilRef(uint32 StencilRef)
 
 void FVulkanCommandListContext::RHIDrawPrimitive(uint32 PrimitiveType, uint32 BaseVertexIndex, uint32 NumPrimitives, uint32 NumInstances)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanDrawCallTime);
+#endif
 	RHI_DRAW_CALL_STATS(PrimitiveType, NumInstances*NumPrimitives);
 
 	FVulkanCmdBuffer* CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
-	PendingGfxState->PrepareForDraw(CmdBuffer, UEToVulkanType((EPrimitiveType)PrimitiveType));
+	PendingGfxState->PrepareForDraw(CmdBuffer);
 	NumInstances = FMath::Max(1U, NumInstances);
 	uint32 NumVertices = GetVertexCountForPrimitiveCount(NumPrimitives, PrimitiveType);
 	VulkanRHI::vkCmdDraw(CmdBuffer->GetHandle(), NumVertices, NumInstances, BaseVertexIndex, 0);
@@ -605,12 +650,14 @@ void FVulkanCommandListContext::RHIDrawPrimitive(uint32 PrimitiveType, uint32 Ba
 
 void FVulkanCommandListContext::RHIDrawPrimitiveIndirect(uint32 PrimitiveType, FVertexBufferRHIParamRef ArgumentBufferRHI, uint32 ArgumentOffset)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanDrawCallTime);
+#endif
 	RHI_DRAW_CALL_INC();
 
 	FVulkanCmdBuffer* Cmd = CommandBufferManager->GetActiveCmdBuffer();
 	VkCommandBuffer CmdBuffer = Cmd->GetHandle();
-	PendingGfxState->PrepareForDraw(Cmd, UEToVulkanType((EPrimitiveType)PrimitiveType));
+	PendingGfxState->PrepareForDraw(Cmd);
 
 	FVulkanVertexBuffer* ArgumentBuffer = ResourceCast(ArgumentBufferRHI);
 
@@ -625,13 +672,16 @@ void FVulkanCommandListContext::RHIDrawPrimitiveIndirect(uint32 PrimitiveType, F
 void FVulkanCommandListContext::RHIDrawIndexedPrimitive(FIndexBufferRHIParamRef IndexBufferRHI, uint32 PrimitiveType, int32 BaseVertexIndex, uint32 FirstInstance,
 	uint32 NumVertices, uint32 StartIndex, uint32 NumPrimitives, uint32 NumInstances)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanDrawCallTime);
+#endif
 	RHI_DRAW_CALL_STATS(PrimitiveType, NumInstances*NumPrimitives);
+	checkf(GRHISupportsFirstInstance || FirstInstance == 0, TEXT("FirstInstance must be 0, see GRHISupportsFirstInstance"));
 
 	FVulkanIndexBuffer* IndexBuffer = ResourceCast(IndexBufferRHI);
 	FVulkanCmdBuffer* Cmd = CommandBufferManager->GetActiveCmdBuffer();
 	VkCommandBuffer CmdBuffer = Cmd->GetHandle();
-	PendingGfxState->PrepareForDraw(Cmd, UEToVulkanType((EPrimitiveType)PrimitiveType));
+	PendingGfxState->PrepareForDraw(Cmd);
 	VulkanRHI::vkCmdBindIndexBuffer(CmdBuffer, IndexBuffer->GetHandle(), IndexBuffer->GetOffset(), IndexBuffer->GetIndexType());
 
 	uint32 NumIndices = GetVertexCountForPrimitiveCount(NumPrimitives, PrimitiveType);
@@ -646,7 +696,9 @@ void FVulkanCommandListContext::RHIDrawIndexedPrimitive(FIndexBufferRHIParamRef 
 
 void FVulkanCommandListContext::RHIDrawIndexedIndirect(FIndexBufferRHIParamRef IndexBufferRHI, uint32 PrimitiveType, FStructuredBufferRHIParamRef ArgumentsBufferRHI, int32 DrawArgumentsIndex, uint32 NumInstances)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanDrawCallTime);
+#endif
 
 #if 0
 	//@NOTE: don't prepare draw without actually drawing
@@ -670,13 +722,15 @@ void FVulkanCommandListContext::RHIDrawIndexedIndirect(FIndexBufferRHIParamRef I
 
 void FVulkanCommandListContext::RHIDrawIndexedPrimitiveIndirect(uint32 PrimitiveType,FIndexBufferRHIParamRef IndexBufferRHI,FVertexBufferRHIParamRef ArgumentBufferRHI,uint32 ArgumentOffset)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanDrawCallTime);
+#endif
 	RHI_DRAW_CALL_INC();
 
 	FVulkanIndexBuffer* IndexBuffer = ResourceCast(IndexBufferRHI);
 	FVulkanCmdBuffer* Cmd = CommandBufferManager->GetActiveCmdBuffer();
 	VkCommandBuffer CmdBuffer = Cmd->GetHandle();
-	PendingGfxState->PrepareForDraw(Cmd, UEToVulkanType((EPrimitiveType)PrimitiveType));
+	PendingGfxState->PrepareForDraw(Cmd);
 	VulkanRHI::vkCmdBindIndexBuffer(CmdBuffer, IndexBuffer->GetHandle(), IndexBuffer->GetOffset(), IndexBuffer->GetIndexType());
 
 	FVulkanVertexBuffer* ArgumentBuffer = ResourceCast(ArgumentBufferRHI);
@@ -691,73 +745,81 @@ void FVulkanCommandListContext::RHIDrawIndexedPrimitiveIndirect(uint32 Primitive
 
 void FVulkanCommandListContext::RHIBeginDrawPrimitiveUP(uint32 PrimitiveType, uint32 NumPrimitives, uint32 NumVertices, uint32 VertexDataStride, void*& OutVertexData)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanUPPrepTime);
+#endif
 
 //	checkSlow(GPendingDrawPrimitiveUPVertexData == nullptr);
 
-	TempFrameAllocationBuffer.Alloc(VertexDataStride * NumVertices, VertexDataStride, PendingDrawPrimUPVertexAllocInfo);
-	OutVertexData = PendingDrawPrimUPVertexAllocInfo.Data;
+	TempFrameAllocationBuffer.Alloc(VertexDataStride * NumVertices, VertexDataStride, UserPrimitive.VertexAllocInfo);
+	OutVertexData = UserPrimitive.VertexAllocInfo.Data;
 
-	PendingPrimitiveType = PrimitiveType;
-	PendingNumPrimitives = NumPrimitives;
-	PendingNumVertices = NumVertices;
-	PendingVertexDataStride = VertexDataStride;
+	UserPrimitive.PrimitiveType = PrimitiveType;
+	UserPrimitive.NumPrimitives = NumPrimitives;
+	UserPrimitive.NumVertices = NumVertices;
+	UserPrimitive.VertexDataStride = VertexDataStride;
 }
 
 
 void FVulkanCommandListContext::RHIEndDrawPrimitiveUP()
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanDrawCallTime);
-	RHI_DRAW_CALL_STATS(PendingPrimitiveType, PendingNumPrimitives);
-	PendingGfxState->SetStreamSource(0, PendingDrawPrimUPVertexAllocInfo.GetHandle(), PendingDrawPrimUPVertexAllocInfo.GetBindOffset());
+#endif
+	RHI_DRAW_CALL_STATS(UserPrimitive.PrimitiveType, UserPrimitive.NumPrimitives);
+	PendingGfxState->SetStreamSource(0, UserPrimitive.VertexAllocInfo.GetHandle(), UserPrimitive.VertexAllocInfo.GetBindOffset());
 	FVulkanCmdBuffer* CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
-	PendingGfxState->PrepareForDraw(CmdBuffer, UEToVulkanType((EPrimitiveType)PendingPrimitiveType));
+	PendingGfxState->PrepareForDraw(CmdBuffer);
 	VkCommandBuffer Cmd = CmdBuffer->GetHandle();
-	VulkanRHI::vkCmdDraw(CmdBuffer->GetHandle(), PendingNumVertices, 1, PendingMinVertexIndex, 0);
+	VulkanRHI::vkCmdDraw(CmdBuffer->GetHandle(), UserPrimitive.NumVertices, 1, UserPrimitive.MinVertexIndex, 0);
 
 	if (IsImmediate())
 	{
-		GpuProfiler.RegisterGPUWork(PendingNumPrimitives, PendingNumVertices);
+		GpuProfiler.RegisterGPUWork(UserPrimitive.NumPrimitives, UserPrimitive.NumVertices);
 	}
 }
 
 void FVulkanCommandListContext::RHIBeginDrawIndexedPrimitiveUP( uint32 PrimitiveType, uint32 NumPrimitives, uint32 NumVertices, uint32 VertexDataStride,
 	void*& OutVertexData, uint32 MinVertexIndex, uint32 NumIndices, uint32 IndexDataStride, void*& OutIndexData)
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanUPPrepTime);
+#endif
 
-	TempFrameAllocationBuffer.Alloc(VertexDataStride * NumVertices, IndexDataStride, PendingDrawPrimUPVertexAllocInfo);
-	OutVertexData = PendingDrawPrimUPVertexAllocInfo.Data;
+	TempFrameAllocationBuffer.Alloc(VertexDataStride * NumVertices, IndexDataStride, UserPrimitive.VertexAllocInfo);
+	OutVertexData = UserPrimitive.VertexAllocInfo.Data;
 
 	check(IndexDataStride == 2 || IndexDataStride == 4);
-	PendingPrimitiveIndexType = IndexDataStride == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
-	TempFrameAllocationBuffer.Alloc(IndexDataStride * NumIndices, IndexDataStride, PendingDrawPrimUPIndexAllocInfo);
-	OutIndexData = PendingDrawPrimUPIndexAllocInfo.Data;
+	UserPrimitive.IndexType = (IndexDataStride == 2) ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
+	TempFrameAllocationBuffer.Alloc(IndexDataStride * NumIndices, IndexDataStride, UserPrimitive.IndexAllocInfo);
+	OutIndexData = UserPrimitive.IndexAllocInfo.Data;
 
-	PendingPrimitiveType = PrimitiveType;
-	PendingNumPrimitives = NumPrimitives;
-	PendingMinVertexIndex = MinVertexIndex;
-	PendingIndexDataStride = IndexDataStride;
+	UserPrimitive.PrimitiveType = PrimitiveType;
+	UserPrimitive.NumPrimitives = NumPrimitives;
+	UserPrimitive.MinVertexIndex = MinVertexIndex;
+	UserPrimitive.IndexDataStride = IndexDataStride;
 
-	PendingNumVertices = NumVertices;
-	PendingVertexDataStride = VertexDataStride;
+	UserPrimitive.NumVertices = NumVertices;
+	UserPrimitive.VertexDataStride = VertexDataStride;
 }
 
 void FVulkanCommandListContext::RHIEndDrawIndexedPrimitiveUP()
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanDrawCallTime);
-	RHI_DRAW_CALL_STATS(PendingPrimitiveType, PendingNumPrimitives);
-	PendingGfxState->SetStreamSource(0, PendingDrawPrimUPVertexAllocInfo.GetHandle(), PendingDrawPrimUPVertexAllocInfo.GetBindOffset());
+#endif
+	RHI_DRAW_CALL_STATS(UserPrimitive.PrimitiveType, UserPrimitive.NumPrimitives);
+	PendingGfxState->SetStreamSource(0, UserPrimitive.VertexAllocInfo.GetHandle(), UserPrimitive.VertexAllocInfo.GetBindOffset());
 	FVulkanCmdBuffer* CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
-	PendingGfxState->PrepareForDraw(CmdBuffer, UEToVulkanType((EPrimitiveType)PendingPrimitiveType));
+	PendingGfxState->PrepareForDraw(CmdBuffer);
 	VkCommandBuffer Cmd = CmdBuffer->GetHandle();
-	uint32 NumIndices = GetVertexCountForPrimitiveCount(PendingNumPrimitives, PendingPrimitiveType);
-	VulkanRHI::vkCmdBindIndexBuffer(Cmd, PendingDrawPrimUPIndexAllocInfo.GetHandle(), PendingDrawPrimUPIndexAllocInfo.GetBindOffset(), PendingPrimitiveIndexType);
-	VulkanRHI::vkCmdDrawIndexed(Cmd, NumIndices, 1, PendingMinVertexIndex, 0, 0);
+	uint32 NumIndices = GetVertexCountForPrimitiveCount(UserPrimitive.NumPrimitives, UserPrimitive.PrimitiveType);
+	VulkanRHI::vkCmdBindIndexBuffer(Cmd, UserPrimitive.IndexAllocInfo.GetHandle(), UserPrimitive.IndexAllocInfo.GetBindOffset(), UserPrimitive.IndexType);
+	VulkanRHI::vkCmdDrawIndexed(Cmd, NumIndices, 1, UserPrimitive.MinVertexIndex, 0, 0);
 
 	if (IsImmediate())
 	{
-		GpuProfiler.RegisterGPUWork(PendingNumPrimitives, PendingNumVertices);
+		GpuProfiler.RegisterGPUWork(UserPrimitive.NumPrimitives, UserPrimitive.NumVertices);
 	}
 }
 
@@ -773,16 +835,16 @@ void FVulkanCommandListContext::RHIClearMRT(bool bClearColor, int32 NumClearColo
 	FVulkanCmdBuffer* CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
 	//FRCLog::Printf(TEXT("RHIClearMRT"));
 
-	const uint32 NumColorAttachments = TransitionState.CurrentFramebuffer->GetNumColorAttachments();
+	const uint32 NumColorAttachments = TransitionAndLayoutManager.CurrentFramebuffer->GetNumColorAttachments();
 	check(!bClearColor || (uint32)NumClearColors <= NumColorAttachments);
 	InternalClearMRT(CmdBuffer, bClearColor, bClearColor ? NumClearColors : 0, ClearColorArray, bClearDepth, Depth, bClearStencil, Stencil);
 }
 
 void FVulkanCommandListContext::InternalClearMRT(FVulkanCmdBuffer* CmdBuffer, bool bClearColor, int32 NumClearColors, const FLinearColor* ClearColorArray, bool bClearDepth, float Depth, bool bClearStencil, uint32 Stencil)
 {
-	if (TransitionState.CurrentRenderPass)
+	if (TransitionAndLayoutManager.CurrentRenderPass)
 	{
-		const VkExtent2D& Extents = TransitionState.CurrentRenderPass->GetLayout().GetExtent2D();
+		const VkExtent2D& Extents = TransitionAndLayoutManager.CurrentRenderPass->GetLayout().GetExtent2D();
 		VkClearRect Rect;
 		FMemory::Memzero(Rect);
 		Rect.rect.offset.x = 0;
@@ -889,7 +951,7 @@ void FVulkanCommandListContext::PrepareForCPURead()
 		if (CmdBuffer->IsInsideRenderPass())
 		{
 			//#todo-rco: If we get real render passes then this is not needed
-			TransitionState.EndRenderPass(CmdBuffer);
+			TransitionAndLayoutManager.EndRenderPass(CmdBuffer);
 		}
 
 		CommandBufferManager->SubmitActiveCmdBuffer(true);
@@ -933,7 +995,7 @@ void FVulkanCommandListContext::FlushAfterComputeShader()
 			{
 				FVulkanTextureBase* Texture = (FVulkanTextureBase*)UAV->SourceTexture->GetTextureBaseRHI();
 				VkImageMemoryBarrier Barrier;
-				VkImageLayout Layout = TransitionState.FindOrAddLayout(Texture->Surface.Image, VK_IMAGE_LAYOUT_GENERAL);
+				VkImageLayout Layout = TransitionAndLayoutManager.FindOrAddLayout(Texture->Surface.Image, VK_IMAGE_LAYOUT_GENERAL);
 				VulkanRHI::SetupAndZeroImageBarrierOLD(Barrier, Texture->Surface, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, Layout, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, Layout);
 				ImageBarriers.Add(Barrier);
 			}
@@ -953,20 +1015,42 @@ void FVulkanCommandListContext::FlushAfterComputeShader()
 	}
 }
 
+
+void FVulkanCommandListContext::PrepareParallelFromBase(const FVulkanCommandListContext& BaseContext)
+{
+	//#todo-rco: Temp
+	TransitionAndLayoutManager.TempCopy(BaseContext.TransitionAndLayoutManager);
+}
+
+
+FVulkanCommandContextContainer::FVulkanCommandContextContainer(FVulkanDevice* InDevice)
+	: VulkanRHI::FDeviceChild(InDevice)
+	, CmdContext(nullptr)
+{
+	check(IsInRenderingThread());
+
+	CmdContext = Device->AcquireDeferredContext();
+}
+
 IRHICommandContext* FVulkanCommandContextContainer::GetContext()
 {
-	check(!CmdContext /*&& FinalCommandList.SubmissionAddrs.Num() == 0*/);
+	//FPlatformMisc::LowLevelOutputDebugStringf(TEXT("*** Thread %d GetContext() Container=%p\n"), FPlatformTLS::GetCurrentThreadId(), this);
 	//FPlatformTLS::SetTlsValue(GGnmManager.GetParallelTranslateTLS(), (void*)1);
 
-	// these are expensive and we don't want to worry about allocating them on the fly, so they should only be allocated while actually used, and it should not be possible to have more than we preallocated, based on the number of task threads
-	CmdContext = Device->AcquireDeferredContext();
+	CmdContext->PrepareParallelFromBase(Device->GetImmediateContext());
+
 	FVulkanCommandBufferManager* CmdMgr = CmdContext->GetCommandBufferManager();
 	FVulkanCmdBuffer* CmdBuffer = CmdMgr->GetActiveCmdBuffer();
-	if (CmdBuffer->IsInsideRenderPass())
+	if (!CmdBuffer)
 	{
-		CmdContext->TransitionState.EndRenderPass(CmdBuffer);
+		CmdMgr->PrepareForNewActiveCommandBuffer();
+		CmdBuffer = CmdMgr->GetActiveCmdBuffer();
 	}
-	if (CmdBuffer->IsSubmitted())
+	else if (CmdBuffer->IsInsideRenderPass())
+	{
+		CmdContext->TransitionAndLayoutManager.EndRenderPass(CmdBuffer);
+	}
+	else if (CmdBuffer->IsSubmitted())
 	{
 		CmdMgr->PrepareForNewActiveCommandBuffer();
 		CmdBuffer = CmdMgr->GetActiveCmdBuffer();
@@ -975,28 +1059,33 @@ IRHICommandContext* FVulkanCommandContextContainer::GetContext()
 	{
 		CmdBuffer->Begin();
 	}
+
+	CmdContext->RHIPushEvent(TEXT("Parallel Context"), FColor::Blue);
+
 	//CmdContext->InitContextBuffers();
 	//CmdContext->ClearState();
 	return CmdContext;
 }
 
+
 void FVulkanCommandContextContainer::FinishContext()
 {
-	check(CmdContext/* && FinalCommandList.SubmissionAddrs.Num() == 0*/);
+	//FPlatformMisc::LowLevelOutputDebugStringf(TEXT("*** Thread %d FinishContext() Container=%p\n"), FPlatformTLS::GetCurrentThreadId(), this);
+
 	//GGnmManager.TimeSubmitOnCmdListEnd(CmdContext);
 
 	//store off all memory ranges for DCBs to be submitted to the GPU.
 	//FinalCommandList = CmdContext->GetContext().Finalize(CmdContext->GetBeginCmdListTimestamp(), CmdContext->GetEndCmdListTimestamp());
 
-	Device->ReleaseDeferredContext(CmdContext);
-
 	FVulkanCommandBufferManager* CmdMgr = CmdContext->GetCommandBufferManager();
 	FVulkanCmdBuffer* CmdBuffer = CmdMgr->GetActiveCmdBuffer();
 	if (CmdBuffer->IsInsideRenderPass())
 	{
-		CmdContext->TransitionState.EndRenderPass(CmdBuffer);
+		CmdContext->TransitionAndLayoutManager.EndRenderPass(CmdBuffer);
 	}
 	check(CmdBuffer->HasBegun());
+
+	CmdContext->RHIPopEvent();
 
 	//CmdContext = nullptr;
 	//CmdContext->CommandBufferManager->GetActiveCmdBuffer()->End();
@@ -1007,29 +1096,58 @@ void FVulkanCommandContextContainer::FinishContext()
 
 void FVulkanCommandContextContainer::SubmitAndFreeContextContainer(int32 Index, int32 Num)
 {
+	//FPlatformMisc::LowLevelOutputDebugStringf(TEXT("*** Thread %d Submit() Container=%p %d/%d\n"), FPlatformTLS::GetCurrentThreadId(), this, Index, Num);
 	if (!Index)
 	{
-		//printf("BeginParallelContext: %i, %i\n", Index, Num);
-		//GGnmManager.BeginParallelContexts();
+		FVulkanCommandListContext& Imm = Device->GetImmediateContext();
+		FVulkanCommandBufferManager* ImmCmdMgr = Imm.GetCommandBufferManager();
+		FVulkanCmdBuffer* ImmCmdBuf = ImmCmdMgr->GetActiveCmdBuffer();
+		if (ImmCmdBuf && !ImmCmdBuf->IsSubmitted())
+		{
+			if (ImmCmdBuf->IsInsideRenderPass())
+			{
+				Imm.TransitionAndLayoutManager.EndRenderPass(ImmCmdBuf);
+			}
+			ImmCmdMgr->SubmitActiveCmdBuffer(false);
+		}
 	}
 	//GGnmManager.AddSubmission(FinalCommandList);
 	check(CmdContext);
 	FVulkanCommandBufferManager* CmdBufMgr = CmdContext->GetCommandBufferManager();
-	if (CmdBufMgr->HasPendingUploadCmdBuffer())
-	{
-		CmdBufMgr->SubmitUploadCmdBuffer(false);
-	}
+	check(!CmdBufMgr->HasPendingUploadCmdBuffer());
+	//{
+	//	CmdBufMgr->SubmitUploadCmdBuffer(false);
+	//}
 	FVulkanCmdBuffer* CmdBuffer = CmdBufMgr->GetActiveCmdBuffer();
-	if (CmdBuffer->IsInsideRenderPass())
-	{
-		CmdContext->TransitionState.EndRenderPass(CmdBuffer);
-	}
+	check(!CmdBuffer->IsInsideRenderPass());
+	//{
+	//	CmdContext->TransitionState.EndRenderPass(CmdBuffer);
+	//}
 	CmdBufMgr->SubmitActiveCmdBuffer(false);
-	CmdBufMgr->PrepareForNewActiveCommandBuffer();
-	CmdContext = nullptr;
+
+	Device->ReleaseDeferredContext(CmdContext);
+
 	//check(!CmdContext/* && FinalCommandList.SubmissionAddrs.Num() != 0*/);
-	//if (Index == Num - 1)
+	if (Index == Num - 1)
 	{
+		FVulkanCommandListContext& Imm = Device->GetImmediateContext();
+		FVulkanCommandBufferManager* ImmCmdMgr = Imm.GetCommandBufferManager();
+		FVulkanCmdBuffer* ImmCmdBuf = ImmCmdMgr->GetActiveCmdBuffer();
+		if (ImmCmdBuf)
+		{
+			if (ImmCmdBuf->IsSubmitted())
+			{
+				ImmCmdMgr->PrepareForNewActiveCommandBuffer();
+				ImmCmdBuf = ImmCmdMgr->GetActiveCmdBuffer();
+			}
+		}
+		else
+		{
+			ImmCmdMgr->PrepareForNewActiveCommandBuffer();
+			ImmCmdBuf = ImmCmdMgr->GetActiveCmdBuffer();
+		}
+		check(ImmCmdBuf->HasBegun());
+
 		//printf("EndParallelContexts: %i, %i\n", Index, Num);
 		//GGnmManager.EndParallelContexts();
 	}

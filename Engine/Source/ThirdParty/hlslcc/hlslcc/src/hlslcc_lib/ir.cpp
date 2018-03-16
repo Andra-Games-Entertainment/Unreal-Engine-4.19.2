@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 // This code is modified from that in the Mesa3D Graphics library available at
 // http://mesa3d.org/
@@ -2177,7 +2177,7 @@ bool AreEquivalent(ir_instruction* A, ir_instruction* B)
 		return false;
 	}
 
-#ifndef __clang__
+#if ! (defined(__clang__) || defined(__GNUC__))
 #define IF_TEST(name)		if (A->##name()) { if (A->##name() && B->##name()) { return (A->##name())->IsEquivalent(B->##name()); } }
 #else
 #define IF_TEST(name)		if (A->name()) { if (A->name() && B->name()) { return (A->name())->IsEquivalent(B->name()); } }

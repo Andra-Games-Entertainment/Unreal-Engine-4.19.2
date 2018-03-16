@@ -1,4 +1,5 @@
-﻿/************************************************************************/
+﻿#if PLATFORM_WINDOWS
+/************************************************************************/
 /*! \class RtAudio
     \brief Realtime audio i/o C++ classes.
 
@@ -10173,3 +10174,4 @@ void RtApi :: byteSwapBuffer( char *buffer, unsigned int samples, RtAudioFormat 
   //
   // vim: et sts=2 sw=2
 
+#endif // PLATFORM_WINDOWS

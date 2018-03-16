@@ -35,7 +35,7 @@ namespace UnrealBuildTool
 		/// </summary>
 		private List<string> PossibleApiLevels = null;
 
-		private FileReference ProjectFile;
+		protected FileReference ProjectFile;
 
 		public UEDeployAndroid(FileReference InProjectFile)
 		{
@@ -2672,7 +2672,7 @@ namespace UnrealBuildTool
 			return true;
 		}
 
-		private void MakeApk(AndroidToolChain ToolChain, string ProjectName, string ProjectDirectory, string OutputPath, string EngineDirectory, bool bForDistribution, string CookFlavor, bool bMakeSeparateApks, bool bIncrementalPackage, bool bDisallowPackagingDataInApk, bool bDisallowExternalFilesDir)
+		protected virtual void MakeApk(AndroidToolChain ToolChain, string ProjectName, string ProjectDirectory, string OutputPath, string EngineDirectory, bool bForDistribution, string CookFlavor, bool bMakeSeparateApks, bool bIncrementalPackage, bool bDisallowPackagingDataInApk, bool bDisallowExternalFilesDir)
 		{
 			Log.TraceInformation("\n===={0}====PREPARING TO MAKE APK=================================================================", DateTime.Now.ToString());
 
@@ -3522,8 +3522,7 @@ namespace UnrealBuildTool
 
 		public override bool PrepTargetForDeployment(UEBuildDeployTarget InTarget)
 		{
-			//Log.TraceInformation("$$$$$$$$$$$$$$ PrepTargetForDeployment $$$$$$$$$$$$$$$$$ {0}", InTarget.TargetName);
-			AndroidToolChain ToolChain = new AndroidToolChain(InTarget.ProjectFile, false, InTarget.AndroidArchitectures, InTarget.AndroidGPUArchitectures); 
+			AndroidToolChain ToolChain = UEBuildPlatform.GetBuildPlatform(InTarget.Platform).CreateTempToolChainForProject(InTarget.ProjectFile) as AndroidToolChain;
 
 			// we need to strip architecture from any of the output paths
 			string BaseSoName = ToolChain.RemoveArchName(InTarget.OutputPaths[0].FullName);

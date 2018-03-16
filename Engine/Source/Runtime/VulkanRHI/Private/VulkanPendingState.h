@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved..
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved..
 
 /*=============================================================================
 	VulkanPendingState.h: Private VulkanPendingState definitions.
@@ -23,11 +23,6 @@ public:
 	}
 
 	~FVulkanPendingComputeState();
-
-	inline FVulkanGlobalUniformPool& GetGlobalUniformPool()
-	{
-		return GlobalUniformPool;
-	}
 
 	void SetComputePipeline(FVulkanComputePipeline* InComputePipeline)
 	{
@@ -64,9 +59,9 @@ public:
 
 	void SetUAV(uint32 UAVIndex, FVulkanUnorderedAccessView* UAV);
 
-	inline void SetTexture(uint32 BindPoint, const FVulkanTextureBase* TextureBase)
+	inline void SetTexture(uint32 BindPoint, const FVulkanTextureBase* TextureBase, VkImageLayout Layout)
 	{
-		CurrentState->SetTexture(BindPoint, TextureBase);
+		CurrentState->SetTexture(BindPoint, TextureBase, Layout);
 	}
 
 	void SetSRV(uint32 BindIndex, FVulkanShaderResourceView* SRV);
@@ -92,7 +87,6 @@ public:
 	}
 
 protected:
-	FVulkanGlobalUniformPool GlobalUniformPool;
 	TArray<FVulkanUnorderedAccessView*> UAVListForAutoFlush;
 
 	FVulkanComputePipeline* CurrentPipeline;
@@ -117,11 +111,6 @@ public:
 	}
 
 	~FVulkanPendingGfxState();
-
-	inline FVulkanGlobalUniformPool& GetGlobalUniformPool()
-	{
-		return GlobalUniformPool;
-	}
 
 	void Reset()
 	{
@@ -203,9 +192,9 @@ public:
 		bDirtyVertexStreams = true;
 	}
 
-	inline void SetTexture(EShaderFrequency Stage, uint32 BindPoint, const FVulkanTextureBase* TextureBase)
+	inline void SetTexture(EShaderFrequency Stage, uint32 BindPoint, const FVulkanTextureBase* TextureBase, VkImageLayout Layout)
 	{
-		CurrentState->SetTexture(Stage, BindPoint, TextureBase);
+		CurrentState->SetTexture(Stage, BindPoint, TextureBase, Layout);
 	}
 
 	inline void SetUniformBufferConstantData(EShaderFrequency Stage, uint32 BindPoint, const TArray<uint8>& ConstantData)
@@ -220,7 +209,7 @@ public:
 
 	void SetUAV(EShaderFrequency Stage, uint32 UAVIndex, FVulkanUnorderedAccessView* UAV);
 
-	void SetSRV(EShaderFrequency Stage, uint32 BindIndex, FVulkanShaderResourceView* SRV);
+	void SetSRV(struct FRenderingMipChainInfo& RenderingMipChainInfo, EShaderFrequency Stage, uint32 BindIndex, FVulkanShaderResourceView* SRV);
 
 	inline void SetSamplerState(EShaderFrequency Stage, uint32 BindPoint, FVulkanSamplerState* Sampler)
 	{
@@ -232,7 +221,7 @@ public:
 		CurrentState->SetShaderParameter(Stage, BufferIndex, ByteOffset, NumBytes, NewValue);
 	}
 
-	void PrepareForDraw(FVulkanCmdBuffer* CmdBuffer, VkPrimitiveTopology Topology);
+	void PrepareForDraw(FVulkanCmdBuffer* CmdBuffer);
 
 	bool SetGfxPipeline(FVulkanGraphicsPipelineState* InGfxPipeline)
 	{
@@ -293,8 +282,6 @@ public:
 	}
 
 protected:
-	FVulkanGlobalUniformPool GlobalUniformPool;
-
 	VkViewport Viewport;
 	uint32 StencilRef;
 	bool bScissorEnable;

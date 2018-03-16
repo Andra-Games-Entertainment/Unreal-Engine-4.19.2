@@ -52,6 +52,27 @@ typedef FAndroidTypes FPlatformTypes;
 #define PLATFORM_UI_NEEDS_TOOLTIPS					0
 #define PLATFORM_UI_NEEDS_FOCUS_OUTLINES			0
 
+
+// some android platform overrides that sub-platforms can disable
+#ifndef USE_ANDROID_JNI
+	#define USE_ANDROID_JNI							1
+#endif
+#ifndef USE_ANDROID_FILE
+	#define USE_ANDROID_FILE						1
+#endif
+#ifndef USE_ANDROID_LAUNCH
+	#define USE_ANDROID_LAUNCH						1
+#endif
+#ifndef USE_ANDROID_INPUT
+	#define USE_ANDROID_INPUT						1
+#endif
+#ifndef USE_ANDROID_EVENTS
+	#define USE_ANDROID_EVENTS						1
+#endif
+#ifndef USE_ANDROID_EVENTS
+	#define USE_ANDROID_OPENGL						1
+#endif
+
 // Function type macros.
 #define VARARGS													/* Functions with variable arguments */
 #define CDECL													/* Standard C function */

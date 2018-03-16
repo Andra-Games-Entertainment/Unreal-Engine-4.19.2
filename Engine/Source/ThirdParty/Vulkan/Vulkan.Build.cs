@@ -1,4 +1,4 @@
-﻿// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 using UnrealBuildTool;
 using System.IO;
@@ -13,15 +13,6 @@ public class Vulkan : ModuleRules
 			(Target.Platform == UnrealTargetPlatform.Win32))
 		{
 			string RootPath = Target.UEThirdPartySourceDirectory + "Vulkan/Windows";
-			string LibPath = RootPath + "/Bin";
-			if (Target.Platform == UnrealTargetPlatform.Win32)
-			{
-				LibPath += "32";
-			}
-
-			PublicLibraryPaths.Add(LibPath);
-			PublicAdditionalLibraries.Add("vulkan-1.lib");
-			PublicAdditionalLibraries.Add("VKstatic.1.lib");
 
 			PublicSystemIncludePaths.Add(RootPath + "/Include");
 			PublicSystemIncludePaths.Add(RootPath + "/Include/vulkan");

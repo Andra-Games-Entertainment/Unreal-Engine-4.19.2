@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved..
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved..
 
 /*=============================================================================
 	VulkanCommandBuffer.h: Private Vulkan RHI definitions.
@@ -14,6 +14,9 @@ class FVulkanCommandBufferPool;
 class FVulkanCommandBufferManager;
 class FVulkanRenderTargetLayout;
 class FVulkanQueue;
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+class FVulkanDescriptorPoolSetContainer;
+#endif
 
 namespace VulkanRHI
 {
@@ -66,20 +69,14 @@ public:
 		return CommandBufferHandle;
 	}
 
-	void BeginRenderPass(const FVulkanRenderTargetLayout& Layout, class FVulkanRenderPass* RenderPass, class FVulkanFramebuffer* Framebuffer, const VkClearValue* AttachmentClearValues);
-
-	void EndRenderPass()
-	{
-		check(IsInsideRenderPass());
-		VulkanRHI::vkCmdEndRenderPass(CommandBufferHandle);
-		State = EState::IsInsideBegin;
-	}
-
-	void End();
-
 	inline volatile uint64 GetFenceSignaledCounter() const
 	{
 		return FenceSignaledCounter;
+	}
+
+	inline volatile uint64 GetSubmittedFenceCounter() const
+	{
+		return SubmittedFenceCounter;
 	}
 
 	inline bool HasValidTiming() const
@@ -88,6 +85,7 @@ public:
 	}
 	
 	void Begin();
+	void End();
 
 	enum class EState
 	{
@@ -108,15 +106,35 @@ public:
 	VkRect2D CurrentScissor;
 	uint32 CurrentStencilRef;
 
+	// You never want to call Begin/EndRenderPass directly as it will mess up with the FTransitionAndLayoutManager
+	void BeginRenderPass(const FVulkanRenderTargetLayout& Layout, class FVulkanRenderPass* RenderPass, class FVulkanFramebuffer* Framebuffer, const VkClearValue* AttachmentClearValues);
+	void EndRenderPass()
+	{
+		checkf(IsInsideRenderPass(), TEXT("Can't EndRP as we're NOT inside one! CmdBuffer 0x%p State=%d"), CommandBufferHandle, (int32)State);
+		VulkanRHI::vkCmdEndRenderPass(CommandBufferHandle);
+		State = EState::IsInsideBegin;
+	}
+
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	FVulkanDescriptorPoolSetContainer* CurrentDescriptorPoolSetContainer = nullptr;
+#endif
+
 private:
 	FVulkanDevice* Device;
 	VkCommandBuffer CommandBufferHandle;
 	EState State;
 
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	void AcquirePoolSet();
+#endif
+
 	// Do not cache this pointer as it might change depending on VULKAN_REUSE_FENCES
 	VulkanRHI::FFence* Fence;
 
+	// Last value passed after the fence got signaled
 	volatile uint64 FenceSignaledCounter;
+	// Last value when we submitted the cmd buffer; useful to track down if something waiting for the fence has actually been submitted
+	volatile uint64 SubmittedFenceCounter;
 
 	void RefreshFenceStatus();
 	void InitializeTimings(FVulkanCommandListContext* InContext);
@@ -127,6 +145,7 @@ private:
 	uint64 LastValidTiming;
 
 	friend class FVulkanDynamicRHI;
+	friend class FTransitionAndLayoutManager;
 };
 
 class FVulkanCommandBufferPool
@@ -136,38 +155,7 @@ public:
 
 	~FVulkanCommandBufferPool();
 
-/*
-	inline FVulkanCmdBuffer* GetActiveCmdBuffer()
-	{
-		if (UploadCmdBuffer)
-		{
-			SubmitUploadCmdBuffer(false);
-		}
-
-		return ActiveCmdBuffer;
-	}
-
-	inline bool HasPendingUploadCmdBuffer() const
-	{
-		return UploadCmdBuffer != nullptr;
-	}
-
-	inline bool HasPendingActiveCmdBuffer() const
-	{
-		return ActiveCmdBuffer != nullptr;
-	}
-
-	FVulkanCmdBuffer* GetUploadCmdBuffer();
-
-	void SubmitUploadCmdBuffer(bool bWaitForFence);
-	void SubmitActiveCmdBuffer(bool bWaitForFence);
-
-	void WaitForCmdBuffer(FVulkanCmdBuffer* CmdBuffer, float TimeInSecondsToWait = 1.0f);
-	*/
 	void RefreshFenceStatus();
-	/*
-	void PrepareForNewActiveCommandBuffer();
-*/
 
 	inline VkCommandPool GetHandle() const
 	{
@@ -178,7 +166,6 @@ public:
 private:
 	FVulkanDevice* Device;
 	VkCommandPool Handle;
-	//FVulkanCmdBuffer* ActiveCmdBuffer;
 
 	FVulkanCmdBuffer* Create();
 
@@ -217,6 +204,8 @@ public:
 	VULKANRHI_API FVulkanCmdBuffer* GetUploadCmdBuffer();
 
 	VULKANRHI_API void SubmitUploadCmdBuffer(bool bWaitForFence);
+	VULKANRHI_API void SubmitUploadCmdBuffer(uint32 NumSignalSemaphore, VkSemaphore* Semaphores, bool bWaitForFence);
+
 	void SubmitActiveCmdBuffer(bool bWaitForFence);
 
 	void WaitForCmdBuffer(FVulkanCmdBuffer* CmdBuffer, float TimeInSecondsToWait = 1.0f);

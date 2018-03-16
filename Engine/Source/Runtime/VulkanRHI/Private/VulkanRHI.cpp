@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanRHI.cpp: Vulkan device RHI implementation.
@@ -7,7 +7,6 @@
 #include "VulkanRHIPrivate.h"
 #include "HardwareInfo.h"
 #include "VulkanShaderResources.h"
-#include "VulkanSwapChain.h"
 #include "VulkanResources.h"
 #include "VulkanPendingState.h"
 #include "VulkanContext.h"
@@ -35,20 +34,9 @@ static_assert(VK_API_VERSION >= UE_VK_API_VERSION, "Vulkan SDK is older than the
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#if PLATFORM_ANDROID || PLATFORM_LINUX
-
-// Vulkan function pointers
-
-#define DEFINE_VK_ENTRYPOINTS(Type,Func) Type VulkanDynamicAPI::Func = NULL;
-ENUM_VK_ENTRYPOINTS_ALL(DEFINE_VK_ENTRYPOINTS)
-
-#endif
-
-///////////////////////////////////////////////////////////////////////////////
-
 TAutoConsoleVariable<int32> GRHIThreadCvar(
 	TEXT("r.Vulkan.RHIThread"),
-	1,
+	!(PLATFORM_LUMIN || PLATFORM_LUMINGL4),
 	TEXT("0 to only use Render Thread\n")
 	TEXT("1 to use ONE RHI Thread\n")
 	TEXT("2 to use multiple RHI Thread\n")
@@ -183,145 +171,8 @@ struct FVulkanInstrumentedMemManager : public FVulkanMemManager
 static FVulkanMemManager GDefaultVulkanMemMgr;
 static FVulkanInstrumentedMemManager GVulkanInstrumentedMemMgr;
 
-static inline int32 CountSetBits(int32 n)
-{
-	uint32 Count = 0;
-	while (n)
-	{
-		n &= (n-1);
-		Count++;
-	}
-
-	return Count;
-}
-
 
 DEFINE_LOG_CATEGORY(LogVulkan)
-
-#if PLATFORM_ANDROID || PLATFORM_LINUX
-#include <dlfcn.h>
-
-static void *VulkanLib = nullptr;
-static bool bAttemptedLoad = false;
-
-static bool LoadVulkanLibrary()
-{
-	if (bAttemptedLoad)
-	{
-		return (VulkanLib != nullptr);
-	}
-	bAttemptedLoad = true;
-
-	// try to load libvulkan.so
-#if PLATFORM_LINUX
-	VulkanLib = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
-#else
-	VulkanLib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
-#endif
-	if (VulkanLib == nullptr)
-	{
-		return false;
-	}
-
-	bool bFoundAllEntryPoints = true;
-#define CHECK_VK_ENTRYPOINTS(Type,Func) if (VulkanDynamicAPI::Func == NULL) { bFoundAllEntryPoints = false; UE_LOG(LogRHI, Warning, TEXT("Failed to find entry point for %s"), TEXT(#Func)); }
-
-	// Initialize all of the entry points we have to query manually
-#define GET_VK_ENTRYPOINTS(Type,Func) VulkanDynamicAPI::Func = (Type)dlsym(VulkanLib, #Func);
-	ENUM_VK_ENTRYPOINTS_BASE(GET_VK_ENTRYPOINTS);
-	ENUM_VK_ENTRYPOINTS_BASE(CHECK_VK_ENTRYPOINTS);
-	if (!bFoundAllEntryPoints)
-	{
-		dlclose(VulkanLib);
-		VulkanLib = nullptr;
-		return false;
-	}
-
-	ENUM_VK_ENTRYPOINTS_OPTIONAL(GET_VK_ENTRYPOINTS);
-	//ENUM_VK_ENTRYPOINTS_OPTIONAL(CHECK_VK_ENTRYPOINTS);
-
-	return true;
-}
-
-static bool LoadVulkanInstanceFunctions(VkInstance inInstance)
-{
-	bool bFoundAllEntryPoints = true;
-#define CHECK_VK_ENTRYPOINTS(Type,Func) if (VulkanDynamicAPI::Func == NULL) { bFoundAllEntryPoints = false; UE_LOG(LogRHI, Warning, TEXT("Failed to find entry point for %s"), TEXT(#Func)); }
-
-#define GETINSTANCE_VK_ENTRYPOINTS(Type, Func) VulkanDynamicAPI::Func = (Type)VulkanDynamicAPI::vkGetInstanceProcAddr(inInstance, #Func);
-	ENUM_VK_ENTRYPOINTS_INSTANCE(GETINSTANCE_VK_ENTRYPOINTS);
-	ENUM_VK_ENTRYPOINTS_INSTANCE(CHECK_VK_ENTRYPOINTS);
-
-	return bFoundAllEntryPoints;
-}
-
-static void FreeVulkanLibrary()
-{
-	if (VulkanLib != nullptr)
-	{
-#define CLEAR_VK_ENTRYPOINTS(Type,Func) VulkanDynamicAPI::Func = nullptr;
-		ENUM_VK_ENTRYPOINTS_ALL(CLEAR_VK_ENTRYPOINTS);
-
-		dlclose(VulkanLib);
-		VulkanLib = nullptr;
-	}
-	bAttemptedLoad = false;
-}
-
-#elif PLATFORM_WINDOWS
-
-#include "AllowWindowsPlatformTypes.h"
-static HMODULE GVulkanDLLModule = nullptr;
-static bool LoadVulkanLibrary()
-{
-	// Try to load the vulkan dll, as not everyone has the sdk installed
-	GVulkanDLLModule = ::LoadLibraryW(TEXT("vulkan-1.dll"));
-	return GVulkanDLLModule != nullptr;
-}
-
-// Annoyingly, some functions do not have static bindings
-namespace VulkanRHI
-{
-	PFN_vkGetPhysicalDeviceProperties2KHR GVkGetPhysicalDeviceProperties2KHR = nullptr;
-}
-
-static bool LoadVulkanInstanceFunctions(VkInstance inInstance)
-{
-	if (!GVulkanDLLModule)
-	{
-		return false;
-	}
-
-	PFN_vkGetInstanceProcAddr GetInstanceProcAddr =  (PFN_vkGetInstanceProcAddr) FPlatformProcess::GetDllExport(GVulkanDLLModule, TEXT("vkGetInstanceProcAddr"));
-
-	if (!GetInstanceProcAddr)
-	{
-		return false;
-	}
-
-#pragma warning(push)
-#pragma warning(disable : 4191) // warning C4191: 'type cast': unsafe conversion
-
-	VulkanRHI::GVkGetPhysicalDeviceProperties2KHR = (PFN_vkGetPhysicalDeviceProperties2KHR) GetInstanceProcAddr(inInstance, "vkGetPhysicalDeviceProperties2KHR");
-
-#pragma warning(pop) // restore 4191
-
-	return true;
-}
-
-static void FreeVulkanLibrary()
-{
-	if (GVulkanDLLModule != nullptr)
-	{
-		::FreeLibrary(GVulkanDLLModule);
-		GVulkanDLLModule = nullptr;
-	}
-}
-#include "HideWindowsPlatformTypes.h"
-
-#else
-#error Unsupported!
-#endif // PLATFORM_ANDROID
 
 bool FVulkanDynamicRHIModule::IsSupported()
 {
@@ -331,7 +182,7 @@ bool FVulkanDynamicRHIModule::IsSupported()
 FDynamicRHI* FVulkanDynamicRHIModule::CreateRHI(ERHIFeatureLevel::Type InRequestedFeatureLevel)
 {
 	if (!GIsEditor &&
-		(PLATFORM_ANDROID ||
+		(FVulkanPlatform::RequiresMobileRenderer() ||
 			InRequestedFeatureLevel == ERHIFeatureLevel::ES3_1 || InRequestedFeatureLevel == ERHIFeatureLevel::ES2 ||
 			FParse::Param(FCommandLine::Get(), TEXT("featureleveles31")) || FParse::Param(FCommandLine::Get(), TEXT("featureleveles2"))))
 	{
@@ -358,21 +209,14 @@ FDynamicRHI* FVulkanDynamicRHIModule::CreateRHI(ERHIFeatureLevel::Type InRequest
 IMPLEMENT_MODULE(FVulkanDynamicRHIModule, VulkanRHI);
 
 
-FVulkanCommandListContext::FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice* InDevice, FVulkanQueue* InQueue, bool bInIsImmediate)
+FVulkanCommandListContext::FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice* InDevice, FVulkanQueue* InQueue, FVulkanCommandListContext* InImmediate)
 	: RHI(InRHI)
+	, Immediate(InImmediate)
 	, Device(InDevice)
 	, Queue(InQueue)
-	, bIsImmediate(bInIsImmediate)
 	, bSubmitAtNextSafePoint(false)
 	, bAutomaticFlushAfterComputeShader(true)
 	, UniformBufferUploader(nullptr)
-	, PendingNumVertices(0)
-	, PendingVertexDataStride(0)
-	, PendingPrimitiveIndexType(VK_INDEX_TYPE_MAX_ENUM)
-	, PendingPrimitiveType(0)
-	, PendingNumPrimitives(0)
-	, PendingMinVertexIndex(0)
-	, PendingIndexDataStride(0)
 	, TempFrameAllocationBuffer(InDevice)
 	, CommandBufferManager(nullptr)
 	, PendingGfxState(nullptr)
@@ -380,22 +224,22 @@ FVulkanCommandListContext::FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, F
 	, FrameCounter(0)
 	, GpuProfiler(this, InDevice)
 {
-	FrameTiming = new FVulkanGPUTiming(this, InDevice);
-	FrameTiming->Initialize();
-
 	// Create CommandBufferManager, contain all active buffers
 	CommandBufferManager = new FVulkanCommandBufferManager(InDevice, this);
+
+	FrameTiming = new FVulkanGPUTiming(this, InDevice);
+	FrameTiming->Initialize();
 
 	// Create Pending state, contains pipeline states such as current shader and etc..
 	PendingGfxState = new FVulkanPendingGfxState(Device, *this);
 	PendingComputeState = new FVulkanPendingComputeState(Device, *this);
 
-#if !VULKAN_USE_PER_PIPELINE_DESCRIPTOR_POOLS
+#if !VULKAN_USE_DESCRIPTOR_POOL_MANAGER
 	// Add an initial pool
-	FOLDVulkanDescriptorPool* Pool = new FOLDVulkanDescriptorPool(Device);
+	FVulkanDescriptorPool* Pool = new FVulkanDescriptorPool(Device);
 	DescriptorPools.Add(Pool);
 #endif
-	UniformBufferUploader = new FVulkanUniformBufferUploader(Device, VULKAN_UB_RING_BUFFER_SIZE);
+	UniformBufferUploader = new FVulkanUniformBufferUploader(Device);
 }
 
 FVulkanCommandListContext::~FVulkanCommandListContext()
@@ -404,7 +248,7 @@ FVulkanCommandListContext::~FVulkanCommandListContext()
 	delete CommandBufferManager;
 	CommandBufferManager = nullptr;
 
-	TransitionState.Destroy(*Device);
+	TransitionAndLayoutManager.Destroy(*Device);
 
 	delete UniformBufferUploader;
 	delete PendingGfxState;
@@ -412,13 +256,30 @@ FVulkanCommandListContext::~FVulkanCommandListContext()
 
 	TempFrameAllocationBuffer.Destroy();
 
-#if !VULKAN_USE_PER_PIPELINE_DESCRIPTOR_POOLS
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	for (auto TypedDescriptorPoolsPair : DescriptorPools)
+	{
+		auto& TypedDescriptorPools = TypedDescriptorPoolsPair.Value;
+		for (int32 Index = 0; Index < TypedDescriptorPools.Num(); ++Index)
+		{
+			delete TypedDescriptorPools[Index];
+		}
+
+		TypedDescriptorPools.Reset(0);
+	}
+#else
 	for (int32 Index = 0; Index < DescriptorPools.Num(); ++Index)
 	{
 		delete DescriptorPools[Index];
 	}
 	DescriptorPools.Reset(0);
 #endif
+}
+
+
+FVulkanCommandListContextImmediate::FVulkanCommandListContextImmediate(FVulkanDynamicRHI* InRHI, FVulkanDevice* InDevice, FVulkanQueue* InQueue)
+	: FVulkanCommandListContext(InRHI, InDevice, InQueue, nullptr)
+{
 }
 
 
@@ -435,7 +296,6 @@ FVulkanDynamicRHI::FVulkanDynamicRHI()
 	, bSupportsDebugCallbackExt(false)
 	, MsgCallback(VK_NULL_HANDLE)
 #endif
-	, PresentCount(0)
 {
 	// This should be called once at the start 
 	check(IsInGameThread());
@@ -448,7 +308,7 @@ FVulkanDynamicRHI::FVulkanDynamicRHI()
 
 void FVulkanDynamicRHI::Init()
 {
-	if (!LoadVulkanLibrary())
+	if (!FVulkanPlatform::LoadVulkanLibrary())
 	{
 #if PLATFORM_LINUX
 		// be more verbose on Linux
@@ -459,6 +319,21 @@ void FVulkanDynamicRHI::Init()
 	}
 
 	InitInstance();
+
+	if (GPoolSizeVRAMPercentage > 0)
+	{
+		const uint64 TotalGPUMemory = Device->GetMemoryManager().GetTotalMemory(true);
+
+		float PoolSize = float(GPoolSizeVRAMPercentage) * 0.01f * float(TotalGPUMemory);
+
+		// Truncate GTexturePoolSize to MB (but still counted in bytes)
+		GTexturePoolSize = int64(FGenericPlatformMath::TruncToFloat(PoolSize / 1024.0f / 1024.0f)) * 1024 * 1024;
+
+		UE_LOG(LogRHI, Log, TEXT("Texture pool is %llu MB (%d%% of %llu MB)"),
+			GTexturePoolSize / 1024 / 1024,
+			GPoolSizeVRAMPercentage,
+			TotalGPUMemory / 1024 / 1024);
+	}
 }
 
 void FVulkanDynamicRHI::Shutdown()
@@ -529,7 +404,7 @@ void FVulkanDynamicRHI::Shutdown()
 	IConsoleManager::Get().UnregisterConsoleObject(DumpMemoryCmd);
 #endif
 
-	FreeVulkanLibrary();
+	FVulkanPlatform::FreeVulkanLibrary();
 
 #if VULKAN_ENABLE_DUMP_LAYER
 	VulkanRHI::FlushDebugWrapperLog();
@@ -538,12 +413,17 @@ void FVulkanDynamicRHI::Shutdown()
 
 void FVulkanDynamicRHI::CreateInstance()
 {
+	// Engine registration can be disabled via console var. Also disable automatically if ShaderDevelopmentMode is on.
+	auto* CVarShaderDevelopmentMode = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.ShaderDevelopmentMode"));
+	auto* CVarDisableEngineAndAppRegistration = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.DisableEngineAndAppRegistration"));
+	bool bDisableEngineRegistration = (CVarDisableEngineAndAppRegistration && CVarDisableEngineAndAppRegistration->GetValueOnAnyThread() != 0) ||
+		(CVarShaderDevelopmentMode && CVarShaderDevelopmentMode->GetValueOnAnyThread() != 0);
 	VkApplicationInfo App;
 	FMemory::Memzero(App);
 	App.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-	App.pApplicationName = "UE4";
+	App.pApplicationName = bDisableEngineRegistration ? "" : "UE4";
 	App.applicationVersion = 0;
-	App.pEngineName = "UE4";
+	App.pEngineName = bDisableEngineRegistration ? "" : "UE4";
 	App.engineVersion = 15;
 	App.apiVersion = UE_VK_API_VERSION;
 
@@ -570,9 +450,9 @@ void FVulkanDynamicRHI::CreateInstance()
 	// note, the instrumented doesn't override these, so it uses the base class one
 	GInstrumentedCallbacks.pfnInternalAllocation = &FVulkanMemManager::InternalAllocationNotification;
 	GInstrumentedCallbacks.pfnInternalFree = &FVulkanMemManager::InternalFreeNotification;
-
-
 #endif
+
+	SetupValidationLayers();
 
 	GetInstanceLayersAndExtensions(InstanceExtensions, InstanceLayers);
 
@@ -612,7 +492,7 @@ void FVulkanDynamicRHI::CreateInstance()
 
 	VERIFYVULKANRESULT(Result);
 
-	if (!LoadVulkanInstanceFunctions(Instance))
+	if (!FVulkanPlatform::LoadVulkanInstanceFunctions(Instance))
 	{
 		FPlatformMisc::MessageBoxExt(EAppMsgType::Ok, TEXT(
 			"Failed to find all required Vulkan entry points! Try updating your driver."), TEXT("No Vulkan entry points found!"));
@@ -622,6 +502,159 @@ void FVulkanDynamicRHI::CreateInstance()
 	SetupDebugLayerCallback();
 #endif
 }
+
+//#todo-rco: Common RHI should handle this...
+static inline int32 PreferAdapterVendor()
+{
+	if (FParse::Param(FCommandLine::Get(), TEXT("preferAMD")))
+	{
+		return 0x1002;
+	}
+
+	if (FParse::Param(FCommandLine::Get(), TEXT("preferIntel")))
+	{
+		return 0x8086;
+	}
+
+	if (FParse::Param(FCommandLine::Get(), TEXT("preferNvidia")))
+	{
+		return 0x10DE;
+	}
+
+	return -1;
+}
+
+void FVulkanDynamicRHI::SelectAndInitDevice()
+{
+	uint32 GpuCount = 0;
+	VERIFYVULKANRESULT_EXPANDED(VulkanRHI::vkEnumeratePhysicalDevices(Instance, &GpuCount, nullptr));
+	check(GpuCount >= 1);
+
+	TArray<VkPhysicalDevice> PhysicalDevices;
+	PhysicalDevices.AddZeroed(GpuCount);
+	VERIFYVULKANRESULT_EXPANDED(VulkanRHI::vkEnumeratePhysicalDevices(Instance, &GpuCount, PhysicalDevices.GetData()));
+
+#if VULKAN_ENABLE_DESKTOP_HMD_SUPPORT
+	FVulkanDevice* HmdDevice = nullptr;
+	uint32 HmdDeviceIndex = 0;
+#endif
+	struct FDiscreteDevice
+	{
+		FVulkanDevice* Device;
+		uint32 DeviceIndex;
+	};
+	TArray<FDiscreteDevice> DiscreteDevices;
+
+#if VULKAN_ENABLE_DESKTOP_HMD_SUPPORT
+	// Allow HMD to override which graphics adapter is chosen, so we pick the adapter where the HMD is connected
+	uint64 HmdGraphicsAdapterLuid  = IHeadMountedDisplayModule::IsAvailable() ? IHeadMountedDisplayModule::Get().GetGraphicsAdapterLuid() : 0;
+#endif
+
+	UE_LOG(LogVulkanRHI, Display, TEXT("Found %d device(s)"), GpuCount);
+	for (uint32 Index = 0; Index < GpuCount; ++Index)
+	{
+		FVulkanDevice* NewDevice = new FVulkanDevice(PhysicalDevices[Index]);
+		Devices.Add(NewDevice);
+
+		bool bIsDiscrete = NewDevice->QueryGPU(Index);
+
+#if VULKAN_ENABLE_DESKTOP_HMD_SUPPORT
+		if (!HmdDevice && HmdGraphicsAdapterLuid != 0 &&
+			NewDevice->GetOptionalExtensions().HasKHRGetPhysicalDeviceProperties2 &&
+			FMemory::Memcmp(&HmdGraphicsAdapterLuid, &NewDevice->GetDeviceIdProperties().deviceLUID, VK_LUID_SIZE_KHR) == 0)
+		{
+			HmdDevice = NewDevice;
+			HmdDeviceIndex = Index;
+		}
+#endif
+		if (bIsDiscrete)
+		{
+			DiscreteDevices.Add({NewDevice, Index});
+		}
+	}
+
+	uint32 DeviceIndex = -1;
+
+#if VULKAN_ENABLE_DESKTOP_HMD_SUPPORT
+	if (HmdDevice)
+	{
+		Device = HmdDevice;
+		DeviceIndex = HmdDeviceIndex;
+	}
+#endif
+
+	if (DeviceIndex == -1)
+	{
+		if (DiscreteDevices.Num() > 0)
+		{
+			if (DiscreteDevices.Num() > 1)
+			{
+				// Check for preferred
+				for (int32 Index = 0; Index < DiscreteDevices.Num(); ++Index)
+				{
+					if (DiscreteDevices[Index].Device->GpuProps.vendorID == PreferAdapterVendor())
+					{
+						DeviceIndex = DiscreteDevices[Index].DeviceIndex;
+						Device = DiscreteDevices[Index].Device;
+						break;
+					}
+				}
+			}
+
+			if (DeviceIndex == -1)
+			{
+				Device = DiscreteDevices[0].Device;
+				DeviceIndex = DiscreteDevices[0].DeviceIndex;
+			}
+		}
+		else
+		{
+			Device = Devices[0];
+			DeviceIndex = 0;
+		}
+	}
+
+	check(Device);
+
+	const VkPhysicalDeviceProperties& Props = Device->GetDeviceProperties();
+	GRHIVendorId = Props.vendorID;
+	GRHIAdapterName = ANSI_TO_TCHAR(Props.deviceName);
+
+	Device->InitGPU(DeviceIndex);
+
+	if (PLATFORM_ANDROID)
+	{
+		GRHIAdapterInternalDriverVersion = FString::Printf(TEXT("%d.%d.%d"), VK_VERSION_MAJOR(Props.apiVersion), VK_VERSION_MINOR(Props.apiVersion), VK_VERSION_PATCH(Props.apiVersion));
+	}
+	else if (IsRHIDeviceNVIDIA())
+	{
+		union UNvidiaDriverVersion
+		{
+			struct
+			{
+#if PLATFORM_LITTLE_ENDIAN
+				uint32 Tertiary		: 6;
+				uint32 Secondary	: 8;
+				uint32 Minor		: 8;
+				uint32 Major		: 10;
+#else
+				uint32 Major		: 10;
+				uint32 Minor		: 8;
+				uint32 Secondary	: 8;
+				uint32 Tertiary		: 6;
+#endif
+			};
+			uint32 Packed;
+		};
+		UNvidiaDriverVersion NvidiaVersion;
+		static_assert(sizeof(NvidiaVersion) == sizeof(Props.driverVersion), "Mismatched Nvidia pack driver version!");
+		NvidiaVersion.Packed = Props.driverVersion;
+		GRHIAdapterUserDriverVersion = FString::Printf(TEXT("%d.%d"), NvidiaVersion.Major, NvidiaVersion.Minor);
+
+		// Ignore GRHIAdapterInternalDriverVersion for now as the device name doesn't match
+	}
+}
+
 
 void FVulkanDynamicRHI::InitInstance()
 {
@@ -634,86 +667,12 @@ void FVulkanDynamicRHI::InitInstance()
 	{
 		check(!GIsRHIInitialized);
 
-#if PLATFORM_ANDROID
-		// Want to see the actual crash report on Android so unregister signal handlers
-		FPlatformMisc::SetCrashHandler((void(*)(const FGenericCrashContext& Context)) -1);
-		FPlatformMisc::SetOnReInitWindowCallback(FVulkanDynamicRHI::RecreateSwapChain);
-#endif
+		FVulkanPlatform::OverrideCrashHandlers();
 
 		GRHISupportsAsyncTextureCreation = false;
 
-#if VULKAN_ENABLE_DESKTOP_HMD_SUPPORT
-		// Allow HMD to override which graphics adapter is chosen, so we pick the adapter where the HMD is connected
-		uint64 HmdGraphicsAdapterLuid  = IHeadMountedDisplayModule::IsAvailable() ? IHeadMountedDisplayModule::Get().GetGraphicsAdapterLuid() : 0;
-#endif
-
-		{
-			CreateInstance();
-
-			uint32 GpuCount = 0;
-			VERIFYVULKANRESULT_EXPANDED(VulkanRHI::vkEnumeratePhysicalDevices(Instance, &GpuCount, nullptr));
-			check(GpuCount >= 1);
-
-			TArray<VkPhysicalDevice> PhysicalDevices;
-			PhysicalDevices.AddZeroed(GpuCount);
-			VERIFYVULKANRESULT_EXPANDED(VulkanRHI::vkEnumeratePhysicalDevices(Instance, &GpuCount, PhysicalDevices.GetData()));
-
-#if VULKAN_ENABLE_DESKTOP_HMD_SUPPORT
-			FVulkanDevice* HmdDevice = nullptr;
-			uint32 HmdDeviceIndex = 0;
-#endif
-			FVulkanDevice* DiscreteDevice = nullptr;
-			uint32 DiscreteDeviceIndex = 0;
-
-			UE_LOG(LogVulkanRHI, Display, TEXT("Found %d device(s)"), GpuCount);
-			for (uint32 Index = 0; Index < GpuCount; ++Index)
-			{
-				FVulkanDevice* NewDevice = new FVulkanDevice(PhysicalDevices[Index]);
-				Devices.Add(NewDevice);
-
-				bool bIsDiscrete = NewDevice->QueryGPU(Index);
-
-#if VULKAN_ENABLE_DESKTOP_HMD_SUPPORT
-				if (!HmdDevice && HmdGraphicsAdapterLuid != 0 && 
-					NewDevice->GetOptionalExtensions().HasKHRGetPhysicalDeviceProperties2 && 
-					FMemory::Memcmp(&HmdGraphicsAdapterLuid, &NewDevice->GetDeviceIdProperties().deviceLUID, VK_LUID_SIZE_KHR) == 0)
-				{
-					HmdDevice = NewDevice;
-					HmdDeviceIndex = Index;
-				}
-#endif
-
-				if (!DiscreteDevice && bIsDiscrete)
-				{
-					DiscreteDevice = NewDevice;
-					DiscreteDeviceIndex = Index;
-				}
-			}
-
-			uint32 DeviceIndex;
-
-#if VULKAN_ENABLE_DESKTOP_HMD_SUPPORT
-			if (HmdDevice)
-			{
-				Device = HmdDevice;
-				DeviceIndex = HmdDeviceIndex;
-			} 
-			else
-#endif
-			if (DiscreteDevice)
-			{
-				Device = DiscreteDevice;
-				DeviceIndex = DiscreteDeviceIndex;
-			}
-			else
-			{
-				Device = Devices[0];
-				DeviceIndex = 0;
-			}
-
-			check(Device);
-			Device->InitGPU(DeviceIndex);
-		}
+		CreateInstance();
+		SelectAndInitDevice();
 
 		bool bDeviceSupportsGeometryShaders = Device->GetFeatures().geometryShader != 0;
 		bool bDeviceSupportsTessellation = Device->GetFeatures().tessellationShader != 0;
@@ -721,44 +680,11 @@ void FVulkanDynamicRHI::InitInstance()
 		const VkPhysicalDeviceProperties& Props = Device->GetDeviceProperties();
 
 		// Initialize the RHI capabilities.
-		GRHIVendorId = Device->GetDeviceProperties().vendorID;
-		GRHIAdapterName = ANSI_TO_TCHAR(Props.deviceName);
-		if (PLATFORM_ANDROID)
-		{
-			GRHIAdapterInternalDriverVersion = FString::Printf(TEXT("%d.%d.%d"), VK_VERSION_MAJOR(Props.apiVersion), VK_VERSION_MINOR(Props.apiVersion), VK_VERSION_PATCH(Props.apiVersion));
-		}
-		else if (IsRHIDeviceNVIDIA())
-		{
-			union UNvidiaDriverVersion
-			{
-				struct
-				{
-#if PLATFORM_LITTLE_ENDIAN
-					uint32 Tertiary		: 6;
-					uint32 Secondary	: 8;
-					uint32 Minor		: 8;
-					uint32 Major		: 10;
-#else
-					uint32 Major		: 10;
-					uint32 Minor		: 8;
-					uint32 Secondary	: 8;
-					uint32 Tertiary		: 6;
-#endif
-				};
-				uint32 Packed;
-			};
-			UNvidiaDriverVersion NvidiaVersion;
-			static_assert(sizeof(NvidiaVersion) == sizeof(Props.driverVersion), "Mismatched Nvidia pack driver version!");
-			NvidiaVersion.Packed = Props.driverVersion;
-			GRHIAdapterUserDriverVersion = FString::Printf(TEXT("%d.%d"), NvidiaVersion.Major, NvidiaVersion.Minor);
-
-			// Ignore GRHIAdapterInternalDriverVersion for now as the device name doesn't match
-		}
 		GRHISupportsFirstInstance = true;
 		GSupportsRenderTargetFormat_PF_G8 = false;	// #todo-rco
 		GSupportsQuads = false;	// Not supported in Vulkan
 		GRHISupportsTextureStreaming = true;
-		GSupportsTimestampRenderQueries = !PLATFORM_ANDROID;
+		GSupportsTimestampRenderQueries = FVulkanPlatform::SupportsTimestampRenderQueries();
 		GSupportsGenerateMips = true;
 #if VULKAN_ENABLE_DUMP_LAYER
 		// Disable RHI thread by default if the dump layer is enabled
@@ -783,12 +709,12 @@ void FVulkanDynamicRHI::InitInstance()
 		GRHISupportsBaseVertexIndex = true;
 		GSupportsSeparateRenderTargetBlendState = true;
 
-		GSupportsDepthFetchDuringDepthTest = !PLATFORM_ANDROID;
+		GSupportsDepthFetchDuringDepthTest = FVulkanPlatform::SupportsDepthFetchDuringDepthTest();
 
 		GShaderPlatformForFeatureLevel[ERHIFeatureLevel::ES2] = GMaxRHIFeatureLevel == ERHIFeatureLevel::ES2 ? GMaxRHIShaderPlatform : SP_NumPlatforms;
 		GShaderPlatformForFeatureLevel[ERHIFeatureLevel::ES3_1] = GMaxRHIFeatureLevel == ERHIFeatureLevel::ES3_1 ? GMaxRHIShaderPlatform : SP_NumPlatforms;
-		GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM4] = (GMaxRHIFeatureLevel == ERHIFeatureLevel::SM4 && bDeviceSupportsGeometryShaders) ? GMaxRHIShaderPlatform : SP_NumPlatforms;
-		GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM5] = (GMaxRHIFeatureLevel == ERHIFeatureLevel::SM5 && bDeviceSupportsTessellation) ? GMaxRHIShaderPlatform : SP_NumPlatforms;
+		GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM4] = GMaxRHIFeatureLevel == ERHIFeatureLevel::SM4 ? GMaxRHIShaderPlatform : SP_NumPlatforms;
+		GShaderPlatformForFeatureLevel[ERHIFeatureLevel::SM5] = (GMaxRHIFeatureLevel == ERHIFeatureLevel::SM5 /*&& bDeviceSupportsTessellation*/) ? GMaxRHIShaderPlatform : SP_NumPlatforms;
 
 		GRHIRequiresRenderTargetForPixelShaderUAVs = true;
 
@@ -844,10 +770,6 @@ void FVulkanCommandListContext::RHIBeginFrame()
 	check(IsImmediate());
 	RHIPrivateBeginFrame();
 
-	//FRCLog::Printf(FString::Printf(TEXT("FVulkanCommandListContext::RHIBeginFrame()")));
-	PendingGfxState->GetGlobalUniformPool().BeginFrame();
-	PendingComputeState->GetGlobalUniformPool().BeginFrame();
-
 	GpuProfiler.BeginFrame();
 }
 
@@ -886,12 +808,18 @@ void FVulkanCommandListContext::RHIEndDrawingViewport(FViewportRHIParamRef Viewp
 	check(!CmdBuffer->HasEnded());
 	if (CmdBuffer->IsInsideRenderPass())
 	{
-		TransitionState.EndRenderPass(CmdBuffer);
+		TransitionAndLayoutManager.EndRenderPass(CmdBuffer);
+		if (GVulkanSubmitAfterEveryEndRenderPass)
+		{
+			CommandBufferManager->SubmitActiveCmdBuffer(false);
+			CommandBufferManager->PrepareForNewActiveCommandBuffer();
+			CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
+		}
 	}
 
 	WriteEndTimestamp(CmdBuffer);
 
-	bool bNativePresent = Viewport->Present(CmdBuffer, Queue, Device->GetPresentQueue(), bLockToVsync);
+	bool bNativePresent = Viewport->Present(this, CmdBuffer, Queue, Device->GetPresentQueue(), bLockToVsync);
 	if (bNativePresent)
 	{
 		//#todo-rco: Check for r.FinishCurrentFrame
@@ -914,6 +842,9 @@ void FVulkanCommandListContext::RHIEndFrame()
 	Device->GetStagingManager().ProcessPendingFree(false, true);
 	Device->GetResourceHeapManager().ReleaseFreedPages();
 
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	Device->GetDescriptorPoolsManager().GC();
+#endif
 
 	++FrameCounter;
 }
@@ -923,26 +854,27 @@ void FVulkanCommandListContext::RHIPushEvent(const TCHAR* Name, FColor Color)
 	FString EventName = Name;
 	EventStack.Add(Name);
 
+#if VULKAN_ENABLE_DRAW_MARKERS
+	if (auto CmdDbgMarkerBegin = Device->GetCmdDbgMarkerBegin())
+	{
+		VkDebugMarkerMarkerInfoEXT Info;
+		FMemory::Memzero(Info);
+		Info.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_MARKER_INFO_EXT;
+		Info.pMarkerName = TCHAR_TO_ANSI(Name);
+		FLinearColor LColor(Color);
+		Info.color[0] = LColor.R;
+		Info.color[1] = LColor.G;
+		Info.color[2] = LColor.B;
+		Info.color[3] = LColor.A;
+		CmdDbgMarkerBegin(GetCommandBufferManager()->GetActiveCmdBuffer()->GetHandle(), &Info);
+	}
+#endif
+
 	//only valid on immediate context currently.  needs to be fixed for parallel rhi execute
 	if (IsImmediate())
 	{
-		//FRCLog::Printf(FString::Printf(TEXT("RHIPushEvent(%s)"), Name));
 #if VULKAN_ENABLE_DUMP_LAYER
-		VulkanRHI::PrintfBegin(FString::Printf(TEXT("vkCmdDbgMarkerBeginEXT(%s)"), Name));
-#endif
-#if VULKAN_ENABLE_DRAW_MARKERS
-		if (auto CmdDbgMarkerBegin = Device->GetCmdDbgMarkerBegin())
-		{
-			VkDebugMarkerMarkerInfoEXT Info;
-			FMemory::Memzero(Info);
-			Info.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_MARKER_INFO_EXT;
-			Info.pMarkerName = TCHAR_TO_ANSI(Name);
-			Info.color[0] = Color.R;
-			Info.color[1] = Color.G;
-			Info.color[2] = Color.B;
-			Info.color[3] = Color.A;
-			CmdDbgMarkerBegin(GetCommandBufferManager()->GetActiveCmdBuffer()->GetHandle(), &Info);
-		}
+		VulkanRHI::DumpLayerPushMarker(Name);
 #endif
 
 		GpuProfiler.PushEvent(Name, Color);
@@ -951,18 +883,18 @@ void FVulkanCommandListContext::RHIPushEvent(const TCHAR* Name, FColor Color)
 
 void FVulkanCommandListContext::RHIPopEvent()
 {
+#if VULKAN_ENABLE_DRAW_MARKERS
+	if (auto CmdDbgMarkerEnd = Device->GetCmdDbgMarkerEnd())
+	{
+		CmdDbgMarkerEnd(GetCommandBufferManager()->GetActiveCmdBuffer()->GetHandle());
+	}
+#endif
+
 	//only valid on immediate context currently.  needs to be fixed for parallel rhi execute
 	if (IsImmediate())
 	{
-		//FRCLog::Printf(TEXT("RHIPopEvent"));
 #if VULKAN_ENABLE_DUMP_LAYER
-		VulkanRHI::PrintfBegin(TEXT("vkCmdDbgMarkerEndEXT()"));
-#endif
-#if VULKAN_ENABLE_DRAW_MARKERS
-		if (auto CmdDbgMarkerEnd = Device->GetCmdDbgMarkerEnd())
-		{
-			CmdDbgMarkerEnd(GetCommandBufferManager()->GetActiveCmdBuffer()->GetHandle());
-		}
+		VulkanRHI::DumpLayerPopMarker();
 #endif
 
 		GpuProfiler.PopEvent();
@@ -1073,7 +1005,7 @@ FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, uint32 InSize, VkFlags InU
 	VkMemoryRequirements MemoryRequirements;
 	VulkanRHI::vkGetBufferMemoryRequirements(Device.GetInstanceHandle(), Buf, &MemoryRequirements);
 
-	Allocation = InDevice.GetMemoryManager().Alloc(MemoryRequirements.size, MemoryRequirements.memoryTypeBits, InMemPropertyFlags, File ? File : __FILE__, Line ? Line : __LINE__);
+	Allocation = InDevice.GetMemoryManager().Alloc(false, MemoryRequirements.size, MemoryRequirements.memoryTypeBits, InMemPropertyFlags, nullptr, File ? File : __FILE__, Line ? Line : __LINE__);
 	check(Allocation);
 	VERIFYVULKANRESULT_EXPANDED(VulkanRHI::vkBindBufferMemory(Device.GetInstanceHandle(), Buf, Allocation->GetHandle(), 0));
 }
@@ -1177,10 +1109,29 @@ void FVulkanDescriptorSetsLayoutInfo::AddDescriptor(int32 DescriptorSetIndex, co
 	Hash = FCrc::MemCrc32(&Binding, sizeof(Binding), Hash);
 }
 
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+void FVulkanDescriptorSetsLayoutInfo::CompileTypesUsageID()
+{
+	static TMap<uint32, uint32> GTypesUsageHashMap;
+	static uint32 GUniqueID = 1;
+
+	const uint32 TypesUsageHash = FCrc::MemCrc32(LayoutTypes, sizeof(LayoutTypes));
+
+	uint32* UniqueID = GTypesUsageHashMap.Find(TypesUsageHash);
+	if (UniqueID == nullptr)
+	{
+		TypesUsageID = GTypesUsageHashMap.Add(TypesUsageHash, GUniqueID++);
+	}
+	else
+	{
+		TypesUsageID = *UniqueID;
+	}
+}
+#endif
+
 void FVulkanDescriptorSetsLayout::Compile()
 {
 	check(LayoutHandles.Num() == 0);
-	check(Device);
 
 	// Check if we obey limits
 	const VkPhysicalDeviceLimits& Limits = Device->GetLimits();
@@ -1196,8 +1147,11 @@ void FVulkanDescriptorSetsLayout::Compile()
 			<	Limits.maxDescriptorSetUniformBuffers);
 
 	// Check for maxDescriptorSetUniformBuffersDynamic
-	check(		LayoutTypes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC]
+	if (!IsRHIDeviceAMD())
+	{
+		check(LayoutTypes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC]
 			<	Limits.maxDescriptorSetUniformBuffersDynamic);
+	}
 
 	// Check for maxDescriptorSetStorageBuffers
 	check(		LayoutTypes[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER]
@@ -1205,6 +1159,10 @@ void FVulkanDescriptorSetsLayout::Compile()
 			<	Limits.maxDescriptorSetStorageBuffers);
 
 	// Check for maxDescriptorSetStorageBuffersDynamic
+	if (LayoutTypes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC] > Limits.maxDescriptorSetUniformBuffersDynamic)
+	{
+		//#todo-rco: Downgrade to non-dynamic
+	}
 	check(		LayoutTypes[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC]
 			<	Limits.maxDescriptorSetStorageBuffersDynamic);
 
@@ -1233,9 +1191,20 @@ void FVulkanDescriptorSetsLayout::Compile()
 		VkDescriptorSetLayout* LayoutHandle = new(LayoutHandles) VkDescriptorSetLayout;
 		VERIFYVULKANRESULT(VulkanRHI::vkCreateDescriptorSetLayout(Device->GetInstanceHandle(), &DescriptorLayoutInfo, nullptr, LayoutHandle));
 	}
+
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	if (TypesUsageID == ~0)
+	{
+		CompileTypesUsageID();
+	}
+
+	DescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+	DescriptorSetAllocateInfo.descriptorSetCount = LayoutHandles.Num();
+	DescriptorSetAllocateInfo.pSetLayouts = LayoutHandles.GetData();
+#endif
 }
 
-#if !VULKAN_USE_PER_PIPELINE_DESCRIPTOR_POOLS
+#if !VULKAN_USE_DESCRIPTOR_POOL_MANAGER
 FOLDVulkanDescriptorSets::FOLDVulkanDescriptorSets(FVulkanDevice* InDevice, const FVulkanDescriptorSetsLayout& InLayout, FVulkanCommandListContext* InContext)
 	: Device(InDevice)
 	, Pool(nullptr)
@@ -1257,6 +1226,10 @@ FOLDVulkanDescriptorSets::FOLDVulkanDescriptorSets(FVulkanDevice* InDevice, cons
 		Pool = InContext->AllocateDescriptorSets(DescriptorSetAllocateInfo, InLayout, Sets.GetData());
 		Pool->TrackAddUsage(Layout);
 	}
+
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	INC_DWORD_STAT_BY(STAT_VulkanNumDescSetsTotal, LayoutHandles.Num());
+#endif
 }
 
 FOLDVulkanDescriptorSets::~FOLDVulkanDescriptorSets()
@@ -1267,6 +1240,10 @@ FOLDVulkanDescriptorSets::~FOLDVulkanDescriptorSets()
 	{
 		VERIFYVULKANRESULT(VulkanRHI::vkFreeDescriptorSets(Device->GetInstanceHandle(), Pool->GetHandle(), Sets.Num(), Sets.GetData()));
 	}
+
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	DEC_DWORD_STAT_BY(STAT_VulkanNumDescSetsTotal, Sets.Num());
+#endif
 }
 #endif
 
@@ -1452,6 +1429,9 @@ FVulkanRingBuffer::FVulkanRingBuffer(FVulkanDevice* InDevice, uint64 TotalSize, 
 	FRHIResourceCreateInfo CreateInfo;
 	BufferSuballocation = InDevice->GetResourceHeapManager().AllocateBuffer(TotalSize, Usage, MemPropertyFlags, __FILE__, __LINE__);
 	MinAlignment = BufferSuballocation->GetBufferAllocation()->GetAlignment();
+
+	// Start by wrapping around to set up the correct fence
+	BufferOffset = TotalSize;
 }
 
 FVulkanRingBuffer::~FVulkanRingBuffer()
@@ -1459,20 +1439,39 @@ FVulkanRingBuffer::~FVulkanRingBuffer()
 	delete BufferSuballocation;
 }
 
-uint64 FVulkanRingBuffer::AllocateMemory(uint64 Size, uint32 Alignment)
+uint64 FVulkanRingBuffer::AllocateMemory(uint64 Size, uint32 Alignment, FVulkanCmdBuffer* InCmdBuffer)
 {
+	CA_ASSUME(InCmdBuffer != nullptr); // Suppress static analysis warning
 	Alignment = FMath::Max(Alignment, MinAlignment);
 	uint64 AllocOffset = Align<uint64>(BufferOffset, Alignment);
 
 	// wrap around if needed
 	if (AllocOffset + Size >= BufferSize)
 	{
-		//UE_LOG(LogVulkanRHI, Display, TEXT("Wrapped around the ring buffer. Frame = %lld, size = %lld"), Device->FrameCounter, BufferSize);
-		AllocOffset = 0;
-	}
+		if (FenceCmdBuffer)
+		{
+			if (FenceCmdBuffer == InCmdBuffer && FenceCounter == InCmdBuffer->GetFenceSignaledCounter())
+			{
+				UE_LOG(LogVulkanRHI, Error, TEXT("Wrapped around the ring buffer. Requested more bytes than possible in the same cmd buffer!"));
+			}
+			else if (FenceCounter == FenceCmdBuffer->GetFenceSignaledCounter())
+			{
+				// Stall!
+				UE_LOG(LogVulkanRHI, Error, TEXT("Wrapped around the ring buffer! Need to wait on the GPU!!!"));
+			}
+		}
 
-	// point to location after this guy
-	BufferOffset = AllocOffset + Size;
+		AllocOffset = 0;
+		BufferOffset = Size;
+
+		FenceCmdBuffer = InCmdBuffer;
+		FenceCounter = InCmdBuffer->GetSubmittedFenceCounter();
+	}
+	else
+	{
+		// point to location after this guy
+		BufferOffset = AllocOffset + Size;
+	}
 
 	return AllocOffset;
 }

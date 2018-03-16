@@ -1030,6 +1030,12 @@ public:
 	{
 		return Value == rhs.Value;
 	}
+
+	bool operator != (const FExclusiveDepthStencil& RHS) const
+	{
+		return Value != RHS.Value;
+	}
+
 	inline bool IsValid(FExclusiveDepthStencil& Current) const
 	{
 		Type Depth = ExtractDepth();
@@ -1443,6 +1449,7 @@ public:
 		ERenderTargetStoreAction			InDepthTargetStoreAction,
 		ERenderTargetLoadAction				InStencilTargetLoadAction,
 		ERenderTargetStoreAction			InStencilTargetStoreAction,
+		FExclusiveDepthStencil				InDepthStencilAccess,
 		uint32								InNumSamples
 		)
 		: BoundShaderState(InBoundShaderState)
@@ -1461,6 +1468,7 @@ public:
 		, DepthTargetStoreAction(InDepthTargetStoreAction)
 		, StencilTargetLoadAction(InStencilTargetLoadAction)
 		, StencilTargetStoreAction(InStencilTargetStoreAction)
+		, DepthStencilAccess(InDepthStencilAccess)
 		, NumSamples(InNumSamples)
 	{
 	}
@@ -1488,6 +1496,7 @@ public:
 			DepthTargetStoreAction != rhs.DepthTargetStoreAction ||
 			StencilTargetLoadAction != rhs.StencilTargetLoadAction ||
 			StencilTargetStoreAction != rhs.StencilTargetStoreAction || 
+			DepthStencilAccess != rhs.DepthStencilAccess ||
 			NumSamples != rhs.NumSamples) 
 		{
 			return false;
@@ -1586,7 +1595,8 @@ public:
 	ERenderTargetStoreAction		DepthTargetStoreAction;
 	ERenderTargetLoadAction			StencilTargetLoadAction;
 	ERenderTargetStoreAction		StencilTargetStoreAction;
-	uint32							NumSamples;
+	FExclusiveDepthStencil			DepthStencilAccess;
+	uint16							NumSamples;
 
 	friend class FMeshDrawingPolicy;
 };
@@ -1704,6 +1714,11 @@ enum class ERenderTargetActions : uint8
 #undef RTACTION_MAKE_MASK
 };
 
+inline ERenderTargetActions MakeRenderTargetActions(ERenderTargetLoadAction Load, ERenderTargetStoreAction Store)
+{
+	return (ERenderTargetActions)(((uint8)Load << (uint8)ERenderTargetActions::LoadOpMask) | (uint8)Store);
+}
+
 inline ERenderTargetLoadAction GetLoadAction(ERenderTargetActions Action)
 {
 	return (ERenderTargetLoadAction)((uint8)Action >> (uint8)ERenderTargetActions::LoadOpMask);
@@ -1722,6 +1737,7 @@ enum class EDepthStencilTargetActions : uint8
 
 	DontLoad_DontStore =						RTACTION_MAKE_MASK(DontLoad_DontStore, DontLoad_DontStore),
 	DontLoad_StoreDepthStencil =				RTACTION_MAKE_MASK(DontLoad_Store, DontLoad_Store),
+	DontLoad_StoreStencilNotDepth =				RTACTION_MAKE_MASK(DontLoad_DontStore, DontLoad_Store),
 	ClearDepthStencil_StoreDepthStencil =		RTACTION_MAKE_MASK(Clear_Store, Clear_Store),
 	LoadDepthStencil_StoreDepthStencil =		RTACTION_MAKE_MASK(Load_Store, Load_Store),
 	LoadDepthNotStencil_DontStore =				RTACTION_MAKE_MASK(Load_DontStore, DontLoad_DontStore),
@@ -1736,6 +1752,11 @@ enum class EDepthStencilTargetActions : uint8
 
 #undef RTACTION_MAKE_MASK
 };
+
+inline constexpr EDepthStencilTargetActions MakeDepthStencilTargetActions(const ERenderTargetActions Depth, const ERenderTargetActions Stencil)
+{
+	return (EDepthStencilTargetActions)(((uint8)Depth << (uint8)EDepthStencilTargetActions::DepthMask) | (uint8)Stencil);
+}
 
 inline ERenderTargetActions GetDepthActions(EDepthStencilTargetActions Action)
 {
@@ -1764,26 +1785,31 @@ struct FRHIRenderPassInfo
 		FRHITexture* DepthStencilTarget;
 		FRHITexture* ResolveTarget;
 		EDepthStencilTargetActions Action;
+		FExclusiveDepthStencil ExclusiveDepthStencil;
 	};
 	FDepthStencilEntry DepthStencilRenderTarget;
+
+	FResolveParams ResolveParameters;
+
+	// Some RHIs require a hint that occlusion queries will be used in this render pass
+	const uint32 NumOcclusionQueries = 0;
+	const bool bOcclusionQueries = false;
 
 	// Special case when we want to bind the depth target as read-only AND sample as texture
 	bool bDepthReadOnly = false;
 
-	// Some RHIs require a hint that occlusion queries will be used in this render pass
-	bool bOcclusionQueries = false;
-
-	// Color, no depth
-	explicit FRHIRenderPassInfo(FRHITexture* ColorRT, ERenderTargetActions ColorAction, FRHITexture* ResolveRT = nullptr)
+	// Color, no depth, optional resolve, optional mip, optional array slice
+	explicit FRHIRenderPassInfo(FRHITexture* ColorRT, ERenderTargetActions ColorAction, FRHITexture* ResolveRT = nullptr, uint32 InMipIndex = 0, int32 InArraySlice = -1)
 	{
 		check(ColorRT);
 		ColorRenderTargets[0].RenderTarget = ColorRT;
 		ColorRenderTargets[0].ResolveTarget = ResolveRT;
-		ColorRenderTargets[0].ArraySlice = -1;
-		ColorRenderTargets[0].MipIndex = 0;
+		ColorRenderTargets[0].ArraySlice = InArraySlice;
+		ColorRenderTargets[0].MipIndex = InMipIndex;
 		ColorRenderTargets[0].Action = ColorAction;
 		DepthStencilRenderTarget.DepthStencilTarget = nullptr;
 		DepthStencilRenderTarget.Action = EDepthStencilTargetActions::DontLoad_DontStore;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = FExclusiveDepthStencil::DepthNop_StencilNop;
 		bIsMSAA = ColorRT->GetNumSamples() > 1;
 		FMemory::Memzero(&ColorRenderTargets[1], sizeof(FColorEntry) * (MaxSimultaneousRenderTargets - 1));
 	}
@@ -1803,6 +1829,29 @@ struct FRHIRenderPassInfo
 		}
 		DepthStencilRenderTarget.DepthStencilTarget = nullptr;
 		DepthStencilRenderTarget.Action = EDepthStencilTargetActions::DontLoad_DontStore;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = FExclusiveDepthStencil::DepthNop_StencilNop;
+		if (NumColorRTs < MaxSimultaneousRenderTargets)
+		{
+			FMemory::Memzero(&ColorRenderTargets[NumColorRTs], sizeof(FColorEntry) * (MaxSimultaneousRenderTargets - NumColorRTs));
+		}
+	}
+
+	// Color MRTs, no depth
+	explicit FRHIRenderPassInfo(int32 NumColorRTs, FRHITexture* ColorRTs[], ERenderTargetActions ColorAction, FRHITexture* ResolveTargets[])
+	{
+		check(NumColorRTs > 0);
+		for (int32 Index = 0; Index < NumColorRTs; ++Index)
+		{
+			check(ColorRTs[Index]);
+			ColorRenderTargets[Index].RenderTarget = ColorRTs[Index];
+			ColorRenderTargets[Index].ResolveTarget = ResolveTargets[Index];
+			ColorRenderTargets[Index].ArraySlice = -1;
+			ColorRenderTargets[Index].MipIndex = 0;
+			ColorRenderTargets[Index].Action = ColorAction;
+		}
+		DepthStencilRenderTarget.DepthStencilTarget = nullptr;
+		DepthStencilRenderTarget.Action = EDepthStencilTargetActions::DontLoad_DontStore;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = FExclusiveDepthStencil::DepthNop_StencilNop;
 		if (NumColorRTs < MaxSimultaneousRenderTargets)
 		{
 			FMemory::Memzero(&ColorRenderTargets[NumColorRTs], sizeof(FColorEntry) * (MaxSimultaneousRenderTargets - NumColorRTs));
@@ -1810,7 +1859,7 @@ struct FRHIRenderPassInfo
 	}
 
 	// Color MRTs and depth
-	explicit FRHIRenderPassInfo(int32 NumColorRTs, FRHITexture* ColorRTs[], ERenderTargetActions ColorAction, FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions)
+	explicit FRHIRenderPassInfo(int32 NumColorRTs, FRHITexture* ColorRTs[], ERenderTargetActions ColorAction, FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions, FExclusiveDepthStencil InEDS = FExclusiveDepthStencil::DepthWrite_StencilWrite)
 	{
 		check(NumColorRTs > 0);
 		for (int32 Index = 0; Index < NumColorRTs; ++Index)
@@ -1826,6 +1875,32 @@ struct FRHIRenderPassInfo
 		DepthStencilRenderTarget.DepthStencilTarget = DepthRT;
 		DepthStencilRenderTarget.ResolveTarget = nullptr;
 		DepthStencilRenderTarget.Action = DepthActions;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = InEDS;
+		bIsMSAA = DepthRT->GetNumSamples() > 1;
+		if (NumColorRTs < MaxSimultaneousRenderTargets)
+		{
+			FMemory::Memzero(&ColorRenderTargets[NumColorRTs], sizeof(FColorEntry) * (MaxSimultaneousRenderTargets - NumColorRTs));
+		}
+	}
+
+	// Color MRTs and depth
+	explicit FRHIRenderPassInfo(int32 NumColorRTs, FRHITexture* ColorRTs[], ERenderTargetActions ColorAction, FRHITexture* ResolveRTs[], FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions, FRHITexture* ResolveDepthRT, FExclusiveDepthStencil InEDS = FExclusiveDepthStencil::DepthWrite_StencilWrite)
+	{
+		check(NumColorRTs > 0);
+		for (int32 Index = 0; Index < NumColorRTs; ++Index)
+		{
+			check(ColorRTs[Index]);
+			ColorRenderTargets[Index].RenderTarget = ColorRTs[Index];
+			ColorRenderTargets[Index].ResolveTarget = ResolveRTs[Index];
+			ColorRenderTargets[Index].ArraySlice = -1;
+			ColorRenderTargets[Index].MipIndex = 0;
+			ColorRenderTargets[Index].Action = ColorAction;
+		}
+		check(DepthRT);
+		DepthStencilRenderTarget.DepthStencilTarget = DepthRT;
+		DepthStencilRenderTarget.ResolveTarget = ResolveDepthRT;
+		DepthStencilRenderTarget.Action = DepthActions;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = InEDS;
 		bIsMSAA = DepthRT->GetNumSamples() > 1;
 		if (NumColorRTs < MaxSimultaneousRenderTargets)
 		{
@@ -1834,18 +1909,33 @@ struct FRHIRenderPassInfo
 	}
 
 	// Depth, no color
-	explicit FRHIRenderPassInfo(FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions, FRHITexture* ResolveDepthRT = nullptr)
+	explicit FRHIRenderPassInfo(FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions, FRHITexture* ResolveDepthRT = nullptr, FExclusiveDepthStencil InEDS = FExclusiveDepthStencil::DepthWrite_StencilWrite)
 	{
 		check(DepthRT);
 		DepthStencilRenderTarget.DepthStencilTarget = DepthRT;
 		DepthStencilRenderTarget.ResolveTarget = ResolveDepthRT;
 		DepthStencilRenderTarget.Action = DepthActions;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = InEDS;
+		bIsMSAA = DepthRT->GetNumSamples() > 1;
+		FMemory::Memzero(ColorRenderTargets, sizeof(FColorEntry) * MaxSimultaneousRenderTargets);
+	}
+
+	// Depth, no color, occlusion queries
+	explicit FRHIRenderPassInfo(FRHITexture* DepthRT, uint32 InNumOcclusionQueries, EDepthStencilTargetActions DepthActions, FRHITexture* ResolveDepthRT = nullptr, FExclusiveDepthStencil InEDS = FExclusiveDepthStencil::DepthWrite_StencilWrite)
+		: NumOcclusionQueries(InNumOcclusionQueries)
+		, bOcclusionQueries(true)
+	{
+		check(DepthRT);
+		DepthStencilRenderTarget.DepthStencilTarget = DepthRT;
+		DepthStencilRenderTarget.ResolveTarget = ResolveDepthRT;
+		DepthStencilRenderTarget.Action = DepthActions;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = InEDS;
 		bIsMSAA = DepthRT->GetNumSamples() > 1;
 		FMemory::Memzero(ColorRenderTargets, sizeof(FColorEntry) * MaxSimultaneousRenderTargets);
 	}
 
 	// Color and depth
-	explicit FRHIRenderPassInfo(FRHITexture* ColorRT, ERenderTargetActions ColorAction, FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions)
+	explicit FRHIRenderPassInfo(FRHITexture* ColorRT, ERenderTargetActions ColorAction, FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions, FExclusiveDepthStencil InEDS = FExclusiveDepthStencil::DepthWrite_StencilWrite)
 	{
 		check(ColorRT);
 		ColorRenderTargets[0].RenderTarget = ColorRT;
@@ -1858,12 +1948,13 @@ struct FRHIRenderPassInfo
 		DepthStencilRenderTarget.DepthStencilTarget = DepthRT;
 		DepthStencilRenderTarget.ResolveTarget = nullptr;
 		DepthStencilRenderTarget.Action = DepthActions;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = InEDS;
 		FMemory::Memzero(&ColorRenderTargets[1], sizeof(FColorEntry) * (MaxSimultaneousRenderTargets - 1));
 	}
 
-	// Color and depth
+	// Color and depth with resolve
 	explicit FRHIRenderPassInfo(FRHITexture* ColorRT, ERenderTargetActions ColorAction, FRHITexture* ResolveColorRT,
-		FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions, FRHITexture* ResolveDepthRT)
+		FRHITexture* DepthRT, EDepthStencilTargetActions DepthActions, FRHITexture* ResolveDepthRT, FExclusiveDepthStencil InEDS = FExclusiveDepthStencil::DepthWrite_StencilWrite)
 	{
 		check(ColorRT);
 		ColorRenderTargets[0].RenderTarget = ColorRT;
@@ -1876,7 +1967,23 @@ struct FRHIRenderPassInfo
 		DepthStencilRenderTarget.DepthStencilTarget = DepthRT;
 		DepthStencilRenderTarget.ResolveTarget = ResolveDepthRT;
 		DepthStencilRenderTarget.Action = DepthActions;
+		DepthStencilRenderTarget.ExclusiveDepthStencil = InEDS;
 		FMemory::Memzero(&ColorRenderTargets[1], sizeof(FColorEntry) * (MaxSimultaneousRenderTargets - 1));
+	}
+
+	inline int32 GetNumColorRenderTargets() const
+	{
+		int32 ColorIndex = 0;
+		for (; ColorIndex < MaxSimultaneousRenderTargets; ++ColorIndex)
+		{
+			const FColorEntry& Entry = ColorRenderTargets[ColorIndex];
+			if (!Entry.RenderTarget)
+			{
+				break;
+			}
+		}
+
+		return ColorIndex;
 	}
 
 	explicit FRHIRenderPassInfo()
@@ -1887,17 +1994,6 @@ struct FRHIRenderPassInfo
 	void SetDepthReadOnly(bool bInDepthReadOnly)
 	{
 		bDepthReadOnly = bInDepthReadOnly;
-	}
-
-	void SetOcclusionQueries(bool bInOcclusionQueries)
-	{
-		bOcclusionQueries = bInOcclusionQueries;
-	}
-
-	void DEPRECATED_SetExclusiveDepthStencil(FExclusiveDepthStencil InEDS)
-	{
-		DEPRECATED_EDS = InEDS;
-		bDEPRECATEDHasEDS = true;
 	}
 
 	inline bool IsMSAA() const
@@ -1960,113 +2056,26 @@ struct FRHIRenderPassInfo
 			// Don't write to depth if read-only
 			ensure(!bDepthReadOnly || DepthStore != ERenderTargetStoreAction::EStore);
 		}
+		else
+		{
+			ensure(DepthStencilRenderTarget.Action == EDepthStencilTargetActions::DontLoad_DontStore);
+			ensure(DepthStencilRenderTarget.ExclusiveDepthStencil == FExclusiveDepthStencil::DepthNop_StencilNop);
+		}
 	}
 
 	RHI_API void ConvertToRenderTargetsInfo(FRHISetRenderTargetsInfo& OutRTInfo) const;
 
+	//#RenderPasses
+	int32 UAVIndex = -1;
+	int32 NumUAVs = 0;
+	FUnorderedAccessViewRHIRef UAVs[MaxSimultaneousUAVs];
+
+	FRHIRenderPassInfo& operator = (const FRHIRenderPassInfo& In)
+	{
+		FMemory::Memcpy(*this, In);
+		return *this;
+	}
+
 private:
-	FExclusiveDepthStencil DEPRECATED_EDS;
-	bool bDEPRECATEDHasEDS = false;
 	bool bIsMSAA = false;
-};
-
-class FRHIRenderPass : public FRHIResource {};
-class FRHIParallelRenderPass : public FRHIRenderPass {};
-class FRHIRenderSubPass : public FRHIRenderPass {};
-
-class FRHIRenderPassFallback : public FRHIRenderPass
-{
-public:
-	explicit FRHIRenderPassFallback(const FRHIRenderPassInfo& InInfo, const TCHAR* InName)
-		: Info(InInfo)
-		, Name(InName)
-		, bEnded(false)
-	{
-	}
-
-	virtual ~FRHIRenderPassFallback()
-	{
-		check(bEnded);
-	}
-
-	void SetEnded()
-	{
-		check(!bEnded);
-		bEnded = true;
-	}
-
-protected:
-	FRHIRenderPassInfo Info;
-	FString Name;
-	bool bEnded;
-};
-
-class FRHIParallelRenderPassFallback : public FRHIParallelRenderPass
-{
-public:
-	explicit FRHIParallelRenderPassFallback(const FRHIRenderPassInfo& InInfo, const TCHAR* InName)
-		: Info(InInfo)
-		, Name(InName)
-		, bEnded(false)
-	{
-	}
-
-	virtual ~FRHIParallelRenderPassFallback()
-	{
-		check(SubPasses.Num() == 0);
-		check(bEnded);
-	}
-
-	void SetEnded()
-	{
-		check(!bEnded);
-		bEnded = true;
-	}
-
-	void BeginSubPass(FRHIRenderSubPass* InSubPass)
-	{
-		SubPasses.Add(InSubPass);
-	}
-
-	void EndSubPass(FRHIRenderSubPass* InSubPass)
-	{
-		int32 Found = SubPasses.Remove(InSubPass);
-		check(Found > 0);
-	}
-
-protected:
-	FRHIRenderPassInfo Info;
-	TArray<FRHIRenderSubPass*> SubPasses;
-	FString Name;
-	bool bEnded;
-};
-
-class FRHIRenderSubPassFallback : public FRHIRenderSubPass
-{
-public:
-	explicit FRHIRenderSubPassFallback(FRHIParallelRenderPassFallback* InParent)
-		: Parent(InParent)
-		, bEnded(false)
-	{
-	}
-
-	virtual ~FRHIRenderSubPassFallback()
-	{
-		check(bEnded);
-	}
-
-	void SetEnded()
-	{
-		check(!bEnded);
-		bEnded = true;
-	}
-
-	FRHIParallelRenderPassFallback* GetParent()
-	{
-		return Parent;
-	}
-
-protected:
-	FRHIParallelRenderPassFallback* Parent;
-	bool bEnded;
 };

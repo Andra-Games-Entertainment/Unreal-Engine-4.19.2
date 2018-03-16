@@ -370,6 +370,14 @@ namespace UnrealBuildTool
 		}
 
 		/// <summary>
+		/// Checks to see if the given platform is in the given platform group
+		/// </summary>
+		public static bool IsPlatformInGroup(UnrealTargetPlatform Platform, UnrealPlatformGroup Group)
+		{
+			return GetPlatformsInGroup(Group).Contains(Platform);
+		}
+
+		/// <summary>
 		/// Enumerates all the platform groups for a given platform
 		/// </summary>
 		/// <param name="Platform">The platform to look for</param>
@@ -409,15 +417,16 @@ namespace UnrealBuildTool
 			{
 				case CppPlatform.Win32:			return UnrealTargetPlatform.Win32;
 				case CppPlatform.Win64:			return UnrealTargetPlatform.Win64;
-				case CppPlatform.Mac:				return UnrealTargetPlatform.Mac;
-				case CppPlatform.XboxOne:			return UnrealTargetPlatform.XboxOne;
-				case CppPlatform.PS4:				return UnrealTargetPlatform.PS4;
-				case CppPlatform.Android:			return UnrealTargetPlatform.Android;
-				case CppPlatform.IOS:				return UnrealTargetPlatform.IOS;
+				case CppPlatform.Mac:			return UnrealTargetPlatform.Mac;
+				case CppPlatform.XboxOne:		return UnrealTargetPlatform.XboxOne;
+				case CppPlatform.PS4:			return UnrealTargetPlatform.PS4;
+				case CppPlatform.Android:		return UnrealTargetPlatform.Android;
+				case CppPlatform.IOS:			return UnrealTargetPlatform.IOS;
 				case CppPlatform.HTML5:			return UnrealTargetPlatform.HTML5;
 				case CppPlatform.Linux:			return UnrealTargetPlatform.Linux;
 				case CppPlatform.TVOS:			return UnrealTargetPlatform.TVOS;
-				case CppPlatform.Switch: 			return UnrealTargetPlatform.Switch;
+				case CppPlatform.Switch: 		return UnrealTargetPlatform.Switch;
+				case CppPlatform.Lumin:			return UnrealTargetPlatform.Lumin;
 			}
 			throw new BuildException("CPPTargetPlatformToUnrealTargetPlatform: Unknown CPPTargetPlatform {0}", InCPPPlatform.ToString());
 		}
@@ -838,6 +847,16 @@ namespace UnrealBuildTool
 		/// <param name="Target">The target being built</param>
 		/// <returns>New toolchain instance.</returns>
 		public abstract UEToolChain CreateToolChain(CppPlatform CppPlatform, ReadOnlyTargetRules Target);
+
+		/// <summary>
+		/// Creates a temp toolchain instance for the given project - will not be used to compile with, and is only needed on some platforms
+		/// </summary>
+		/// <param name="ProjectFile">The project to make the toolchain for</param>
+		/// <returns>New toolchain instance.</returns>
+		public virtual UEToolChain CreateTempToolChainForProject(FileReference ProjectFile)
+		{
+			return null;
+		}
 
 		/// <summary>
 		/// Deploys the given target

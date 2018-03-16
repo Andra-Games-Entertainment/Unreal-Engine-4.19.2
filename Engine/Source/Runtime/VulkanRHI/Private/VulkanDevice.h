@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved..
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved..
 
 /*=============================================================================
 	VulkanDevice.h: Private Vulkan RHI definitions.
@@ -8,8 +8,13 @@
 
 #include "VulkanMemory.h"
 
-class FOLDVulkanDescriptorPool;
-class FVulkanCommandListContext;
+class FVulkanDescriptorPool;
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+class FVulkanDescriptorPoolsManager;
+#endif
+class FVulkanCommandListContextImmediate;
+class FVulkanOcclusionQueryPool;
+class FOLDVulkanQueryPool;
 
 class FVulkanDevice
 {
@@ -87,9 +92,8 @@ public:
 
 	const VkComponentMapping& GetFormatComponentMapping(EPixelFormat UEFormat) const;
 	
-	inline VkDevice GetInstanceHandle()
+	inline VkDevice GetInstanceHandle() const
 	{
-		check(Device != VK_NULL_HANDLE);
 		return Device;
 	}
 
@@ -133,10 +137,14 @@ public:
 		return FenceManager;
 	}
 
-	inline FVulkanCommandListContext& GetImmediateContext()
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	inline FVulkanDescriptorPoolsManager& GetDescriptorPoolsManager()
 	{
-		return *ImmediateContext;
+		return *DescriptorPoolsManager;
 	}
+#endif
+
+	FVulkanCommandListContextImmediate& GetImmediateContext();
 
 	inline FVulkanCommandListContext& GetImmediateComputeContext()
 	{
@@ -149,17 +157,17 @@ public:
 #if VULKAN_ENABLE_DRAW_MARKERS
 	PFN_vkCmdDebugMarkerBeginEXT GetCmdDbgMarkerBegin() const
 	{
-		return CmdDbgMarkerBegin;
+		return DebugMarkers.CmdBegin;
 	}
 
 	PFN_vkCmdDebugMarkerEndEXT GetCmdDbgMarkerEnd() const
 	{
-		return CmdDbgMarkerEnd;
+		return DebugMarkers.CmdEnd;
 	}
 
 	PFN_vkDebugMarkerSetObjectNameEXT GetDebugMarkerSetObjectName() const
 	{
-		return DebugMarkerSetObjectName;
+		return DebugMarkers.CmdSetObjectName;
 	}
 #endif
 
@@ -167,12 +175,16 @@ public:
 
 	void SubmitCommandsAndFlushGPU();
 
-	inline FVulkanBufferedQueryPool& FindAvailableQueryPool(TArray<FVulkanBufferedQueryPool*>& Pools, VkQueryType QueryType)
+#if VULKAN_USE_NEW_QUERIES
+	FVulkanOcclusionQueryPool* PrepareOcclusionQueryPool(uint32 NumQueries);
+	FVulkanTimestampQueryPool* PrepareTimestampQueryPool(bool& bOutRequiresReset);
+#else
+	inline FOLDVulkanBufferedQueryPool& FindAvailableQueryPool(TArray<FOLDVulkanBufferedQueryPool*>& Pools, VkQueryType QueryType)
 	{
 		// First try to find An available one
 		for (int32 Index = 0; Index < Pools.Num(); ++Index)
 		{
-			FVulkanBufferedQueryPool* Pool = Pools[Index];
+			FOLDVulkanBufferedQueryPool* Pool = Pools[Index];
 			if (Pool->HasRoom())
 			{
 				return *Pool;
@@ -180,20 +192,20 @@ public:
 		}
 
 		// None found, so allocate new Pool
-		FVulkanBufferedQueryPool* Pool = new FVulkanBufferedQueryPool(this, QueryType == VK_QUERY_TYPE_OCCLUSION ? NUM_OCCLUSION_QUERIES_PER_POOL : NUM_TIMESTAMP_QUERIES_PER_POOL, QueryType);
+		FOLDVulkanBufferedQueryPool* Pool = new FOLDVulkanBufferedQueryPool(this, QueryType == VK_QUERY_TYPE_OCCLUSION ? NUM_OCCLUSION_QUERIES_PER_POOL : NUM_TIMESTAMP_QUERIES_PER_POOL, QueryType);
 		Pools.Add(Pool);
 		return *Pool;
 	}
-	inline FVulkanBufferedQueryPool& FindAvailableOcclusionQueryPool()
+	inline FOLDVulkanBufferedQueryPool& FindAvailableOcclusionQueryPool()
 	{
 		return FindAvailableQueryPool(OcclusionQueryPools, VK_QUERY_TYPE_OCCLUSION);
 	}
 
-	inline FVulkanBufferedQueryPool& FindAvailableTimestampQueryPool()
+	inline FOLDVulkanBufferedQueryPool& FindAvailableTimestampQueryPool()
 	{
 		return FindAvailableQueryPool(TimestampQueryPools, VK_QUERY_TYPE_TIMESTAMP);
 	}
-
+#endif
 	inline class FVulkanPipelineStateCache* GetPipelineStateCache()
 	{
 		return PipelineStateCache;
@@ -208,9 +220,11 @@ public:
 	struct FOptionalVulkanDeviceExtensions
 	{
 		uint32 HasKHRMaintenance1 : 1;
+		uint32 HasKHRMaintenance2 : 1;
 		uint32 HasMirrorClampToEdge : 1;
 		uint32 HasKHRExternalMemoryCapabilities : 1;
 		uint32 HasKHRGetPhysicalDeviceProperties2 : 1;
+		uint32 HasKHRDedicatedAllocation : 1;
 	};
 	inline const FOptionalVulkanDeviceExtensions& GetOptionalExtensions() const { return OptionalDeviceExtensions;  }
 
@@ -242,6 +256,10 @@ private:
 
 	VulkanRHI::FFenceManager FenceManager;
 
+#if VULKAN_USE_DESCRIPTOR_POOL_MANAGER
+	FVulkanDescriptorPoolsManager* DescriptorPoolsManager = nullptr;
+#endif
+
 	FVulkanSamplerState* DefaultSampler;
 	FVulkanSurface* DefaultImage;
 	VkImageView DefaultImageView;
@@ -251,8 +269,14 @@ private:
 	// Info for formats that are not in the core Vulkan spec (i.e. extensions)
 	mutable TMap<VkFormat, VkFormatProperties> ExtensionFormatProperties;
 
-	TArray<FVulkanBufferedQueryPool*> OcclusionQueryPools;
-	TArray<FVulkanBufferedQueryPool*> TimestampQueryPools;
+#if VULKAN_USE_NEW_QUERIES
+	int32 CurrentOcclusionQueryPool = 0;
+	TArray<FVulkanOcclusionQueryPool*> OcclusionQueryPools;
+	FVulkanTimestampQueryPool* TimestampQueryPool = nullptr;
+#else
+	TArray<FOLDVulkanBufferedQueryPool*> OcclusionQueryPools;
+	TArray<FOLDVulkanBufferedQueryPool*> TimestampQueryPools;
+#endif
 
 	FVulkanQueue* GfxQueue;
 	FVulkanQueue* ComputeQueue;
@@ -261,7 +285,7 @@ private:
 
 	VkComponentMapping PixelFormatComponentMapping[PF_MAX];
 
-	FVulkanCommandListContext* ImmediateContext;
+	FVulkanCommandListContextImmediate* ImmediateContext;
 	FVulkanCommandListContext* ComputeContext;
 	TArray<FVulkanCommandListContext*> CommandContexts;
 
@@ -273,9 +297,12 @@ private:
 	void SetupFormats();
 
 #if VULKAN_ENABLE_DRAW_MARKERS
-	PFN_vkCmdDebugMarkerBeginEXT CmdDbgMarkerBegin;
-	PFN_vkCmdDebugMarkerEndEXT CmdDbgMarkerEnd;
-	PFN_vkDebugMarkerSetObjectNameEXT DebugMarkerSetObjectName;
+	struct
+	{
+		PFN_vkCmdDebugMarkerBeginEXT		CmdBegin = nullptr;
+		PFN_vkCmdDebugMarkerEndEXT			CmdEnd = nullptr;
+		PFN_vkDebugMarkerSetObjectNameEXT	CmdSetObjectName = nullptr;
+	} DebugMarkers;
 	friend class FVulkanCommandListContext;
 #endif
 

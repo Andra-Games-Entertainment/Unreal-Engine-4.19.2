@@ -5,13 +5,17 @@
 #include "AudioCapture.h"
 
 
-#if PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS || PLATFORM_LUMIN
 
+#if PLATFORM_WINDOWS
 #include "WindowsHWrapper.h"
 
 THIRD_PARTY_INCLUDES_START
 #include "RtAudio.h"
 THIRD_PARTY_INCLUDES_END
+#elif PLATFORM_LUMIN // #if PLATFORM_WINDOWS
+#include "ml_audio.h"
+#endif
 
 namespace Audio
 {
@@ -29,19 +33,25 @@ namespace Audio
 		bool GetStreamTime(double& OutStreamTime);
 		bool IsStreamOpen();
 		bool IsCapturing();
-
 		void OnAudioCapture(void* InBuffer, uint32 InBufferFrames, double StreamTime, bool bOverflow);
+
+#if PLATFORM_LUMIN
+		MLHandle InputDeviceHandle;
+		bool bStreamStarted;
+#endif
 
 	private:
 		IAudioCaptureCallback* Callback;
 		int32 NumChannels;
 		int32 SampleRate;
+#if PLATFORM_WINDOWS
 		RtAudio CaptureDevice;
+#endif
 		TArray<float> FloatBuffer;
 	};
 }
 
-#else // #if PLATFORM_WINDOWS
+#else // #if PLATFORM_WINDOWS || PLATFORM_LUMIN
 
 namespace Audio
 {

@@ -265,7 +265,7 @@ public class PhysX : ModuleRules
 				Definitions.Add("UE_PHYSX_SUFFIX=" + LibrarySuffix);
 			}
 		}
-		else if (Target.Platform == UnrealTargetPlatform.Android)
+		else if (Target.IsInPlatformGroup(UnrealPlatformGroup.Android))
 		{
 			PublicLibraryPaths.Add(PhysXLibDir + "Android/ARMv7");
 			PublicLibraryPaths.Add(PhysXLibDir + "Android/x86");

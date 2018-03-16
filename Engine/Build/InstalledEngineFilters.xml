@@ -30,6 +30,7 @@
 	<Property Name="IOSStripFilter" Value="*.a;"/>
 	<Property Name="TVOSStripFilter" Value="*.a;"/>
 	<Property Name="LinuxStripFilter" Value="Engine\Binaries\Linux\*."/>
+	<Property Name="LuminStripFilter" Value="*.a;*.so"/>
 
 	<Property Name="WindowsSignFilter" Value="*.exe;*.dll"/>
 	<Property Name="MacSignFilter" Value="*.dylib;*.app"/>
@@ -52,7 +53,7 @@
 		Samples/MobileStarterContent/MobileStarterContent.uproject
 	</Property>
 	<!-- Don't add VR template for Mac and Linux -->
-	<Property Name="ProjectsToBuildDDC" Value="$(ProjectsToBuildDDC)" If="'$(HostPlatform)' != 'Linux'">
+	<Property Name="ProjectsToBuildDDC" Value="$(ProjectsToBuildDDC)" If="'$(HostPlatform)' != 'Mac' and '$(HostPlatform)' != 'Linux'">
 		Templates/TP_VirtualRealityBP/TP_VirtualRealityBP.uproject
 	</Property>
 	
@@ -76,7 +77,6 @@
 		Engine/Plugins/.../Content/...
 		Engine/Plugins/.../Config/...
 		Engine/Plugins/.../Resources/...
-		Engine/Plugins/.../Shaders/...
 		Engine/Plugins/.../Source/...
 		Engine/Plugins/.../Templates/...
 
@@ -136,11 +136,10 @@
 		Engine/Build/Build.version
 		Engine/Build/Target.cs.template
 	</Property>
-  <!-- Optional API docs -->
-  <Property Name="CopyEditorFilter" Value="$(CopyEditorFilter);Engine/Documentation/Builds/CodeAPI-HTML.tgz" If="Exists('Engine/Documentation/Builds/CodeAPI-HTML.tgz')"/>
-  <Property Name="CopyEditorFilter" Value="$(CopyEditorFilter);Engine/Documentation/Builds/BlueprintAPI-HTML.tgz" If="Exists('Engine/Documentation/Builds/BlueprintAPI-HTML.tgz')"/>
-  <!-- Don't add VR template for Mac and Linux -->
-	<Property Name="CopyEditorFilter" Value="$(CopyEditorFilter);Templates/TP_VirtualRealityBP/..." If="'$(HostPlatform)' != 'Linux'"/>
+	<!-- Optional API docs -->
+	<Property Name="CopyEditorFilter" Value="$(CopyEditorFilter);Engine/Documentation/CHM/API.chm" If="Exists('Engine/Documentation/CHM/API.chm')"/>
+	<!-- Don't add VR template for Mac and Linux -->
+	<Property Name="CopyEditorFilter" Value="$(CopyEditorFilter);Templates/TP_VirtualRealityBP/..." If="'$(HostPlatform)' != 'Mac' and '$(HostPlatform)' != 'Linux'"/>
 		<!-- Define Editor Exceptions -->
 	<Property Name="CopyEditorExceptions">
 		<!-- Content -->
@@ -177,7 +176,7 @@
 		Templates/*/contents.txt
 	</Property>
 	<!-- exclude VR feature pack on Mac -->
-	<Property Name="CopyEditorExceptions" Value="$(CopyEditorExceptions);FeaturePacks/TP_VirtualRealityBP.upack" If="'$(HostPlatform)' == 'Linux'"/>
+	<Property Name="CopyEditorExceptions" Value="$(CopyEditorExceptions);FeaturePacks/TP_VirtualRealityBP.upack" If="'$(HostPlatform)' == 'Mac' or '$(HostPlatform)' == 'Linux'"/>
 
 	<!-- Win64-specific dependencies -->
 	<Do If="'$(HostPlatform)' == 'Win64'">
@@ -290,10 +289,9 @@
 		Engine/Source/ThirdParty/Android/...
 		Engine/Source/ThirdParty/AndroidPermission/...
 		Engine/Source/ThirdParty/GoogleVR/...
-		Engine/Source/ThirdParty/GoogleInstantPreview/InstantPreview.apk
+		Engine/Source/ThirdParty/Oculus/OculusMobile/SDK_1_0_3/Libs/...
 		Engine/Source/ThirdParty/Oculus/LibOVRPlatform/LibOVRPlatform_APL.xml
 		Engine/Source/ThirdParty/Oculus/LibOVRPlatform/lib/*.so
-		Engine/Source/ThirdParty/Oculus/OVRPlugin/...
 		Engine/Source/ThirdParty/TangoSDK/...
 	</Property>
 	
@@ -370,7 +368,6 @@
 	<Property Name="CopyLinuxFilter">
 		Engine/Binaries/ThirdParty/OpenAL/...
 		Engine/Binaries/ThirdParty/ICU/icu4c-53_1/Linux/x86_64-unknown-linux-gnu/*.so
-		Engine/Source/ThirdParty/Linux/LibCxx/...
 	</Property>
 
 	<Property Name="CopyLinuxExceptions">
@@ -379,6 +376,15 @@
 <Property Name="CopyLinuxFilter" Value="$(CopyLinuxFilter);Engine/Extras/ThirdPartyNotUE/putty/..."/>	
 
 <!-- Win64 specific -->
+	<Do If="'$(HostPlatform)' == 'Win64'">
+		<Property Name="CopyLinuxExceptions" Value="$(CopyLinuxExceptions)">
+			<!-- Content only - exclude things we only need for code projects -->
+			Engine/Binaries/Linux/....a
+			Engine/Plugins/.../Binaries/Linux/....a
+			Engine/Source/ThirdParty/.../Linux/....a
+		</Property>
+	</Do>
+
 	<!-- HTML5 -->
 	<Property Name="CopyHTML5Filter">
 		<!-- Build Files -->
@@ -430,5 +436,15 @@
 
 	<!-- Additional Binaries(.nspd directories) -->
 	<Property Name="CopySwitchFilter" Value="$(CopySwitchFilter);Engine/Binaries/Switch/*.nspd/..."/>
+	
+	<!-- Lumin -->
+	<Property Name="CopyLuminFilter">
+		<!-- Build Files -->
+    Engine/Build/Lumin/...
+    Engine/Source/ThirdParty/ResonanceAudioApi/Lumin/ResonanceAudio_LPL.xml
+  </Property>
+	
+	<Property Name="CopyLuminExceptions">
+	</Property>
 
 </BuildGraph>

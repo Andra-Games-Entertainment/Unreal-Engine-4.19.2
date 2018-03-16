@@ -38,6 +38,11 @@ namespace UnrealBuildTool.Rules
                 // Allow us to use direct sound
                 AddEngineThirdPartyPrivateStaticDependencies(Target, "DirectSound");
             }
+            else if (Target.Platform == UnrealTargetPlatform.Lumin)
+            {
+                PublicDependencyModuleNames.Add("MLSDK");
+                Definitions.Add("WITH_AUDIOCAPTURE=1");
+            }
             else
             {
                 // Not supported on this platform

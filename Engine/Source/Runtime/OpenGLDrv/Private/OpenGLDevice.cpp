@@ -167,7 +167,7 @@ void FOpenGLDynamicRHI::RHIBeginFrame()
 	BeginFrame_VertexBufferCleanup();
 	GPUProfilingData.BeginFrame(this);
 
-#if PLATFORM_ANDROID //adding #if since not sure if this is required for any other platform.
+#if PLATFORM_ANDROID && !PLATFORM_LUMINGL4 //adding #if since not sure if this is required for any other platform.
 	//we need to differential between 0 (backbuffer) and lastcolorRT.
 	FOpenGLContextState& ContextState = GetContextStateForCurrentContext();
 	ContextState.LastES2ColorRTResource = 0xFFFFFFFF;
@@ -784,7 +784,11 @@ static void InitRHICapabilitiesForGL()
 #if PLATFORM_ANDROIDESDEFERRED
 	UE_LOG(LogRHI, Log, TEXT("PLATFORM_ANDROIDESDEFERRED"));
 #elif PLATFORM_ANDROID
+#if PLATFORM_LUMINGL4
+	UE_LOG(LogRHI, Log, TEXT("PLATFORM_LUMINGL4"));
+#else
 	UE_LOG(LogRHI, Log, TEXT("PLATFORM_ANDROID"));
+#endif
 #endif
 
 	GMaxTextureSamplers = Value_GL_MAX_TEXTURE_IMAGE_UNITS;
@@ -871,7 +875,7 @@ static void InitRHICapabilitiesForGL()
 	SetupTextureFormat( PF_R16G16B16A16_SNORM,	FOpenGLTextureFormat( GL_RGBA16,				GL_RGBA16,				GL_RGBA,			GL_SHORT,						false,			false));
 
 	SetupTextureFormat( PF_R5G6B5_UNORM,		FOpenGLTextureFormat( ));
-#if PLATFORM_DESKTOP || PLATFORM_ANDROIDESDEFERRED
+#if PLATFORM_DESKTOP || PLATFORM_ANDROIDESDEFERRED || PLATFORM_LUMINGL4
 	CA_SUPPRESS(6286);
 	if (PLATFORM_DESKTOP || FOpenGL::GetFeatureLevel() >= ERHIFeatureLevel::SM4)
 	{
@@ -939,9 +943,9 @@ static void InitRHICapabilitiesForGL()
 		}
 	}
 	else
-#endif // PLATFORM_DESKTOP || PLATFORM_ANDROIDESDEFERRED
+#endif // PLATFORM_DESKTOP || PLATFORM_ANDROIDESDEFERRED || PLATFORM_LUMINGL4
 	{
-#if !PLATFORM_DESKTOP
+#if !PLATFORM_DESKTOP && !PLATFORM_LUMINGL4
 		// ES2-based cases
 		GLuint BGRA8888 = (FOpenGL::SupportsBGRA8888() && !FOpenGL::SupportsSRGB()) ? GL_BGRA_EXT : GL_RGBA;
 		GLuint SizedBGRA8888 = (FOpenGL::SupportsBGRA8888() && !FOpenGL::SupportsSRGB()) ? GL_BGRA_EXT : GL_RGBA8;
@@ -1038,7 +1042,7 @@ static void InitRHICapabilitiesForGL()
 	{
 		SetupTextureFormat( PF_ETC1,		FOpenGLTextureFormat(GL_ETC1_RGB8_OES,					GL_ETC1_RGB8_OES,						GL_RGBA,	GL_UNSIGNED_BYTE,	true,	false));
 	}
-#if PLATFORM_ANDROID
+#if PLATFORM_ANDROID && !PLATFORM_LUMINGL4
 	if ( FOpenGL::SupportsETC2() )
 	{
 		SetupTextureFormat( PF_ETC2_RGB,	FOpenGLTextureFormat(GL_COMPRESSED_RGB8_ETC2,		GL_COMPRESSED_SRGB8_ETC2,					GL_RGBA,	GL_UNSIGNED_BYTE,	true,		false));
@@ -1184,7 +1188,7 @@ static bool VerifyCompiledShader(GLuint Shader, const ANSICHAR* GlslCode, bool I
 
 static void CheckVaryingLimit()
 {
-#if PLATFORM_ANDROID
+#if PLATFORM_ANDROID && !PLATFORM_LUMINGL4
 	FOpenGL::bRequiresGLFragCoordVaryingLimitHack = false;
 	if (IsES2Platform(GMaxRHIShaderPlatform))
 	{
@@ -1322,7 +1326,7 @@ static void CheckVaryingLimit()
 
 static void CheckTextureCubeLodSupport()
 {
-#if PLATFORM_ANDROID
+#if PLATFORM_ANDROID && !PLATFORM_LUMINGL4
 	if (IsES2Platform(GMaxRHIShaderPlatform))
 	{
 		UE_LOG(LogRHI, Display, TEXT("Testing for shader compiler compatibility"));
@@ -1427,7 +1431,7 @@ static void CheckTextureCubeLodSupport()
 
 static void CheckRoundFunction()
 {
-#if PLATFORM_ANDROID
+#if PLATFORM_ANDROID && !PLATFORM_LUMINGL4
 	FOpenGL::bRequiresRoundFunctionHack = false;
 	if (IsES2Platform(GMaxRHIShaderPlatform))
 	{
@@ -1666,7 +1670,7 @@ void FOpenGLDynamicRHI::RHIFlushComputeShaderCache()
 
 void* FOpenGLDynamicRHI::RHIGetNativeDevice()
 {
-	return nullptr;
+	return PlatformDevice;
 }
 
 void FOpenGLDynamicRHI::InvalidateQueries( void )
@@ -1688,6 +1692,11 @@ void FOpenGLDynamicRHI::InvalidateQueries( void )
 			TimerQueries[Index]->bInvalidResource = true;
 		}
 	}
+}
+
+void* FOpenGLDynamicRHI::GetOpenGLCurrentContextHandle()
+{
+	return PlatformOpenGLCurrentContextHandle(PlatformDevice);
 }
 
 void FOpenGLDynamicRHI::SetCustomPresent(FRHICustomPresent* InCustomPresent)

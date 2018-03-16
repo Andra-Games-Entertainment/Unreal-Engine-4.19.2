@@ -1,6 +1,6 @@
 // Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
 
-#include "AndroidDebugOutputDevice.h"
+#include "Android/AndroidDebugOutputDevice.h"
 #include "OutputDeviceHelper.h"
 #include "CoreGlobals.h"
 #include "UnrealString.h"

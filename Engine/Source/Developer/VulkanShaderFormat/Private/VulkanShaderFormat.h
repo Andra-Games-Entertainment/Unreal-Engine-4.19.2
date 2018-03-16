@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -8,11 +8,13 @@
 enum class EVulkanShaderVersion
 {
 	ES3_1,
-	SM4_UB,
+	ES3_1_NOUB,
 	ES3_1_ANDROID,
+	ES3_1_ANDROID_NOUB,
 	SM4,
+	SM4_NOUB,
 	SM5,
-	SM5_UB,
+	SM5_NOUB,
 };
 extern void CompileShader_Windows_Vulkan(const struct FShaderCompilerInput& Input,struct FShaderCompilerOutput& Output,const class FString& WorkingDirectory, EVulkanShaderVersion Version);
 

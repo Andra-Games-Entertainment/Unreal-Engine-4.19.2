@@ -547,7 +547,7 @@ FViewMatrices::FViewMatrices(const FSceneViewInitOptions& InitOptions) : FViewMa
 		{
 			// console variable override
 			static const auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.PreViewTranslation"));
-			int32 Value = CVar->GetValueOnGameThread();
+			int32 Value = CVar->GetValueOnAnyThread();
 
 			static FVector PreViewTranslationBackup;
 
@@ -664,6 +664,8 @@ FSceneView::FSceneView(const FSceneViewInitOptions& InitOptions)
 	check(UnscaledViewRect.Height() > 0);
 
 	ShadowViewMatrices = ViewMatrices;
+
+	SceneViewInitOptions = FSceneViewInitOptions(InitOptions);
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	{
@@ -917,6 +919,19 @@ uint32 FSceneView::GetOcclusionFrameCounter() const
 		return State->GetOcclusionFrameCounter();
 	}
 	return MAX_uint32;
+}
+
+void FSceneView::UpdateProjectionMatrix(const FMatrix& NewProjectionMatrix)
+{
+	ProjectionMatrixUnadjustedForRHI = NewProjectionMatrix;
+	InvDeviceZToWorldZTransform = CreateInvDeviceZToWorldZTransform(ProjectionMatrixUnadjustedForRHI);
+
+	// Update init options before creating new view matrices
+	SceneViewInitOptions.ProjectionMatrix = NewProjectionMatrix;
+
+	// Create new matrices
+	FViewMatrices NewViewMatrices = FViewMatrices(SceneViewInitOptions);
+	ViewMatrices = NewViewMatrices;
 }
 
 void FViewMatrices::UpdateViewMatrix(const FVector& ViewLocation, const FRotator& ViewRotation)

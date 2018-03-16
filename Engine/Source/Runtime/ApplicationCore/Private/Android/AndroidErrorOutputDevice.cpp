@@ -1,6 +1,6 @@
 // Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
 
-#include "AndroidErrorOutputDevice.h"
+#include "Android/AndroidErrorOutputDevice.h"
 
 #include "CoreGlobals.h"
 #include "OutputDeviceHelper.h"

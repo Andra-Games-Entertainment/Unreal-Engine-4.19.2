@@ -66,20 +66,7 @@ static bool SupportsVulkan()
 	// default to not supporting Vulkan
 	bool bSupportsVulkan = false;
 	GConfig->GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bSupportsVulkan"), bSupportsVulkan, GEngineIni);
-
-	// glslang library is needed for vulkan shader compiling
-	bool GlslangAvailable = false;
-#if PLATFORM_WINDOWS
-	#if PLATFORM_64BITS
-		GlslangAvailable = true;
-	#endif
-#elif PLATFORM_MAC
-	GlslangAvailable = true;
-#elif PLATFORM_LINUX
-	GlslangAvailable = true;
-#endif
-
-	return bSupportsVulkan && GlslangAvailable;
+	return bSupportsVulkan;
 }
 
 static FString GetLicensePath()
@@ -221,8 +208,9 @@ inline FAndroidTargetPlatform<TPlatformProperties>::FAndroidTargetPlatform( ) :
 	DeviceDetection(nullptr)
 {
 	#if WITH_ENGINE
-		FConfigCacheIni::LoadLocalIniFile(EngineSettings, TEXT("Engine"), true, *TTargetPlatformBase<TPlatformProperties>::PlatformName());
-			TextureLODSettings = nullptr; // These are registered by the device profile system.
+		// @todo seal: verify this gets android properly
+		FConfigCacheIni::LoadLocalIniFile(EngineSettings, TEXT("Engine"), true, *this->IniPlatformName());
+		TextureLODSettings = nullptr; // These are registered by the device profile system.
 		StaticMeshLODSettings.Initialize(EngineSettings);
 	#endif
 
@@ -277,7 +265,8 @@ inline ITargetDevicePtr FAndroidTargetPlatform<TPlatformProperties>::GetDefaultD
 template<class TPlatformProperties>
 inline ITargetDevicePtr FAndroidTargetPlatform<TPlatformProperties>::GetDevice( const FTargetDeviceId& DeviceId )
 {
-	if (DeviceId.GetPlatformName() == TTargetPlatformBase<TPlatformProperties>::PlatformName())
+	// differentiate between android and sub-platforms
+	if (DeviceId.GetPlatformName() == this->PlatformName())
 	{
 		return Devices.FindRef(DeviceId.GetDeviceName());
 	}
@@ -324,7 +313,20 @@ inline int32 FAndroidTargetPlatform<TPlatformProperties>::CheckRequirements(cons
 	}
 
 	return bReadyToBuild;
+
 }
+template<class TPlatformProperties>
+bool FAndroidTargetPlatform<TPlatformProperties>::SupportsDesktopRendering() const
+{
+	return SupportsAEP();
+}
+
+template<class TPlatformProperties>
+bool FAndroidTargetPlatform<TPlatformProperties>::SupportsMobileRendering() const
+{
+	return SupportsES31() || SupportsES2() || SupportsVulkan();
+}
+
 
 template<class TPlatformProperties>
 inline bool FAndroidTargetPlatform<TPlatformProperties>::SupportsFeature( ETargetPlatformFeatures Feature ) const
@@ -336,13 +338,13 @@ inline bool FAndroidTargetPlatform<TPlatformProperties>::SupportsFeature( ETarge
 			
 		case ETargetPlatformFeatures::LowQualityLightmaps:
 		case ETargetPlatformFeatures::MobileRendering:
-			return SupportsES31() || SupportsES2() || SupportsVulkan();
-			
+			return SupportsMobileRendering();
+
 		case ETargetPlatformFeatures::HighQualityLightmaps:
 		case ETargetPlatformFeatures::Tessellation:
 		case ETargetPlatformFeatures::DeferredRendering:
-			return SupportsAEP();
-			
+			return SupportsDesktopRendering();
+
 		default:
 			break;
 	}
@@ -553,7 +555,7 @@ inline void FAndroidTargetPlatform<TPlatformProperties>::GetAllTextureFormats(TA
 template<class TPlatformProperties>
 void FAndroidTargetPlatform<TPlatformProperties>::GetReflectionCaptureFormats( TArray<FName>& OutFormats ) const
 {
-	if (SupportsAEP())
+	if (SupportsDesktopRendering())
 	{
 		// use Full HDR with AEP
 		OutFormats.Add(FName(TEXT("FullHDR")));
@@ -655,8 +657,22 @@ inline void FAndroidTargetPlatform<TPlatformProperties>::AddTextureFormatIfSuppo
 }
 
 
+template<class TPlatformProperties>
+void FAndroidTargetPlatform<TPlatformProperties>::InitializeDeviceDetection()
+{
+	DeviceDetection = FModuleManager::LoadModuleChecked<IAndroidDeviceDetectionModule>("AndroidDeviceDetection").GetAndroidDeviceDetection();
+	DeviceDetection->Initialize(TEXT("ANDROID_HOME"),
+#if PLATFORM_WINDOWS
+		TEXT("platform-tools\\adb.exe"),
+#else
+		TEXT("platform-tools/adb"),
+#endif
+		TEXT("shell getprop"), true);
+
+}
+
 /* FAndroidTargetPlatform callbacks
- *****************************************************************************/
+*****************************************************************************/
 
 template<class TPlatformProperties>
 inline bool FAndroidTargetPlatform<TPlatformProperties>::HandleTicker( float DeltaTime )
@@ -665,7 +681,8 @@ inline bool FAndroidTargetPlatform<TPlatformProperties>::HandleTicker( float Del
 
 	if (DeviceDetection == nullptr)
 	{
-		DeviceDetection = FModuleManager::LoadModuleChecked<IAndroidDeviceDetectionModule>("AndroidDeviceDetection").GetAndroidDeviceDetection();
+		InitializeDeviceDetection();
+		checkf(DeviceDetection != nullptr, TEXT("A target platform didn't create a device detection object in InitializeDeviceDetection()!"));
 	}
 
 	TArray<FString> ConnectedDeviceIds;

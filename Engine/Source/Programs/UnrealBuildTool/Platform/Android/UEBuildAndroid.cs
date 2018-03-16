@@ -76,9 +76,13 @@ namespace UnrealBuildTool
 	{
 		AndroidPlatformSDK SDK;
 
-		public AndroidPlatform(AndroidPlatformSDK InSDK) : base(UnrealTargetPlatform.Android, CppPlatform.Android)
+		public AndroidPlatform(UnrealTargetPlatform InTargetPlatform, CppPlatform InCppPlatform, AndroidPlatformSDK InSDK) : base(InTargetPlatform, InCppPlatform)
 		{
 			SDK = InSDK;
+		}
+
+		public AndroidPlatform(AndroidPlatformSDK InSDK) : this(UnrealTargetPlatform.Android, CppPlatform.Android, InSDK)
+		{
 		}
 
 		public override SDKStatus HasRequiredSDKsInstalled()
@@ -167,10 +171,10 @@ namespace UnrealBuildTool
 			return "";
 		}
 
-		public override bool HasDefaultBuildConfig(UnrealTargetPlatform Platform, DirectoryReference ProjectPath)
+		public virtual bool HasSpecificDefaultBuildConfig(UnrealTargetPlatform Platform, DirectoryReference ProjectPath)
 		{
 			string[] BoolKeys = new string[] {
-				"bBuildForArmV7", "bBuildForArm64", "bBuildForX86", "bBuildForX8664", 
+				"bBuildForArmV7", "bBuildForArm64", "bBuildForX86", "bBuildForX8664",
 				"bBuildForES2", "bBuildForES31", "bBuildWithHiddenSymbolVisibility"
 			};
 			string[] StringKeys = new string[] {
@@ -183,6 +187,17 @@ namespace UnrealBuildTool
 			{
 				return false;
 			}
+			return true;
+		}
+		public override bool HasDefaultBuildConfig(UnrealTargetPlatform Platform, DirectoryReference ProjectPath)
+		{
+			// @todo Lumin: This is kinda messy - better way?
+			if (HasSpecificDefaultBuildConfig(Platform, ProjectPath) == false)
+			{
+				return false;
+			}
+			
+			// any shared-between-all-androids would be here
 
 			// check the base settings
 			return base.HasDefaultBuildConfig(Platform, ProjectPath);
@@ -278,7 +293,8 @@ namespace UnrealBuildTool
 
 		public override List<FileReference> FinalizeBinaryPaths(FileReference BinaryName, FileReference ProjectFile, ReadOnlyTargetRules Target)
 		{
-			AndroidToolChain ToolChain = new AndroidToolChain(ProjectFile, false, Target.AndroidPlatform.Architectures, Target.AndroidPlatform.GPUArchitectures);
+			// the CppPlatform here doesn't actually matter, so this will work even for sub-platforms
+			AndroidToolChain ToolChain = CreateToolChain(CppPlatform.Android, Target) as AndroidToolChain;
 
 			var Architectures = ToolChain.GetAllArchitectures();
 			var GPUArchitectures = ToolChain.GetAllGPUArchitectures();
@@ -350,7 +366,7 @@ namespace UnrealBuildTool
 		{
 		}
 
-		public override void SetUpEnvironment(ReadOnlyTargetRules Target, CppCompileEnvironment CompileEnvironment, LinkEnvironment LinkEnvironment)
+		public virtual void SetUpSpecificEnvironment(ReadOnlyTargetRules Target, CppCompileEnvironment CompileEnvironment, LinkEnvironment LinkEnvironment)
 		{
 			// we want gcc toolchain 4.9, but fall back to 4.8 or 4.6 for now if it doesn't exist
 			string NDKPath = Environment.GetEnvironmentVariable("NDKROOT");
@@ -360,7 +376,7 @@ namespace UnrealBuildTool
 
 			// figure out the NDK version
 			string NDKToolchainVersion = "unknown";
-			string NDKDefine = "100500";	// assume r10e
+			string NDKDefine = "100500";    // assume r10e
 			string SourcePropFilename = Path.Combine(NDKPath, "source.properties");
 			if (File.Exists(SourcePropFilename))
 			{
@@ -386,7 +402,8 @@ namespace UnrealBuildTool
 					NDKDefine = RevisionParts[0] + string.Format("{0:00}", RevisionMinor + 1) + string.Format("{0:00}", RevisionBeta);
 				}
 			}
-			else {
+			else
+			{
 				string ReleaseFilename = Path.Combine(NDKPath, "RELEASE.TXT");
 				if (File.Exists(ReleaseFilename))
 				{
@@ -394,7 +411,7 @@ namespace UnrealBuildTool
 					NDKToolchainVersion = PropertyContents[0];
 				}
 			}
-			
+
 			// PLATFORM_ANDROID_NDK_VERSION is in the form 150100, where 15 is major version, 01 is the letter (1 is 'a'), 00 indicates beta revision if letter is 00
 			Log.TraceInformation("PLATFORM_ANDROID_NDK_VERSION = {0}", NDKDefine);
 			CompileEnvironment.Definitions.Add("PLATFORM_ANDROID_NDK_VERSION=" + NDKDefine);
@@ -404,29 +421,14 @@ namespace UnrealBuildTool
 			if (Directory.Exists(Path.Combine(NDKPath, @"sources/cxx-stl/gnu-libstdc++/4.9")))
 			{
 				GccVersion = "4.9";
-			} else
+			}
+			else
 			if (Directory.Exists(Path.Combine(NDKPath, @"sources/cxx-stl/gnu-libstdc++/4.8")))
 			{
 				GccVersion = "4.8";
 			}
 
 			Log.TraceInformation("NDK toolchain: {0}, NDK version: {1}, GccVersion: {2}, ClangVersion: {3}", NDKToolchainVersion, NDKVersionInt.ToString(), GccVersion, ToolChain.GetClangVersionString());
-
-			CompileEnvironment.Definitions.Add("PLATFORM_DESKTOP=0");
-			CompileEnvironment.Definitions.Add("PLATFORM_CAN_SUPPORT_EDITORONLY_DATA=0");
-
-			CompileEnvironment.Definitions.Add("WITH_OGGVORBIS=1");
-
-			CompileEnvironment.Definitions.Add("UNICODE");
-			CompileEnvironment.Definitions.Add("_UNICODE");
-
-			CompileEnvironment.Definitions.Add("PLATFORM_ANDROID=1");
-			CompileEnvironment.Definitions.Add("ANDROID=1");
-
-			CompileEnvironment.Definitions.Add("WITH_DATABASE_SUPPORT=0");
-			CompileEnvironment.Definitions.Add("WITH_EDITOR=0");
-			CompileEnvironment.Definitions.Add("USE_NULL_RHI=0");
-			CompileEnvironment.Definitions.Add("REQUIRES_ALIGNED_INT_ACCESS");
 
 			CompileEnvironment.IncludePaths.SystemIncludePaths.Add("$(NDKROOT)/sources/cxx-stl/gnu-libstdc++/" + GccVersion + "/include");
 
@@ -454,6 +456,36 @@ namespace UnrealBuildTool
 
 			SetupGraphicsDebugger(Target, CompileEnvironment, LinkEnvironment);
 
+			if (!UseTegraGraphicsDebugger(Target))
+			{
+				LinkEnvironment.AdditionalLibraries.Add("GLESv2");
+				LinkEnvironment.AdditionalLibraries.Add("EGL");
+			}
+			LinkEnvironment.AdditionalLibraries.Add("android");
+			LinkEnvironment.AdditionalLibraries.Add("OpenSLES");
+		}
+
+		public override void SetUpEnvironment(ReadOnlyTargetRules Target, CppCompileEnvironment CompileEnvironment, LinkEnvironment LinkEnvironment)
+		{
+
+			CompileEnvironment.Definitions.Add("PLATFORM_DESKTOP=0");
+			CompileEnvironment.Definitions.Add("PLATFORM_CAN_SUPPORT_EDITORONLY_DATA=0");
+
+			CompileEnvironment.Definitions.Add("WITH_OGGVORBIS=1");
+
+			CompileEnvironment.Definitions.Add("UNICODE");
+			CompileEnvironment.Definitions.Add("_UNICODE");
+
+			CompileEnvironment.Definitions.Add("PLATFORM_ANDROID=1");
+			CompileEnvironment.Definitions.Add("ANDROID=1");
+
+			CompileEnvironment.Definitions.Add("WITH_DATABASE_SUPPORT=0");
+			CompileEnvironment.Definitions.Add("WITH_EDITOR=0");
+			CompileEnvironment.Definitions.Add("USE_NULL_RHI=0");
+			CompileEnvironment.Definitions.Add("REQUIRES_ALIGNED_INT_ACCESS");
+
+			SetUpSpecificEnvironment(Target, CompileEnvironment, LinkEnvironment);
+
 			LinkEnvironment.AdditionalLibraries.Add("gnustl_shared");
 			LinkEnvironment.AdditionalLibraries.Add("gcc");
 			LinkEnvironment.AdditionalLibraries.Add("z");
@@ -461,13 +493,6 @@ namespace UnrealBuildTool
 			LinkEnvironment.AdditionalLibraries.Add("m");
 			LinkEnvironment.AdditionalLibraries.Add("log");
 			LinkEnvironment.AdditionalLibraries.Add("dl");
-			if (!UseTegraGraphicsDebugger(Target))
-			{
-				LinkEnvironment.AdditionalLibraries.Add("GLESv2");
-				LinkEnvironment.AdditionalLibraries.Add("EGL");
-			}
-			LinkEnvironment.AdditionalLibraries.Add("OpenSLES");
-			LinkEnvironment.AdditionalLibraries.Add("android");
 		}
 
 		private bool UseTegraGraphicsDebugger(ReadOnlyTargetRules Target)
@@ -515,6 +540,10 @@ namespace UnrealBuildTool
 		{
 			bool bUseLdGold = Target.bUseUnityBuild;
 			return new AndroidToolChain(Target.ProjectFile, bUseLdGold, Target.AndroidPlatform.Architectures, Target.AndroidPlatform.GPUArchitectures);
+		}
+		public override UEToolChain CreateTempToolChainForProject(FileReference ProjectFile)
+		{
+			return new AndroidToolChain(ProjectFile, true, null, null);
 		}
 
 		/// <summary>
@@ -592,7 +621,7 @@ namespace UnrealBuildTool
 		/// checks if the sdk is installed or has been synced
 		/// </summary>
 		/// <returns></returns>
-		private bool HasAnySDK()
+		protected virtual bool HasAnySDK()
 		{
 			string NDKPath = Environment.GetEnvironmentVariable("NDKROOT");
 			{
@@ -600,11 +629,11 @@ namespace UnrealBuildTool
 				var AndroidEnv = new Dictionary<string, string>();
 
 				Dictionary<string, string> EnvVarNames = new Dictionary<string, string> { 
-                                                         {"ANDROID_HOME", "SDKPath"}, 
-                                                         {"NDKROOT", "NDKPath"}, 
-                                                         {"ANT_HOME", "ANTPath"},
-                                                         {"JAVA_HOME", "JavaPath"}
-                                                         };
+														 {"ANDROID_HOME", "SDKPath"}, 
+														 {"NDKROOT", "NDKPath"}, 
+														 {"ANT_HOME", "ANTPath"},
+														 {"JAVA_HOME", "JavaPath"}
+														 };
 
 				string path;
 				foreach (var kvp in EnvVarNames)

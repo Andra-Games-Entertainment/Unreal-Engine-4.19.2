@@ -168,7 +168,9 @@ public:
 	
 	static bool ShouldCache(EShaderPlatform Platform)
 	{
-		return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM4);
+		// MLCHANGES BEGIN
+		return true;
+		// MLCHANGES END
 	}
 };
 

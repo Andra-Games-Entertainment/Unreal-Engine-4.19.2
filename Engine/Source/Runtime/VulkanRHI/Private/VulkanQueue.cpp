@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanQueue.cpp: Vulkan Queue implementation.
@@ -6,7 +6,6 @@
 
 #include "VulkanRHIPrivate.h"
 #include "VulkanQueue.h"
-#include "VulkanSwapChain.h"
 #include "VulkanMemory.h"
 
 static int32 GWaitForIdleOnSubmit = 0;
@@ -66,9 +65,53 @@ void FVulkanQueue::Submit(FVulkanCmdBuffer* CmdBuffer, FVulkanSemaphore* WaitSem
 		SubmitInfo.pWaitDstStageMask = &WaitStageFlags;
 	}
 	{
-		SCOPE_CYCLE_COUNTER(STAT_VulkanQueueSubmit)
+		SCOPE_CYCLE_COUNTER(STAT_VulkanQueueSubmit);
 		VERIFYVULKANRESULT(VulkanRHI::vkQueueSubmit(Queue, 1, &SubmitInfo, Fence->GetHandle()));
 	}
+
+	CmdBuffer->State = FVulkanCmdBuffer::EState::Submitted;
+	CmdBuffer->SubmittedFenceCounter = CmdBuffer->FenceSignaledCounter;
+
+	if (GWaitForIdleOnSubmit != 0)
+	{
+		// 200 ms timeout
+		bool bSuccess = Device->GetFenceManager().WaitForFence(CmdBuffer->Fence, 200 * 1000 * 1000);
+		ensure(bSuccess);
+		ensure(Device->GetFenceManager().IsFenceSignaled(CmdBuffer->Fence));
+		CmdBuffer->GetOwner()->RefreshFenceStatus();
+	}
+
+	UpdateLastSubmittedCommandBuffer(CmdBuffer);
+
+	CmdBuffer->GetOwner()->RefreshFenceStatus();
+
+	Device->GetStagingManager().ProcessPendingFree(false, false);
+}
+
+void FVulkanQueue::Submit(FVulkanCmdBuffer* CmdBuffer, uint32 NumSignalSemaphores, VkSemaphore* SignalSemaphores)
+{
+	check(CmdBuffer->HasEnded());
+
+	VulkanRHI::FFence* Fence = CmdBuffer->Fence;
+	check(!Fence->IsSignaled());
+
+	const VkCommandBuffer CmdBuffers[] = { CmdBuffer->GetHandle() };
+
+	VkSubmitInfo SubmitInfo;
+	FMemory::Memzero(SubmitInfo);
+	SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	SubmitInfo.commandBufferCount = 1;
+	SubmitInfo.pCommandBuffers = CmdBuffers;
+	SubmitInfo.signalSemaphoreCount = NumSignalSemaphores;
+	SubmitInfo.pSignalSemaphores = SignalSemaphores;
+
+	{
+		SCOPE_CYCLE_COUNTER(STAT_VulkanQueueSubmit);
+		VERIFYVULKANRESULT(VulkanRHI::vkQueueSubmit(Queue, 1, &SubmitInfo, Fence->GetHandle()));
+	}
+
+	CmdBuffer->State = FVulkanCmdBuffer::EState::Submitted;
+	CmdBuffer->SubmittedFenceCounter = CmdBuffer->FenceSignaledCounter;
 
 	if (GWaitForIdleOnSubmit != 0)
 	{
@@ -78,8 +121,6 @@ void FVulkanQueue::Submit(FVulkanCmdBuffer* CmdBuffer, FVulkanSemaphore* WaitSem
 		Device->GetFenceManager().WaitForFence(CmdBuffer->Fence, 1000 * 60000);
 		ensure(Device->GetFenceManager().IsFenceSignaled(CmdBuffer->Fence));
 	}
-
-	CmdBuffer->State = FVulkanCmdBuffer::EState::Submitted;
 
 	UpdateLastSubmittedCommandBuffer(CmdBuffer);
 

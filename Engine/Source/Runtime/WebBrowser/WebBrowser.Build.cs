@@ -46,9 +46,13 @@ public class WebBrowser : ModuleRules
 
         if (Target.Platform == UnrealTargetPlatform.Android)
 		{
-            // We need this one on Android for URL decoding
-            PrivateDependencyModuleNames.Add("HTTP");
-        }
+			// We need this one on Android for URL decoding
+			PrivateDependencyModuleNames.Add("HTTP");
+		}
+		if (Target.Platform == UnrealTargetPlatform.Lumin)
+		{
+			PrecompileForTargets = PrecompileTargetsType.None;
+		}
 
         if (Target.Platform == UnrealTargetPlatform.Win64
 		||  Target.Platform == UnrealTargetPlatform.Win32

@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "Containers/Queue.h"
 
+#if USE_ANDROID_EVENTS
+
 struct ANativeWindow;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogAndroidEvents, Log, All);
@@ -95,3 +97,5 @@ private:
 	bool bHaveGame;
 	bool bRunning;
 };
+
+#endif

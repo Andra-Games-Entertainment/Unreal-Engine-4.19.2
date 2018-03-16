@@ -4,7 +4,9 @@
 
 #include "GenericApplication.h"
 #include "AndroidWindow.h"
+#if USE_ANDROID_JNI
 #include "AndroidJavaEnv.h"
+#endif
 
 namespace FAndroidAppEntry
 {
@@ -40,6 +42,7 @@ public:
 
 	static FAndroidApplication* CreateAndroidApplication();
 
+#if USE_ANDROID_JNI
 	// Returns the java environment
 	static FORCEINLINE void InitializeJavaEnv(JavaVM* VM, jint Version, jobject GlobalThis)
 	{
@@ -69,6 +72,7 @@ public:
 	{
 		return AndroidJavaEnv::CheckJavaException();
 	}
+#endif
 
 	static FAndroidApplication* Get() { return _application; }
 
@@ -94,9 +98,10 @@ public:
 
 	virtual bool IsGamepadAttached() const override;
 
-private:
+protected:
 
 	FAndroidApplication();
+	FAndroidApplication(TSharedPtr<class FAndroidInputInterface> InInputInterface);
 
 
 private:

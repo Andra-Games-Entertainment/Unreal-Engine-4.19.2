@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanViewport.h: Vulkan viewport RHI definitions.
@@ -33,11 +33,6 @@ public:
 		return FIntPoint(SizeX, SizeY);
 	}
 
-	inline FVulkanSwapChain* GetSwapChain()
-	{
-		return SwapChain;
-	}
-
 	virtual void SetCustomPresent(FRHICustomPresent* InCustomPresent) override final
 	{
 		CustomPresent = InCustomPresent;
@@ -50,7 +45,7 @@ public:
 
 	void AdvanceBackBufferFrame();
 
-	bool Present(FVulkanCmdBuffer* CmdBuffer, FVulkanQueue* Queue, FVulkanQueue* PresentQueue, bool bLockToVsync);
+	bool Present(FVulkanCommandListContext* Context, FVulkanCmdBuffer* CmdBuffer, FVulkanQueue* Queue, FVulkanQueue* PresentQueue, bool bLockToVsync);
 
 	inline uint32 GetPresentCount() const
 	{
@@ -84,8 +79,11 @@ protected:
 	void CreateSwapchain();
 	void AcquireBackBuffer(FRHICommandListBase& CmdList, FVulkanBackBuffer* NewBackBuffer);
 
-	void RecreateSwapchain(void* NewNativeWindow);
+	void RecreateSwapchain(void* NewNativeWindow, bool bForce = false);
 	void Resize(uint32 InSizeX, uint32 InSizeY, bool bIsFullscreen);
+
+	static int32 DoAcquireImageIndex(FVulkanViewport* Viewport);
+	bool DoCheckedSwapChainJob(TFunction<int32(FVulkanViewport*)> SwapChainJob);
 
 	friend class FVulkanDynamicRHI;
 	friend class FVulkanCommandListContext;
@@ -97,10 +95,3 @@ struct TVulkanResourceTraits<FRHIViewport>
 {
 	typedef FVulkanViewport TConcreteType;
 };
-
-
-inline bool DelayAcquireBackBuffer()
-{
-	extern FAutoConsoleVariable GCVarDelayAcquireBackBuffer;
-	return GCVarDelayAcquireBackBuffer->GetInt() != 0;
-}

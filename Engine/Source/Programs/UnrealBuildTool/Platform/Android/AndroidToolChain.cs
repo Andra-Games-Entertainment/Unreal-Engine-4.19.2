@@ -26,7 +26,7 @@ namespace UnrealBuildTool
 			"-es2",
 		};
 
-		private FileReference ProjectFile;
+		protected FileReference ProjectFile;
 		private bool bUseLdGold;
 		private IReadOnlyList<string> AdditionalArches;
 		private IReadOnlyList<string> AdditionalGPUArches;
@@ -37,11 +37,11 @@ namespace UnrealBuildTool
 		static int ClangVersionPatch = -1;
 
 		// the list of architectures we will compile for
-		private List<string> Arches = null;
+		protected List<string> Arches = null;
 		// the list of GPU architectures we will compile for
-		private List<string> GPUArchitectures = null;
+		protected List<string> GPUArchitectures = null;
 		// a list of all architecture+GPUArchitecture names (-armv7-es2, etc)
-		private List<string> AllComboNames = null;
+		protected List<string> AllComboNames = null;
 
 		static private Dictionary<string, string[]> AllArchNames = new Dictionary<string, string[]> {
 			{ "-armv7", new string[] { "armv7", "armeabi-v7a", } }, 
@@ -71,7 +71,7 @@ namespace UnrealBuildTool
 			{ "-x64",   new string[] { "OculusEntitlementCallbackProxy", "OculusCreateSessionCallbackProxy", "OculusFindSessionsCallbackProxy", "OculusIdentityCallbackProxy", "OculusNetConnection", "OculusNetDriver", "OnlineSubsystemOculus_init" } },
 		};
 
-		private void SetClangVersion(int Major, int Minor, int Patch)
+		protected void SetClangVersion(int Major, int Minor, int Patch)
 		{
 			ClangVersionMajor = Major;
 			ClangVersionMinor = Minor;
@@ -105,7 +105,12 @@ namespace UnrealBuildTool
 
 
 		public AndroidToolChain(FileReference InProjectFile, bool bInUseLdGold, IReadOnlyList<string> InAdditionalArches, IReadOnlyList<string> InAdditionalGPUArches)
-			: base(CppPlatform.Android)
+			: this(CppPlatform.Android, InProjectFile, bInUseLdGold, InAdditionalArches, InAdditionalGPUArches, false)
+		{
+		}
+
+		protected AndroidToolChain(CppPlatform InCppPlatform, FileReference InProjectFile, bool bInUseLdGold, IReadOnlyList<string> InAdditionalArches, IReadOnlyList<string> InAdditionalGPUArches, bool bAllowMissingNDK)
+			: base(InCppPlatform)
 		{
 			ProjectFile = InProjectFile;
 			bUseLdGold = bInUseLdGold;
@@ -117,6 +122,10 @@ namespace UnrealBuildTool
 			// don't register if we don't have an NDKROOT specified
 			if (String.IsNullOrEmpty(NDKPath))
 			{
+				if (bAllowMissingNDK)
+				{
+					return;
+				}
 				throw new BuildException("NDKROOT is not specified; cannot use Android toolchain.");
 			}
 
@@ -234,7 +243,7 @@ namespace UnrealBuildTool
 								   " -gcc-toolchain \"" + Path.Combine(NDKPath, @"toolchains\x86_64-" + GccVersion, ArchitecturePath) + "\"";
 		}
 
-		public void ParseArchitectures()
+		public virtual void ParseArchitectures()
 		{
 			// look in ini settings for what platforms to compile for
 			ConfigHierarchy Ini = ConfigCache.ReadHierarchy(ConfigHierarchyType.Engine, DirectoryReference.FromFile(ProjectFile), UnrealTargetPlatform.Android);
@@ -355,7 +364,7 @@ namespace UnrealBuildTool
 			return NDKVersionInt;
 		}
 
-		private bool ValidateNDK(string PlatformsDir, string ApiString)
+		protected virtual bool ValidateNDK(string PlatformsDir, string ApiString)
 		{
 			if (!Directory.Exists(PlatformsDir))
 			{
@@ -436,7 +445,7 @@ namespace UnrealBuildTool
 			return LargestString;
 		}
 
-		string GetCLArguments_Global(CppCompileEnvironment CompileEnvironment, string Architecture)
+		protected virtual string GetCLArguments_Global(CppCompileEnvironment CompileEnvironment, string Architecture)
 		{
 			string Result = "";
 
@@ -505,7 +514,10 @@ namespace UnrealBuildTool
 				Result += " -Wno-undefined-var-template";			// not really a good warning to disable
 			}
 
-			if (CompilerVersionGreaterOrEqual(4, 0, 0))
+			// jf: added for Lumin, as XGE seems to not preserve case in includes properly
+			Result += " -Wno-nonportable-include-path";         // not all of these are real
+
+            if (CompilerVersionGreaterOrEqual(4, 0, 0))
 			{
 				Result += " -Wno-unused-lambda-capture";            // probably should fix the code
 				Result += " -Wno-nonportable-include-path";         // not all of these are real
@@ -699,7 +711,7 @@ namespace UnrealBuildTool
 			return Result;
 		}
 
-		string GetLinkArguments(LinkEnvironment LinkEnvironment, string Architecture)
+		protected virtual string GetLinkArguments(LinkEnvironment LinkEnvironment, string Architecture)
 		{
 			string Result = "";
 
@@ -743,7 +755,7 @@ namespace UnrealBuildTool
 
 			if (bUseLdGold && CompilerVersionGreaterOrEqual(3, 6, 0) && CompilerVersionLessThan(3, 8, 0))
 			{
-				Result += " -fuse-ld=gold";				// ld.gold is available in r10e (clang 3.6)
+				Result += " -fuse-ld=gold";             // ld.gold is available in r10e (clang 3.6)
 			}
 
 			// make sure the DT_SONAME field is set properly (or we can a warning toast at startup on new Android)
@@ -753,6 +765,22 @@ namespace UnrealBuildTool
 			// Result += " -v";
 
 			return Result;
+		}
+
+
+		protected virtual void ModifyLibraries(LinkEnvironment LinkEnvironment)
+		{
+			// @todo Lumin: verify this works with base android
+			if (GetNdkApiLevelInt() >= 21)
+			{
+				// this file was added in NDK11 so use existence to detect (RELEASE.TXT no longer present)
+				var NDKRoot = Environment.GetEnvironmentVariable("NDKROOT").Replace("\\", "/");
+				if (File.Exists(Path.Combine(NDKRoot, "source.properties")))
+				{
+					LinkEnvironment.AdditionalLibraries.Add(Path.Combine(UnrealBuildTool.EngineDirectory.FullName, "Build/Android/Prebuilt/bsdsignal/lib/armeabi-v7a/libbsdsignal.a"));
+					LinkEnvironment.AdditionalLibraries.Add(Path.Combine(UnrealBuildTool.EngineDirectory.FullName, "Build/Android/Prebuilt/bsdsignal/lib/x86/libbsdsignal.a"));
+				}
+			}
 		}
 
 		static string GetArArguments(LinkEnvironment LinkEnvironment)
@@ -835,12 +863,15 @@ namespace UnrealBuildTool
 			return Environment.GetEnvironmentVariable("NDKROOT") + "/sources/android/native_app_glue/android_native_app_glue.c";
 		}
 
-		static void ConditionallyAddNDKSourceFiles(List<FileItem> SourceFiles, string ModuleName, string NativeGluePath)
+		protected virtual void ModifySourceFiles(CppCompileEnvironment CompileEnvironment, List<FileItem> SourceFiles, string ModuleName)
 		{
+			// Deal with dynamic modules removed by architecture
+			GenerateEmptyLinkFunctionsForRemovedModules(SourceFiles, ModuleName, CompileEnvironment.OutputDirectory);
+
 			// We need to add the extra glue and cpu code only to Launch module.
 			if (ModuleName.Equals("Launch"))
 			{
-				SourceFiles.Add(FileItem.GetItemByPath(NativeGluePath));
+				SourceFiles.Add(FileItem.GetItemByPath(GetNativeGluePath()));
 
 				// Newer NDK cpu_features.c uses getauxval() which causes a SIGSEGV in libhoudini.so (ARM on Intel translator) in older versions of Houdini
 				// so we patch the file to use alternative methods of detecting CPU features if libhoudini.so is detected
@@ -985,15 +1016,15 @@ namespace UnrealBuildTool
 		}
 
 		// cache the location of NDK tools
-		static string ClangPath;
-		static string ToolchainParamsArm;
-		static string ToolchainParamsArm64;
-		static string ToolchainParamsx86;
-		static string ToolchainParamsx64;
-		static string ArPathArm;
-		static string ArPathArm64;
-		static string ArPathx86;
-		static string ArPathx64;
+		protected static string ClangPath;
+		protected static string ToolchainParamsArm;
+		protected static string ToolchainParamsArm64;
+		protected static string ToolchainParamsx86;
+		protected static string ToolchainParamsx64;
+		protected static string ArPathArm;
+		protected static string ArPathArm64;
+		protected static string ArPathx86;
+		protected static string ArPathx64;
 
 		static public string GetStripExecutablePath(string UE4Arch)
 		{
@@ -1010,7 +1041,6 @@ namespace UnrealBuildTool
 			return StripPath.Replace("-ar", "-strip");
 		}
 
-		static private bool bHasPrintedApiLevel = false;
 		static private bool bHasHandledLaunchModule = false;
 		public override CPPOutput CompileCPPFiles(CppCompileEnvironment CompileEnvironment, List<FileItem> SourceFiles, string ModuleName, ActionGraph ActionGraph)
 		{
@@ -1039,11 +1069,8 @@ namespace UnrealBuildTool
 			}
 			*/
 
-			if (!bHasPrintedApiLevel)
-			{
-				Console.WriteLine("Compiling Native code with NDK API '{0}'", GetNdkApiLevel());
-				bHasPrintedApiLevel = true;
-			}
+			Log.TraceInformationOnce("Compiling Native code with NDK API '{0}'", GetNdkApiLevel());
+
 
 			string BaseArguments = "";
 
@@ -1058,25 +1085,28 @@ namespace UnrealBuildTool
 			// Deal with Launch module special if first time seen
 			if (!bHasHandledLaunchModule && ModuleName.Equals("Launch"))
 			{
-				// Directly added NDK files for NDK extensions
-				ConditionallyAddNDKSourceFiles(SourceFiles, ModuleName, NativeGluePath);
+				// @todo [njw]  Made a guess here, is ModifySourceFiles the right solution?
+				//// Directly added NDK files for NDK extensions
+				//ConditionallyAddNDKSourceFiles(SourceFiles, ModuleName, NativeGluePath);
 
+				// Directly added NDK files for NDK extensions
+				ModifySourceFiles(CompileEnvironment, SourceFiles, ModuleName);
 				// Deal with dynamic modules removed by architecture
 				GenerateEmptyLinkFunctionsForRemovedModules(SourceFiles, ModuleName, CompileEnvironment.OutputDirectory);
 
 				bHasHandledLaunchModule = true;
 			}
 
+			// Deal with Launch module special if first time seen
 			// Add preprocessor definitions to the argument list.
 			foreach (string Definition in CompileEnvironment.Definitions)
 			{
 				BaseArguments += string.Format(" -D \"{0}\"", Definition);
 			}
 
-			var NDKRoot = Environment.GetEnvironmentVariable("NDKROOT").Replace("\\", "/");
-
 			string BasePCHName = "";
-			var PCHExtension = UEBuildPlatform.GetBuildPlatform(UnrealTargetPlatform.Android).GetBinaryExtension(UEBuildBinaryType.PrecompiledHeader);
+			UEBuildPlatform BuildPlatform = UEBuildPlatform.GetBuildPlatform(UEBuildPlatform.CPPTargetPlatformToUnrealTargetPlatform(CompileEnvironment.Platform));
+			var PCHExtension = BuildPlatform.GetBinaryExtension(UEBuildBinaryType.PrecompiledHeader);
 			if (CompileEnvironment.PrecompiledHeaderAction == PrecompiledHeaderAction.Include)
 			{
 				BasePCHName = RemoveArchName(CompileEnvironment.PrecompiledHeaderFile.AbsolutePath).Replace(PCHExtension, "");
@@ -1103,6 +1133,8 @@ namespace UnrealBuildTool
 						case "-x64": Arguments += " -DPLATFORM_64BITS=1 -DPLATFORM_ANDROID_X64=1"; break;
 						default: Arguments += " -DPLATFORM_64BITS=0 -DPLATFORM_ANDROID_ARM=1"; break;
 					}
+
+					Arguments += " -DPLATFORM_ANDROIDGL4=" + ((GPUArchitecture == "-gl4") ? "1" : "0");
 
 					// which PCH file to include
 					string PCHArguments = "";
@@ -1160,8 +1192,8 @@ namespace UnrealBuildTool
 						{
 							FileArguments += GetCompileArguments_C(bDisableOptimizations);
 
-							// remove shadow variable warnings for NDK files
-							if (SourceFile.AbsolutePath.Replace("\\", "/").StartsWith(NDKRoot))
+							// remove shadow variable warnings for externally included files
+							if (!SourceFile.AbsolutePath.Replace("\\", "/").StartsWith(Path.GetFullPath(UnrealBuildTool.RootDirectory.CanonicalName)))
 							{
 								bDisableShadowWarning = true;
 							}
@@ -1202,7 +1234,7 @@ namespace UnrealBuildTool
 								CompileAction.PrerequisiteItems.Add(ArchPrecompiledHeaderFile);
 							}
 
-							var ObjectFileExtension = UEBuildPlatform.GetBuildPlatform(UnrealTargetPlatform.Android).GetBinaryExtension(UEBuildBinaryType.Object);
+							var ObjectFileExtension = BuildPlatform.GetBinaryExtension(UEBuildBinaryType.Object);
 
 							// Add the object file to the produced item list.
 							FileItem ObjectFile = FileItem.GetItemByFileReference(
@@ -1292,33 +1324,15 @@ namespace UnrealBuildTool
 		{
 			List<FileItem> Outputs = new List<FileItem>();
 
-			var NDKRoot = Environment.GetEnvironmentVariable("NDKROOT").Replace("\\", "/");
-			int NDKApiLevelInt = GetNdkApiLevelInt();
-			string OptionalLinkArguments;
+			if (!LinkEnvironment.bIsBuildingLibrary)
+			{
+				// @todo Lumin: will this add them multiple times?
+				ModifyLibraries(LinkEnvironment);
+			}
 
 			for (int ArchIndex = 0; ArchIndex < Arches.Count; ArchIndex++)
 			{
 				string Arch = Arches[ArchIndex];
-
-				// 32-bit ABI may need fixup for removed bsd_signal in NDK11 for android-21+
-				OptionalLinkArguments = "";
-				if (NDKApiLevelInt >= 21)
-				{
-					// this file was added in NDK11 so use existence to detect (RELEASE.TXT no longer present)
-					if (File.Exists(Path.Combine(NDKRoot, "source.properties")))
-					{
-						switch (Arch)
-						{
-							case "-armv7":
-								OptionalLinkArguments = string.Format(" \"{0}\"", Path.Combine(UnrealBuildTool.EngineDirectory.FullName, "Build/Android/Prebuilt/bsdsignal/lib/armeabi-v7a/libbsdsignal.a"));
-								break;
-
-							case "-x86":
-								OptionalLinkArguments = string.Format(" \"{0}\"", Path.Combine(UnrealBuildTool.EngineDirectory.FullName, "Build/Android/Prebuilt/bsdsignal/lib/x86/libbsdsignal.a"));
-								break;
-						}
-					}
-				}
 
 				for (int GPUArchIndex = 0; GPUArchIndex < GPUArchitectures.Count; GPUArchIndex++)
 				{
@@ -1434,7 +1448,6 @@ namespace UnrealBuildTool
 								}
 							}
 						}
-						LinkResponseArguments += OptionalLinkArguments;
 						LinkResponseArguments += string.Format(" -Wl,--end-group");
 
 						// Write the MAP file to the output directory.
@@ -1522,7 +1535,7 @@ namespace UnrealBuildTool
 			}
 		}
 
-		public void StripSymbols(FileReference SourceFile, FileReference TargetFile)
+		public virtual void StripSymbols(FileReference SourceFile, FileReference TargetFile)
 		{
 			if (SourceFile != TargetFile)
 			{

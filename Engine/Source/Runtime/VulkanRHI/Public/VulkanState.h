@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanState.h: Vulkan state definitions.
@@ -44,9 +44,14 @@ public:
 class FVulkanDepthStencilState : public FRHIDepthStencilState
 {
 public:
-	FVulkanDepthStencilState(const FDepthStencilStateInitializerRHI& Initializer);
+	FVulkanDepthStencilState(const FDepthStencilStateInitializerRHI& InInitializer)
+	{
+		Initializer = InInitializer;
+	}
 
-	VkPipelineDepthStencilStateCreateInfo DepthStencilState;
+	void SetupCreateInfo(const FGraphicsPipelineStateInitializer& GfxPSOInit, VkPipelineDepthStencilStateCreateInfo& OutDepthStencilState);
+
+	FDepthStencilStateInitializerRHI Initializer;
 };
 
 class FVulkanBlendState : public FRHIBlendState

@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "SynthComponent.h"
 #include "AudioDevice.h"
@@ -103,8 +103,10 @@ USynthComponent::USynthComponent(const FObjectInitializer& ObjectInitializer)
 	bIsInitialized = false;
 	bIsUISound = false;
 
+
 	// Set the default sound class
 	SoundClass = USoundBase::DefaultSoundClassObject;
+	Synth = nullptr;
 
 #if WITH_EDITORONLY_DATA
 	bVisualizeComponent = false;
@@ -192,6 +194,9 @@ void USynthComponent::Initialize(int32 SampleRateOverride)
 			Synth->SourceEffectChain = SourceEffectChain;
 			Synth->SoundSubmixObject = SoundSubmix;
 			Synth->SoundSubmixSends = SoundSubmixSends;
+			Synth->BusSends = BusSends;
+			Synth->PreEffectBusSends = PreEffectBusSends;
+			Synth->bOutputToBusOnly = bOutputToBusOnly;
 
 			Synth->Init(this, NumChannels, SampleRate);
 		}
@@ -228,8 +233,8 @@ void USynthComponent::CreateAudioComponent()
 			AudioComponent->OnAudioSingleEnvelopeValueNative.AddUObject(this, &USynthComponent::OnAudioComponentEnvelopeValue);
 
 			// Set defaults to be the same as audio component defaults
-			EnvelopeFollowerAttackTime = AudioComponent->EnvelopeFollowerAttackTime;
-			EnvelopeFollowerReleaseTime = AudioComponent->EnvelopeFollowerReleaseTime;
+			AudioComponent->EnvelopeFollowerAttackTime = EnvelopeFollowerAttackTime;
+			AudioComponent->EnvelopeFollowerReleaseTime = EnvelopeFollowerReleaseTime;
 
 			Initialize();
 
@@ -339,6 +344,15 @@ void USynthComponent::Start()
 {
 	// This will try to create the audio component if it hasn't yet been created
 	CreateAudioComponent();
+
+	// We will also ensure that this synth was initialized before attempting to play.
+	Initialize();
+
+	if (Synth == nullptr)
+	{
+		UE_LOG(LogAudio, Warning, TEXT("Warning: SynthComponent failed to start due to failiure in initialization."));
+		return;
+	}
 
 	if (AudioComponent)
 	{

@@ -9,12 +9,7 @@
 #include "Misc/FeedbackContext.h"
 #include "Misc/OutputDeviceRedirector.h"
 #include "HAL/IConsoleManager.h"
-#include <android/log.h>
-#include <cpu-features.h>
 #include "ModuleManager.h"
-#include <android/keycodes.h>
-#include <string.h>
-#include <dlfcn.h>
 #include <sys/statfs.h>
 
 #include "AndroidPlatformCrashContext.h"
@@ -25,10 +20,21 @@
 #include "Misc/Parse.h"
 #include "Internationalization/Regex.h"
 
+#include <android/log.h>
+#if USE_ANDROID_INPUT
+#include <android/keycodes.h>
+#endif
+#if USE_ANDROID_JNI
+#include <cpu-features.h>
 #include <android_native_app_glue.h>
 #include "Function.h"
 #include "AndroidStats.h"
+#endif
+
 #include "CoreDelegates.h"
+
+#include <string.h>
+#include <dlfcn.h>
 
 #if STATS
 int32 FAndroidMisc::TraceMarkerFileDescriptor = -1;
@@ -53,7 +59,11 @@ void FAndroidMisc::RequestExit( bool Force )
 	UE_LOG(LogWindows, Log, TEXT("FAndroidMisc::RequestExit(%i)"), Force);
 	if (Force)
 	{
+#if USE_ANDROID_JNI
 		AndroidThunkCpp_ForceQuit();
+#else
+		exit(1);
+#endif
 	}
 	else
 	{
@@ -131,6 +141,7 @@ static struct
 	double	TimeOfChange;
 } CurrentVolume;
 
+#if USE_ANDROID_JNI
 extern "C"
 {
 
@@ -162,7 +173,9 @@ extern "C"
 		ReceiversLock.Unlock();
 	}
 }
+#endif
 
+#if USE_ANDROID_JNI
 
 // Manage Java side OS event receivers.
 static struct
@@ -244,6 +257,9 @@ void EnableJavaEventReceivers(bool bEnableReceivers)
 	}
 }
 
+#endif	//USE_ANDROID_JNI
+
+
 static FDelegateHandle AndroidOnBackgroundBinding;
 static FDelegateHandle AndroidOnForegroundBinding;
 
@@ -266,9 +282,11 @@ void FAndroidMisc::PlatformInit()
 	}
 #endif
 
+#if USE_ANDROID_JNI
 	InitializeJavaEventReceivers();
 	AndroidOnBackgroundBinding = FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddStatic(EnableJavaEventReceivers, false);
 	AndroidOnForegroundBinding = FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddStatic(EnableJavaEventReceivers, true);
+#endif
 }
 
 extern void AndroidThunkCpp_DismissSplashScreen();
@@ -298,10 +316,12 @@ void FAndroidMisc::PlatformTearDown()
 
 void FAndroidMisc::PlatformHandleSplashScreen(bool ShowSplashScreen)
 {
+#if USE_ANDROID_JNI
 	if (!ShowSplashScreen)
 	{
 		AndroidThunkCpp_DismissSplashScreen();
 	}
+#endif
 }
 
 void FAndroidMisc::GetEnvironmentVariable(const TCHAR* VariableName, TCHAR* Result, int32 ResultLength)
@@ -326,6 +346,7 @@ const TCHAR* FAndroidMisc::GetSystemErrorMessage(TCHAR* OutBuffer, int32 BufferC
 
 EAppReturnType::Type FAndroidMisc::MessageBoxExt( EAppMsgType::Type MsgType, const TCHAR* Text, const TCHAR* Caption )
 {
+#if USE_ANDROID_JNI
 	FJavaAndroidMessageBox MessageBox;
 	MessageBox.SetText(Text);
 	MessageBox.SetCaption(Caption);
@@ -408,6 +429,8 @@ EAppReturnType::Type FAndroidMisc::MessageBoxExt( EAppMsgType::Type MsgType, con
 	{
 		return ResultValues[Choice];
 	}
+#endif
+
 	// Failed to show dialog, or failed to get a response,
 	// return default cancel response instead.
 	return FGenericPlatformMisc::MessageBoxExt(MsgType, Text, Caption);
@@ -466,9 +489,84 @@ bool FAndroidMisc::AllowRenderThread()
 
 int32 FAndroidMisc::NumberOfCores()
 {
-	int32 NumberOfCores = android_getCpuCount();
+#if USE_ANDROID_JNI
+	static int32 NumberOfCores = android_getCpuCount();
 	return NumberOfCores;
+#else
+	// WARNING: this function ignores edge cases like affinity mask changes (and even more fringe cases like CPUs going offline)
+	// in the name of performance (higher level code calls NumberOfCores() way too often...)
+	static int32 NumberOfCores = 0;
+	if (NumberOfCores == 0)
+	{
+		if (FParse::Param(FCommandLine::Get(), TEXT("usehyperthreading")))
+		{
+			NumberOfCores = NumberOfCoresIncludingHyperthreads();
+		}
+		else
+		{
+			cpu_set_t AvailableCpusMask;
+			CPU_ZERO(&AvailableCpusMask);
+
+			if (0 != sched_getaffinity(0, sizeof(AvailableCpusMask), &AvailableCpusMask))
+			{
+				NumberOfCores = 1;	// we are running on something, right?
+			}
+			else
+			{
+				// read the proc core counts and the proc max frequencies from cpuinfo because of 
+				// potential security restrictions on the sys mount
+				if (FILE* FileGlobalCpuStats = fopen("/proc/cpuinfo", "r"))
+				{
+					char LineBuffer[256] = { 0 };
+					do
+					{
+						char *Line = fgets(LineBuffer, ARRAY_COUNT(LineBuffer), FileGlobalCpuStats);
+						if (Line == nullptr)
+						{
+							break;	// eof or an error
+						}
+						// count the number of processor entries in loop
+						// for nova one processor translates to one core
+						if (strstr(Line, "processor") == Line)
+						{
+							NumberOfCores += 1;
+						}
+					} while (1);
+					fclose(FileGlobalCpuStats);
+				}
+			}
+		}
+	}
+	return NumberOfCores;
+#endif
 }
+
+int32 FAndroidMisc::NumberOfCoresIncludingHyperthreads()
+{
+#if USE_ANDROID_JNI
+	return FPlatformMisc::NumberOfCores();
+#else
+	// WARNING: this function ignores edge cases like affinity mask changes (and even more fringe cases like CPUs going offline)
+	// in the name of performance (higher level code calls NumberOfCores() way too often...)
+	static int32 NumCoreIds = 0;
+	if (NumCoreIds == 0)
+	{
+		cpu_set_t AvailableCpusMask;
+		CPU_ZERO(&AvailableCpusMask);
+
+		if (0 != sched_getaffinity(0, sizeof(AvailableCpusMask), &AvailableCpusMask))
+		{
+			NumCoreIds = 1;	// we are running on something, right?
+		}
+		else
+		{
+			return CPU_COUNT(&AvailableCpusMask);
+		}
+	}
+	return NumCoreIds;
+#endif
+}
+
 
 static FAndroidMisc::FCPUState CurrentCPUState;
 
@@ -549,57 +647,6 @@ FAndroidMisc::FCPUState& FAndroidMisc::GetCPUState(){
 	return CurrentCPUState;
 }
 
-
-extern FString GFilePathBase;
-extern FString GFontPathBase;
-
-class FTestUtime
-{
-public:
-	FTestUtime()
-		: Supported(false)
-	{
-		static FString TestFilePath = GFilePathBase + FString(TEXT("/UE4UtimeTest.txt"));
-		static const char * TestFilePathChar = StringCast<ANSICHAR>(*TestFilePath).Get();
-		FILE * FileHandle = fopen(TestFilePathChar, "w");
-		if(FileHandle)
-		{
-			fclose(FileHandle);
-
-			// get file times
-			struct stat FileInfo;
-			if (stat(TestFilePathChar, &FileInfo) == -1)
-			{
-				FPlatformMisc::LowLevelOutputDebugStringf(TEXT("Unable to get file stamp for file ('%s')"), TestFilePathChar);
-			}
-			else
-			{
-				struct utimbuf Times;
-			    Times.actime = 0;
-			    Times.modtime = 0;
-				int Result = utime(TestFilePathChar, &Times);
-				Supported = -1 != Result;
-				unlink(TestFilePathChar);
-
-				FPlatformMisc::LowLevelOutputDebugStringf(TEXT("UTime failed for local caching supported test, with error code %d\n"), Result);
-			}
-			
-		}
-		else
-		{
-			FPlatformMisc::LowLevelOutputDebugStringf(TEXT("Failed to create file for Local cache file test\n"), Supported);
-		}
-		FPlatformMisc::LowLevelOutputDebugStringf(TEXT("Is Local Caching Supported? %d\n"), Supported);
-	}
-
-	bool Supported;
-};
-
-bool SupportsUTime()
-{
-	static FTestUtime Test;
-	return Test.Supported;
-}
 
 
 bool FAndroidMisc::SupportsLocalCaching()
@@ -764,20 +811,28 @@ extern void AndroidThunkCpp_UnregisterForRemoteNotifications();
 
 void FAndroidMisc::RegisterForRemoteNotifications()
 {
+#if USE_ANDROID_JNI
 	AndroidThunkCpp_RegisterForRemoteNotifications();
+#endif
 }
 
 void FAndroidMisc::UnregisterForRemoteNotifications()
 {
+#if USE_ANDROID_JNI
 	AndroidThunkCpp_UnregisterForRemoteNotifications();
+#endif
 }
 
 TArray<uint8> FAndroidMisc::GetSystemFontBytes()
 {
+#if USE_ANDROID_FILE
 	TArray<uint8> FontBytes;
 	static FString FullFontPath = GFontPathBase + FString(TEXT("DroidSans.ttf"));
 	FFileHelper::LoadFileToArray(FontBytes, *FullFontPath);
 	return FontBytes;
+#else 
+	return FGenericPlatformMisc::GetSystemFontBytes();
+#endif
 }
 
 class IPlatformChunkInstall* FAndroidMisc::GetPlatformChunkInstall()
@@ -859,6 +914,7 @@ void FAndroidMisc::SetVolumeButtonsHandledBySystem(bool enabled)
 	VolumeButtonsHandledBySystem = enabled;
 }
 
+#if USE_ANDROID_JNI
 int32 FAndroidMisc::GetAndroidBuildVersion()
 {
 	if (AndroidBuildVersion > 0)
@@ -884,6 +940,7 @@ int32 FAndroidMisc::GetAndroidBuildVersion()
 	}
 	return AndroidBuildVersion;
 }
+#endif
 
 bool FAndroidMisc::ShouldDisablePluginAtRuntime(const FString& PluginName)
 {
@@ -897,10 +954,12 @@ bool FAndroidMisc::ShouldDisablePluginAtRuntime(const FString& PluginName)
 	return false;
 }
 
-extern void AndroidThunkCpp_SetThreadName(const char * name);
 void FAndroidMisc::SetThreadName(const char* name)
 {
+#if USE_ANDROID_JNI
+	extern void AndroidThunkCpp_SetThreadName(const char * name);
 	AndroidThunkCpp_SetThreadName(name);
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -926,7 +985,7 @@ void FAndroidMisc::SetThreadName(const char* name)
 #endif
 
 #define VK_MAKE_VERSION(major, minor, patch) \
-    (((major) << 22) | ((minor) << 12) | (patch))
+	(((major) << 22) | ((minor) << 12) | (patch))
 
 #define VK_VERSION_MAJOR(version) ((uint32)(version) >> 22)
 #define VK_VERSION_MINOR(version) (((uint32)(version) >> 12) & 0x3ff)
@@ -1246,11 +1305,15 @@ static EDeviceVulkanSupportStatus AttemptVulkanInit(void* VulkanLib)
 	return EDeviceVulkanSupportStatus::Supported;
 }
 
-extern int32 AndroidThunkCpp_GetMetaDataInt(const FString& Key);
-
 // Test for device vulkan support.
 static void EstablishVulkanDeviceSupport()
 {
+// @todo Lumin: this isn't really the best #define to check here - but basically, without JNI and other version checking, we can't safely do it - we'll need
+// non-JNI platforms that support Vulkan to figure out a way to force it (if they want GL + Vulkan support)
+#if !USE_ANDROID_JNI
+	VulkanSupport = EDeviceVulkanSupportStatus::NotSupported;
+	VulkanVersionString = TEXT("0.0.0");
+#else
 	// just do this check once
 	check(VulkanSupport == EDeviceVulkanSupportStatus::Uninitialized);
 	// assume no
@@ -1276,6 +1339,7 @@ static void EstablishVulkanDeviceSupport()
 				// if Nougat, we can check the Vulkan version
 				if (FAndroidMisc::GetAndroidBuildVersion() >= 24)
 				{
+					extern int32 AndroidThunkCpp_GetMetaDataInt(const FString& Key);
 					int32 VulkanVersion = AndroidThunkCpp_GetMetaDataInt(TEXT("android.hardware.vulkan.version"));
 					if (VulkanVersion >= UE_VK_API_VERSION)
 					{
@@ -1314,6 +1378,7 @@ static void EstablishVulkanDeviceSupport()
 	{
 		FPlatformMisc::LowLevelOutputDebugString(TEXT("VulkanRHI not present."));
 	}
+#endif
 }
 
 bool FAndroidMisc::ShouldUseVulkan()
@@ -1326,7 +1391,7 @@ bool FAndroidMisc::ShouldUseVulkan()
 		static const auto CVarDisableVulkan = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.Android.DisableVulkanSupport"));
 		bool bSupportsVulkan = false;
 		GConfig->GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bSupportsVulkan"), bSupportsVulkan, GEngineIni);
-		const bool bShouldUseVulkan = bSupportsVulkan && VulkanSupport == EDeviceVulkanSupportStatus::Supported && CVarDisableVulkan->GetValueOnAnyThread() == 0;
+		const bool bShouldUseVulkan = (bSupportsVulkan || ShouldUseDesktopVulkan()) && VulkanSupport == EDeviceVulkanSupportStatus::Supported && CVarDisableVulkan->GetValueOnAnyThread() == 0;
 		CachedVulkanSupport = bShouldUseVulkan ? 1 : 0;
 
 		if (bShouldUseVulkan)
@@ -1355,6 +1420,15 @@ bool FAndroidMisc::ShouldUseVulkan()
 	return CachedVulkanSupport == 1;
 }
 
+bool FAndroidMisc::ShouldUseDesktopVulkan()
+{
+	// @todo Lumin: Double check all this stuff after merging general android Vulkan SM5 from main
+	bool bSupportsVulkanSM5 = false;
+	GConfig->GetBool(TEXT("/Script/AndroidRuntimeSettings.AndroidRuntimeSettings"), TEXT("bSupportsVulkanSM5"), bSupportsVulkanSM5, GEngineIni);
+
+	return bSupportsVulkanSM5;
+}
+
 FString FAndroidMisc::GetVulkanVersion()
 {
 	check(VulkanSupport != EDeviceVulkanSupportStatus::Uninitialized);
@@ -1365,8 +1439,12 @@ extern bool AndroidThunkCpp_HasMetaDataKey(const FString& Key);
 
 bool FAndroidMisc::IsDaydreamApplication()
 {
+#if USE_ANDROID_JNI
 	static const bool bIsDaydreamApplication = AndroidThunkCpp_HasMetaDataKey(TEXT("com.epicgames.ue4.GameActivity.bDaydream"));
 	return bIsDaydreamApplication;
+#else
+	return false;
+#endif
 }
 
 #if !UE_BUILD_SHIPPING
@@ -1442,6 +1520,7 @@ int FAndroidMisc::GetVolumeState(double* OutTimeOfChangeInSec)
 	return v;
 }
 
+#if USE_ANDROID_FILE
 const TCHAR* FAndroidMisc::GamePersistentDownloadDir()
 {
 	extern FString GExternalFilePath;
@@ -1477,26 +1556,27 @@ FString FAndroidMisc::GetLoginId()
 
 	return LoginId;
 }
+#endif
 
-extern FString AndroidThunkCpp_GetAndroidId();
-
+#if USE_ANDROID_JNI
 FString FAndroidMisc::GetDeviceId()
 {
+	extern FString AndroidThunkCpp_GetAndroidId();
 	static FString DeviceId = AndroidThunkCpp_GetAndroidId();
 
 	// note: this can be empty or NOT unique depending on the OEM implementation!
 	return DeviceId;
 }
 
-extern FString AndroidThunkCpp_GetAdvertisingId();
-
 FString FAndroidMisc::GetUniqueAdvertisingId()
 {
+	extern FString AndroidThunkCpp_GetAdvertisingId();
 	static FString AdvertisingId = AndroidThunkCpp_GetAdvertisingId();
 
 	// note: this can be empty if Google Play not installed, or user is blocking it!
 	return AdvertisingId;
 }
+#endif
 
 FAndroidMisc::FBatteryState FAndroidMisc::GetBatteryState()
 {
@@ -1524,11 +1604,13 @@ bool FAndroidMisc::AreHeadPhonesPluggedIn()
 	return HeadPhonesArePluggedIn;
 }
 
+#if USE_ANDROID_JNI
 bool FAndroidMisc::HasActiveWiFiConnection()
 {
 	extern bool AndroidThunkCpp_HasActiveWiFiConnection();
 	return AndroidThunkCpp_HasActiveWiFiConnection();
 }
+#endif
 
 static FAndroidMisc::ReInitWindowCallbackType OnReInitWindowCallback;
 
@@ -1565,6 +1647,7 @@ FString FAndroidMisc::GetOSVersion()
 
 bool FAndroidMisc::GetDiskTotalAndFreeSpace(const FString& InPath, uint64& TotalNumberOfBytes, uint64& NumberOfFreeBytes)
 {
+#if USE_ANDROID_FILE
 	extern FString GExternalFilePath;
 	struct statfs FSStat = { 0 };
 	FTCHARToUTF8 Converter(*GExternalFilePath);
@@ -1582,6 +1665,9 @@ bool FAndroidMisc::GetDiskTotalAndFreeSpace(const FString& InPath, uint64& Total
 	}
 	
 	return (Err == 0);
+#else
+	return false;
+#endif
 }
 
 uint32 FAndroidMisc::GetCoreFrequency(int32 CoreIndex, ECoreFrequencyProperty CoreFrequencyProperty)

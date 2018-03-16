@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanUtil.h: Vulkan Utility definitions.
@@ -10,6 +10,7 @@
 
 class FVulkanCmdBuffer;
 class FVulkanRenderQuery;
+class FOLDVulkanRenderQuery;
 class FVulkanCommandListContext;
 
 class FVulkanGPUTiming : public FGPUTiming
@@ -20,9 +21,8 @@ public:
 		, bIsTiming(false)
 		, bEndTimestampIssued(false)
 		, CmdContext(InCmd)
-		, BeginTimer(nullptr)
-		, EndTimer(nullptr)
 	{
+		FMemory::Memzero(Timers);
 	}
 
 	/**
@@ -74,8 +74,27 @@ private:
 	bool bEndTimestampIssued;
 
 	FVulkanCommandListContext* CmdContext;
-	FVulkanRenderQuery* BeginTimer;
-	FVulkanRenderQuery* EndTimer;
+	enum
+	{
+		MaxTimers = 8,
+	};
+	int32 CurrentTimerIndex = 0;
+	int32 NumActiveTimers = 0;
+	struct FBeginEndPair
+	{
+#if VULKAN_USE_NEW_QUERIES
+		FVulkanCmdBuffer* BeginCmdBuffer = nullptr;
+		uint64 BeginFenceCounter = 0;
+		FVulkanCmdBuffer* EndCmdBuffer = nullptr;
+		uint64 EndFenceCounter = 0;
+		FVulkanRenderQuery* Begin;
+		FVulkanRenderQuery* End;
+#else
+		FOLDVulkanRenderQuery* Begin;
+		FOLDVulkanRenderQuery* End;
+#endif
+	};
+	FBeginEndPair Timers[MaxTimers];
 };
 
 /** A single perf event node, which tracks information about a appBeginDrawEvent/appEndDrawEvent range. */
@@ -195,3 +214,12 @@ namespace VulkanRHI
 
 #define VERIFYVULKANRESULT(VkFunction)				{ const VkResult ScopedResult = VkFunction; if (ScopedResult != VK_SUCCESS) { VulkanRHI::VerifyVulkanResult(ScopedResult, #VkFunction, __FILE__, __LINE__); }}
 #define VERIFYVULKANRESULT_EXPANDED(VkFunction)		{ const VkResult ScopedResult = VkFunction; if (ScopedResult < VK_SUCCESS) { VulkanRHI::VerifyVulkanResult(ScopedResult, #VkFunction, __FILE__, __LINE__); }}
+
+
+template<typename T>
+inline bool CopyAndReturnNotEqual(T& A, T B)
+{
+	const bool bOut = A != B;
+	A = B;
+	return bOut;
+}

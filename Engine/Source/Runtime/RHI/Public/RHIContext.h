@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	RHIContext.h: Interface for RHI Contexts
@@ -543,25 +543,7 @@ public:
 
 	virtual void RHIUpdateTextureReference(FTextureReferenceRHIParamRef TextureRef, FTextureRHIParamRef NewTexture) = 0;
 
-	virtual TRefCountPtr<FRHIRenderPass> RHIBeginRenderPass(const FRHIRenderPassInfo& InInfo, const TCHAR* InName)
-	{
-		// Fallback...
-		InInfo.Validate();
-
-		FRHISetRenderTargetsInfo RTInfo;
-		InInfo.ConvertToRenderTargetsInfo(RTInfo);
-		FRHIRenderPassFallback* RenderPass = new FRHIRenderPassFallback(InInfo, InName);
-		RHISetRenderTargetsAndClear(RTInfo);
-		return RenderPass;
-	}
-
-	virtual void RHIEndRenderPass(FRHIRenderPass* RenderPass)
-	{
-		FRHIRenderPassFallback* Fallback = (FRHIRenderPassFallback*)RenderPass;
-		Fallback->SetEnded();
-	}
-
-	virtual TRefCountPtr<FRHIParallelRenderPass> RHIBeginParallelRenderPass(const FRHIRenderPassInfo& InInfo, const TCHAR* InName)
+	virtual void RHIBeginRenderPass(const FRHIRenderPassInfo& InInfo, const TCHAR* InName)
 	{
 		// Fallback...
 		InInfo.Validate();
@@ -569,31 +551,44 @@ public:
 		FRHISetRenderTargetsInfo RTInfo;
 		InInfo.ConvertToRenderTargetsInfo(RTInfo);
 		RHISetRenderTargetsAndClear(RTInfo);
-		return new FRHIParallelRenderPassFallback(InInfo, InName);
+
+		RenderPassInfo = InInfo;
 	}
 
-	virtual void RHIEndParallelRenderPass(FRHIParallelRenderPass* RenderPass)
+	virtual void RHIEndRenderPass()
 	{
-		FRHIParallelRenderPassFallback* PassFallback = (FRHIParallelRenderPassFallback*)RenderPass;
-		PassFallback->SetEnded();
+		for (int32 Index = 0; Index < MaxSimultaneousRenderTargets; ++Index)
+		{
+			if (!RenderPassInfo.ColorRenderTargets[Index].RenderTarget)
+			{
+				break;
+			}
+			if (RenderPassInfo.ColorRenderTargets[Index].ResolveTarget)
+			{
+				RHICopyToResolveTarget(RenderPassInfo.ColorRenderTargets[Index].RenderTarget, RenderPassInfo.ColorRenderTargets[Index].ResolveTarget, false, RenderPassInfo.ResolveParameters);
+			}
+		}
+
+		if (RenderPassInfo.DepthStencilRenderTarget.DepthStencilTarget && RenderPassInfo.DepthStencilRenderTarget.ResolveTarget)
+		{
+			RHICopyToResolveTarget(RenderPassInfo.DepthStencilRenderTarget.DepthStencilTarget, RenderPassInfo.DepthStencilRenderTarget.ResolveTarget, false, RenderPassInfo.ResolveParameters);
+		}
 	}
 
-	virtual TRefCountPtr<FRHIRenderSubPass> RHIBeginRenderSubPass(FRHIParallelRenderPass* RenderPass)
+	virtual void RHIBeginComputePass(const TCHAR* InName)
 	{
-		FRHIParallelRenderPassFallback* Fallback = (FRHIParallelRenderPassFallback*)RenderPass;
-		return new FRHIRenderSubPassFallback(Fallback);
+		RHISetRenderTargets(0, nullptr, nullptr, 0, nullptr);
 	}
 
-	virtual void RHIEndRenderSubPass(FRHIParallelRenderPass* RenderPass, FRHIRenderSubPass* RenderSubPass)
+	virtual void RHIEndComputePass()
 	{
-		FRHIParallelRenderPassFallback* PassFallback = (FRHIParallelRenderPassFallback*)RenderPass;
-		FRHIRenderSubPassFallback* SubPassFallback = (FRHIRenderSubPassFallback*)RenderSubPass;
-		check(SubPassFallback->GetParent() == RenderPass);
-		SubPassFallback->SetEnded();
 	}
 
 	virtual void RHICopyTexture(FTextureRHIParamRef SourceTexture, FTextureRHIParamRef DestTexture, const FResolveParams& ResolveParams)
 	{
 		RHICopyToResolveTarget(SourceTexture, DestTexture, true, ResolveParams);
 	}
+
+	protected:
+		FRHIRenderPassInfo RenderPassInfo;
 };

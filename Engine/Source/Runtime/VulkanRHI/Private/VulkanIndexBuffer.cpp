@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
 	VulkanIndexBuffer.cpp: Vulkan Index buffer RHI implementation.
@@ -8,10 +8,6 @@
 #include "VulkanDevice.h"
 #include "VulkanContext.h"
 #include "Containers/ResourceArray.h"
-
-#if VULKAN_RETAIN_BUFFERS
-static TMap<void*, FVulkanResourceMultiBuffer*> GRetainedBuffers;
-#endif
 
 static TMap<FVulkanResourceMultiBuffer*, VulkanRHI::FPendingBufferLock> GPendingLockIBs;
 static FCriticalSection GPendingLockIBsMutex;
@@ -97,12 +93,16 @@ FVulkanResourceMultiBuffer::FVulkanResourceMultiBuffer(FVulkanDevice* InDevice, 
 			}
 
 			NumBuffers = bDynamic ? NUM_RENDER_BUFFERS : 1;
+			check(NumBuffers <= ARRAY_COUNT(Buffers));
 
-			Buffers.AddDefaulted(NumBuffers);
 			for (uint32 Index = 0; Index < NumBuffers; ++Index)
 			{
 				Buffers[Index] = InDevice->GetResourceHeapManager().AllocateBuffer(InSize, BufferUsageFlags, BufferMemFlags, __FILE__, __LINE__);
 			}
+
+			Current.SubAlloc = Buffers[DynamicBufferIndex];
+			Current.Handle = Current.SubAlloc->GetHandle();
+			Current.Offset = Current.SubAlloc->GetOffset();
 
 			if (CreateInfo.ResourceArray)
 			{
@@ -115,10 +115,6 @@ FVulkanResourceMultiBuffer::FVulkanResourceMultiBuffer(FVulkanDevice* InDevice, 
 			}
 
 			UpdateVulkanBufferStats(InSize * NumBuffers, InBufferUsageFlags, true);
-
-#if VULKAN_RETAIN_BUFFERS
-			GRetainedBuffers.FindOrAdd((void*)Buffers[0]->GetHandle()) = this;
-#endif
 		}
 	}
 }
@@ -157,6 +153,8 @@ void* FVulkanResourceMultiBuffer::Lock(bool bFromRenderingThread, EResourceLockM
 			Device->GetImmediateContext().GetTempFrameAllocationBuffer().Alloc(Size + Offset, 256, VolatileLockInfo);
 			Data = VolatileLockInfo.Data;
 			++VolatileLockInfo.LockCounter;
+			Current.Handle = VolatileLockInfo.GetHandle();
+			Current.Offset = VolatileLockInfo.GetBindOffset();
 		}
 	}
 	else
@@ -171,6 +169,9 @@ void* FVulkanResourceMultiBuffer::Lock(bool bFromRenderingThread, EResourceLockM
 		{
 			check(LockMode == RLM_WriteOnly);
 			DynamicBufferIndex = (DynamicBufferIndex + 1) % NumBuffers;
+			Current.SubAlloc = Buffers[DynamicBufferIndex];
+			Current.Handle = Current.SubAlloc->GetHandle();
+			Current.Offset = Current.SubAlloc->GetOffset();
 
 			const bool bUnifiedMem = Device->HasUnifiedMemory();
 			if (bUnifiedMem && bDynamic)

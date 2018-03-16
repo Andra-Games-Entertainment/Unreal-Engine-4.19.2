@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "VulkanRHIPrivate.h"
 #include "VulkanContext.h"
@@ -31,7 +31,9 @@ FVulkanShaderResourceView::~FVulkanShaderResourceView()
 
 void FVulkanShaderResourceView::UpdateView()
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanSRVUpdateTime);
+#endif
 
 	// update the buffer view for dynamic backed buffers (or if it was never set)
 	if (SourceBuffer != nullptr)
@@ -98,7 +100,9 @@ FVulkanUnorderedAccessView::~FVulkanUnorderedAccessView()
 
 void FVulkanUnorderedAccessView::UpdateView()
 {
+#if VULKAN_ENABLE_AGGRESSIVE_STATS
 	SCOPE_CYCLE_COUNTER(STAT_VulkanUAVUpdateTime);
+#endif
 
 	// update the buffer view for dynamic VB backed buffers (or if it was never set)
 	if (SourceVertexBuffer != nullptr)
@@ -258,7 +262,13 @@ void FVulkanCommandListContext::RHIClearTinyUAV(FUnorderedAccessViewRHIParamRef 
 
 	if (CmdBuffer->IsInsideRenderPass())
 	{
-		TransitionState.EndRenderPass(CmdBuffer);
+		TransitionAndLayoutManager.EndRenderPass(CmdBuffer);
+		if (GVulkanSubmitAfterEveryEndRenderPass)
+		{
+			CommandBufferManager->SubmitActiveCmdBuffer(false);
+			CommandBufferManager->PrepareForNewActiveCommandBuffer();
+			CmdBuffer = CommandBufferManager->GetActiveCmdBuffer();
+		}
 	}
 
 	if (UnorderedAccessView->SourceVertexBuffer)

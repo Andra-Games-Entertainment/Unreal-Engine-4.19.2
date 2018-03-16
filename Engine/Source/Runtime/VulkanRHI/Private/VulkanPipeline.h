@@ -1,4 +1,4 @@
-// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved..
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved..
 
 /*=============================================================================
 	VulkanPipeline.h: Private Vulkan RHI definitions.
@@ -26,7 +26,6 @@ public:
 
 	inline const FVulkanLayout& GetLayout() const
 	{
-		check(Layout);
 		return *Layout;
 	}
 
@@ -140,7 +139,7 @@ public:
 	enum
 	{
 		// Bump every time serialization changes
-		VERSION = 16,
+		VERSION = 17,
 	};
 
 	struct FDescriptorSetLayoutBinding
@@ -288,6 +287,7 @@ public:
 			bool bDepthTestEnable;
 			bool bDepthWriteEnable;
 			bool bStencilTestEnable;
+			bool bDepthBoundsTestEnable;
 			uint8 FrontFailOp;
 			uint8 FrontPassOp;
 			uint8 FrontDepthFailOp;
@@ -311,6 +311,7 @@ public:
 				return DepthCompareOp == In.DepthCompareOp &&
 					bDepthTestEnable == In.bDepthTestEnable &&
 					bDepthWriteEnable == In.bDepthWriteEnable &&
+					bDepthBoundsTestEnable == In.bDepthBoundsTestEnable &&
 					bStencilTestEnable == In.bStencilTestEnable &&
 					FrontFailOp == In.FrontFailOp &&
 					FrontPassOp == In.FrontPassOp &&
@@ -546,7 +547,9 @@ private:
 	TMap<FVulkanComputeShader*, FVulkanComputePipeline*> ComputeShaderToPipelineMap;
 	TMap<uint32, FVulkanComputePipeline*> ComputeEntryHashToPipelineMap;
 
+	FCriticalSection GfxPipelineEntriesCS;
 	TMap<uint32, FGfxPipelineEntry*> GfxPipelineEntries;
+	FCriticalSection CreateComputePipelineCS;
 	TMap<uint32, FComputePipelineEntry*> ComputePipelineEntries;
 
 	VkPipelineCache PipelineCache;
