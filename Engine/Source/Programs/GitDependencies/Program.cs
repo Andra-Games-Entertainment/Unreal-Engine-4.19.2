@@ -1,4 +1,4 @@
-﻿// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2017 Epic Games, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Concurrent;
@@ -181,10 +181,6 @@ namespace GitDependencies
 				if(Environment.OSVersion.Platform != PlatformID.MacOSX && !(Environment.OSVersion.Platform == PlatformID.Unix && Directory.Exists("/Applications") && Directory.Exists("/System")))
 				{
 					ExcludeFolders.Add("Mac");
-				}
-				if(Environment.GetEnvironmentVariable("NDKROOT") == null)
-				{
-					ExcludeFolders.Add("Android");
 				}
 				if(Environment.OSVersion.Platform == PlatformID.Win32NT && (Environment.GetEnvironmentVariable("LINUX_ROOT") == null && Environment.GetEnvironmentVariable("LINUX_MULTIARCH_ROOT") == null))
 				{
