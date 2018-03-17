@@ -20,13 +20,13 @@
 			"Name" : "AudioCapture",
 			"Type" : "Runtime",
       "LoadingPhase": "Default",
- 			"WhitelistPlatforms" : [ "Win64", "Lumin" ]
+ 			"WhitelistPlatforms" : [ "Win64", "Lumin", "Mac" ]
 		},
 		{
 			"Name" : "AudioCaptureEditor",
 			"Type" : "Editor",
       "LoadingPhase": "PostEngineInit",
- 			"WhitelistPlatforms" : [ "Win64" ]
+ 			"WhitelistPlatforms" : [ "Win64", "Mac" ]
 		}
 	]
 }
