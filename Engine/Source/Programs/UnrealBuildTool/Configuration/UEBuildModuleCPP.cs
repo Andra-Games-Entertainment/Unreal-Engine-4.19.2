@@ -541,6 +541,8 @@ namespace UnrealBuildTool
 						PrecompiledHeaderInstance Instance = FindOrCreateSharedPCH(ToolChain, Template, ModuleCompileEnvironment.bOptimizeCode, ModuleCompileEnvironment.bUseRTTI, ActionGraph);
 
 						FileReference PrivateDefinitionsFile = FileReference.Combine(IntermediateDirectory, String.Format("Definitions.{0}.h", Name));
+
+						FileItem PrivateDefinitionsFileItem;
 						using (StringWriter Writer = new StringWriter())
 						{
 							// Remove the module _API definition for cases where there are circular dependencies between the shared PCH module and modules using it
@@ -555,12 +557,12 @@ namespace UnrealBuildTool
 							}
 
 							WriteDefinitions(CompileEnvironment.Definitions, Writer);
-							FileItem.CreateIntermediateTextFile(PrivateDefinitionsFile, Writer.ToString());
+							PrivateDefinitionsFileItem = FileItem.CreateIntermediateTextFile(PrivateDefinitionsFile, Writer.ToString());
 						}
 
 						CompileEnvironment = new CppCompileEnvironment(CompileEnvironment);
 						CompileEnvironment.Definitions.Clear();
-						CompileEnvironment.ForceIncludeFiles.Add(PrivateDefinitionsFile);
+						CompileEnvironment.ForceIncludeFiles.Add(PrivateDefinitionsFileItem);
 						CompileEnvironment.PrecompiledHeaderAction = PrecompiledHeaderAction.Include;
 						CompileEnvironment.PrecompiledHeaderIncludeFilename = Instance.HeaderFile.Location;
 						CompileEnvironment.PrecompiledHeaderFile = Instance.Output.PrecompiledHeaderFile;
@@ -867,9 +869,10 @@ namespace UnrealBuildTool
 				{
 					WriteDefinitions(CompileEnvironment.Definitions, Writer);
 					CompileEnvironment.Definitions.Clear();
-					FileItem.CreateIntermediateTextFile(PrivateDefinitionsFile, Writer.ToString());
+
+					FileItem PrivateDefinitionsFileItem = FileItem.CreateIntermediateTextFile(PrivateDefinitionsFile, Writer.ToString());
+					CompileEnvironment.ForceIncludeFiles.Add(PrivateDefinitionsFileItem);
 				}
-				CompileEnvironment.ForceIncludeFiles.Add(PrivateDefinitionsFile);
 			}
 		}
 
@@ -1213,7 +1216,8 @@ namespace UnrealBuildTool
 			// For game modules, set the define for the project name. This will be used by the IMPLEMENT_PRIMARY_GAME_MODULE macro.
 			if (!Rules.bTreatAsEngineModule)
 			{
-				if (Target.ProjectFile != null)
+				// Make sure we don't set any define for a non-engine module that's under the engine directory (eg. UE4Game)
+				if (Target.ProjectFile != null && RulesFile.IsUnderDirectory(Target.ProjectFile.Directory))
 				{
 					string ProjectName = Target.ProjectFile.GetFileNameWithoutExtension();
 					Result.Definitions.Add(String.Format("UE_PROJECT_NAME={0}", ProjectName));

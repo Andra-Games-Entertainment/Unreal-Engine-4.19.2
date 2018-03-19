@@ -526,105 +526,6 @@ public partial class Project : CommandUtils
 						StageAdditionalDirectoriesFromConfig(SC, ProjectContentRoot, StageContentRoot, PlatformGameConfig, false, "DirectoriesToAlwaysStageAsNonUFSServer");
 					}
 				}
-				
-				// START - FORTNITE_ONLY - DO NOT INTEGRATE
-
-				// START EasyAntiCheat - this can all be removed in 4.17 where stage requests from modules can be mapped to different output paths
-				// via DefaultGame.ini. That is all setup in both DefaultGame and EasyAntiCheatServer/EasyAntiCheatClient.build.cs, just reenable
-				// the staging requests there and remove this code (and verify :))
-				{
-					ProjectDescriptor Project = ProjectDescriptor.FromFile(SC.RawProjectPath);
-					bool EACEnabled = UProjectInfo.IsPluginEnabledForProject("EasyAntiCheat", Project, SC.StageTargetPlatform.PlatformType, SC.DedicatedServer ? TargetType.Server : TargetType.Client);
-
-					if (EACEnabled)
-					{
-						if (SC.DedicatedServer)
-						{
-							// Server binaries are staged from the plugin to Fortnite/Binaries/Thirdparty. The code that looks for these is in 
-							// EasyAntiCheatServer.cpp
-							string EacLibPath = "Plugins/EasyAntiCheat/SDK/server/lib";
-							if (SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Linux)
-							{
-								EacLibPath += "/linux";
-							}
-							else
-							{
-								EacLibPath += "/windows";
-							}
-							SC.StageFiles(StagedFileType.NonUFS, DirectoryReference.Combine(SC.ProjectRoot, EacLibPath), "*", StageFilesSearch.AllDirectories, StagedDirectoryReference.Combine(SC.RelativeProjectRootForStage, "Binaries/ThirdParty/EasyAntiCheat/Server"));
-						}
-						else
-						{
-							// Server binaries are staged from the plugin to Fortnite/EasyAntiCheat. The code that looks for these is in 
-							// EasyAntiCheatClient.cpp
-
-							if (SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Win32 ||
-								SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Win64)
-							{
-								// Note - we put the client stuff into the root so the output path is empty
-								string EacPath = "Plugins/EasyAntiCheat/SDK/client/Bin";
-								SC.StageFiles(StagedFileType.NonUFS, DirectoryReference.Combine(SC.ProjectRoot, EacPath), "*", StageFilesSearch.AllDirectories, new StagedDirectoryReference(""));
-							}
-						}
-					}
-				}
-				
-				// END EasyAntiCheat
-
-				// START BattlEye - this can all be removed in 4.17 where stage requests from modules can be mapped to different output paths
-				// via DefaultGame.ini. That is all setup in both DefaultGame and EasyAntiCheatServer/EasyAntiCheatClient.build.cs, just reenable
-				// the staging requests there and remove this code (and verify :))
-				{
-					ProjectDescriptor Project = ProjectDescriptor.FromFile(SC.RawProjectPath);
-					bool UACEnabled = UProjectInfo.IsPluginEnabledForProject("UAC", Project, SC.StageTargetPlatform.PlatformType, SC.DedicatedServer ? TargetType.Server : TargetType.Client);
-
-					if (UACEnabled)
-					{
-						string BaseDir = "Plugins/NotForLicensees/UAC/Binaries/ThirdParty/BattlEye";
-						string RedistSource = BaseDir + "/Redist";
-
-						if (SC.DedicatedServer)
-						{
-							// Server binaries are staged from the plugin to Fortnite/Binaries/Thirdparty. The code that looks for these is in 
-							// BattlEye.cpp
-							string IncludeMatch = "*";
-
-							string ShippingRedistPath;
-							if (SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Linux)
-							{
-								IncludeMatch = "BEServer*.so";
-								ShippingRedistPath = "Binaries/Linux/BattlEye";
-							}
-							else
-							{
-								IncludeMatch = "BEServer*.dll";
-								ShippingRedistPath = "Binaries/Win64/BattlEye";
-							}
-
-							// redist the DLL files . Note that for server we stage the BattlEye subdir with the dlls to omit the launcher. These go straight into Binaries/Win64
-							SC.StageFiles(StagedFileType.NonUFS, DirectoryReference.Combine(SC.ProjectRoot, RedistSource, "BattlEye"), IncludeMatch, StageFilesSearch.AllDirectories, StagedDirectoryReference.Combine(SC.RelativeProjectRootForStage, ShippingRedistPath));
-
-							// redist the cfg
-							SC.StageFiles(StagedFileType.NonUFS, DirectoryReference.Combine(SC.ProjectRoot, RedistSource, "BattlEye"), "*.cfg", StageFilesSearch.AllDirectories, StagedDirectoryReference.Combine(SC.RelativeProjectRootForStage, ShippingRedistPath));
-						}
-						else
-						{
-							// Client binaries are staged from the plugin to Fortnite/EasyAntiCheat. The code that looks for these is in 
-							// EasyAntiCheatClient.cpp
-
-							if (SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Win32 ||
-								SC.StageTargetPlatform.PlatformType == UnrealTargetPlatform.Win64)
-							{
-								string IncludeMatch = "*";
-
-								// redist the public files for the real thing. Note these go straight into Binaries/Win64
-								List<FileReference> BEServerFilterStagedFiles = SC.FindFilesToStage(DirectoryReference.Combine(SC.ProjectRoot, RedistSource), IncludeMatch, StageFilesSearch.AllDirectories);
-								SC.StageFiles(StagedFileType.NonUFS, DirectoryReference.Combine(SC.ProjectRoot, RedistSource), BEServerFilterStagedFiles.Where(x => !x.GetFileName().ToLower().StartsWith("beserver")), StagedDirectoryReference.Combine(SC.RelativeProjectRootForStage.Name, "Binaries/Win64"));
-							}
-						}
-					}
-				}
-				// END BattlEyeEnabled
 
 				// Per-project, per-platform setting to skip all movies. By default this is false.
 				bool bSkipMovies = false;
@@ -869,9 +770,14 @@ public partial class Project : CommandUtils
 		List<FileReference> ConfigFiles = SC.FindFilesToStage(ConfigDir, "*.ini", StageFilesSearch.AllDirectories);
 		foreach(FileReference ConfigFile in ConfigFiles)
 		{
-			if(ShouldStageConfigFile(SC, ConfigDir, ConfigFile))
+			Nullable<bool> ShouldStage = ShouldStageConfigFile(SC, ConfigDir, ConfigFile);
+			if(ShouldStage == null)
 			{
-				CommandUtils.Log("Including config file {0}", ConfigFile);
+				CommandUtils.LogWarning("The config file '{0}' will be staged, but is not whitelisted or blacklisted. Add +WhitelistConfigFiles={0} or +BlacklistConfigFiles={0} to the [Staging] section of DefaultGame.ini", SC.GetStagedFileLocation(ConfigFile));
+			}
+
+			if(ShouldStage ?? true)
+			{
 				SC.StageFile(StagedFileType.UFS, ConfigFile);
 			}
 			else
@@ -888,8 +794,18 @@ public partial class Project : CommandUtils
 	/// <param name="ConfigDir">Directory containing the config files</param>
 	/// <param name="ConfigFile">The config file to check</param>
 	/// <returns>True if the file should be staged, false otherwise</returns>
-	static bool ShouldStageConfigFile(DeploymentContext SC, DirectoryReference ConfigDir, FileReference ConfigFile)
+	static Nullable<bool> ShouldStageConfigFile(DeploymentContext SC, DirectoryReference ConfigDir, FileReference ConfigFile)
 	{
+		StagedFileReference StagedConfigFile = SC.GetStagedFileLocation(ConfigFile);
+		if(SC.WhitelistConfigFiles.Contains(StagedConfigFile))
+		{
+			return true;
+		}
+		if(SC.BlacklistConfigFiles.Contains(StagedConfigFile))
+		{
+			return false;
+		}
+
 		string NormalizedPath = ConfigFile.MakeRelativeTo(ConfigDir).ToLowerInvariant().Replace('\\', '/');
 
 		int DirectoryIdx = NormalizedPath.IndexOf('/');
@@ -910,7 +826,7 @@ public partial class Project : CommandUtils
 			const string DedicatedServerPrefix = "dedicatedserver";
 			if(NormalizedPath.StartsWith(DedicatedServerPrefix))
 			{
-				return SC.DedicatedServer && ShouldStageConfigSuffix(SC, ConfigFile, NormalizedPath.Substring(DedicatedServerPrefix.Length));
+				return SC.DedicatedServer? ShouldStageConfigSuffix(SC, ConfigFile, NormalizedPath.Substring(DedicatedServerPrefix.Length)) : false;
 			}
 
 			if(NormalizedPath == "consolevariables.ini")
@@ -947,9 +863,7 @@ public partial class Project : CommandUtils
 				return false;
 			}
 		}
-
-		CommandUtils.LogWarning("The config file '{0}' is not whitelisted nor blacklisted for staging. Ignoring.", ConfigFile);
-		return true;
+		return null;
 	}
 
 	/// <summary>
@@ -958,8 +872,8 @@ public partial class Project : CommandUtils
 	/// <param name="SC">The staging context</param>
 	/// <param name="ConfigFile">Full path to the config file</param>
 	/// <param name="InvariantSuffix">Suffix for the config file, as a lowercase invariant string</param>
-	/// <returns>True if the suffix should be staged, false otherwise</returns>
-	static bool ShouldStageConfigSuffix(DeploymentContext SC, FileReference ConfigFile, string InvariantSuffix)
+	/// <returns>True if the suffix should be staged, false if not, null if unknown</returns>
+	static Nullable<bool> ShouldStageConfigSuffix(DeploymentContext SC, FileReference ConfigFile, string InvariantSuffix)
 	{
 		switch(InvariantSuffix)
 		{
@@ -986,8 +900,7 @@ public partial class Project : CommandUtils
 			case "lightmass.ini":
 				return false;
 			default:
-				CommandUtils.LogWarning("The config file '{0}' is not whitelisted nor blacklisted for staging. Including anyway.", ConfigFile);
-				return true;
+				return null;
 		}
 	}
 

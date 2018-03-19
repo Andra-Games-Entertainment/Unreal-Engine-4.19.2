@@ -2187,6 +2187,7 @@ namespace UnrealBuildTool
 
 			// On Mac and Linux we have actions that should be executed after all the binaries are created
 			TargetToolChain.SetupBundleDependencies(Binaries, TargetName);
+			TargetToolChain.SetupBundleDependencies(PrecompileOnlyBinaries, TargetName);
 
 			// Write out the deployment context, if necessary
 			if (Rules.bDeployAfterCompile && !Rules.bDisableLinking)
@@ -2645,6 +2646,7 @@ namespace UnrealBuildTool
 			if (Platform == UnrealTargetPlatform.Mac && !Rules.bIsBuildingConsoleApplication)
 			{
 				TargetToolChain.FixBundleBinariesPaths(this, Binaries);
+				TargetToolChain.FixBundleBinariesPaths(this, PrecompileOnlyBinaries);
 			}
 		}
 
