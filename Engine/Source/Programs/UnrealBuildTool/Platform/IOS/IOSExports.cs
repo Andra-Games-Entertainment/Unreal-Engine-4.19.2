@@ -1,4 +1,4 @@
-﻿// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -181,7 +181,7 @@ namespace UnrealBuildTool
 			List<TargetDescriptor> TargetDescs = new List<TargetDescriptor>();
 			foreach (string[] TargetSetting in TargetSettings)
 			{
-				TargetDescs.AddRange(UEBuildTarget.ParseTargetCommandLine(TargetSetting, ref ProjectFile));
+				TargetDescs.AddRange(TargetDescriptor.ParseCommandLine(TargetSetting, ref ProjectFile));
 			}
 			foreach (TargetDescriptor TargetDesc in TargetDescs)
 			{

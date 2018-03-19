@@ -12,12 +12,12 @@
 #include "ContentBrowserModule.h"
 #include "EditorStyleSet.h"
 #include "ContentBrowserDelegates.h"
-#include "IPluginManager.h"
+#include "Interfaces/IPluginManager.h"
 #include "IIntroTutorials.h"
-#include "SDockTab.h"
+#include "Widgets/Docking/SDockTab.h"
 #include "EditorTutorial.h"
-#include "SlateApplication.h"
-#include "SImage.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Widgets/Images/SImage.h"
 #include "Misc/EngineBuildSettings.h"
 
 const FName MaterialEditorAppIdentifier = FName(TEXT("MaterialEditorApp"));

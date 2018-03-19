@@ -347,7 +347,7 @@ namespace Audio
 			// Not all wave data types have a non-zero duration
 			if (InWaveInstance->WaveData->Duration > 0)
 			{
-				NumTotalFrames = InWaveInstance->WaveData->Duration * InWaveInstance->WaveData->SampleRate;
+				NumTotalFrames = InWaveInstance->WaveData->Duration * InWaveInstance->WaveData->GetSampleRateForCurrentPlatform();
 				check(NumTotalFrames > 0);
 			}
 
