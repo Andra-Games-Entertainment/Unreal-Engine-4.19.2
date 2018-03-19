@@ -1085,32 +1085,40 @@ void FViewInfo::SetupUniformBufferParameters(
 			FinalMaterialTextureMipBias += MaterialTextureMipBias;
 		}
 
-		if (FinalMaterialTextureMipBias == GlobalMipBias)
+		FSamplerStateRHIRef WrappedSampler = nullptr;
+		FSamplerStateRHIRef ClampedSampler = nullptr;
+
+		if (FMath::Abs(FinalMaterialTextureMipBias - GlobalMipBias) < KINDA_SMALL_NUMBER)
 		{
-			ViewUniformShaderParameters.MaterialTextureBilinearWrapedSampler = Wrap_WorldGroupSettings->SamplerStateRHI;
-			ViewUniformShaderParameters.MaterialTextureBilinearClampedSampler = Clamp_WorldGroupSettings->SamplerStateRHI;
+			WrappedSampler = Wrap_WorldGroupSettings->SamplerStateRHI;
+			ClampedSampler = Clamp_WorldGroupSettings->SamplerStateRHI;
 		}
-		else if (ViewState && ViewState->MaterialTextureCachedMipBias == FinalMaterialTextureMipBias)
+		else if (ViewState && FMath::Abs(ViewState->MaterialTextureCachedMipBias - FinalMaterialTextureMipBias) < KINDA_SMALL_NUMBER)
 		{
-			ViewUniformShaderParameters.MaterialTextureBilinearWrapedSampler = ViewState->MaterialTextureBilinearWrapedSamplerCache;
-			ViewUniformShaderParameters.MaterialTextureBilinearClampedSampler = ViewState->MaterialTextureBilinearClampedSamplerCache;
+			WrappedSampler = ViewState->MaterialTextureBilinearWrapedSamplerCache;
+			ClampedSampler = ViewState->MaterialTextureBilinearClampedSamplerCache;
 		}
 		else
 		{
 			check(bIsValidWorldTextureGroupSamplerFilter);
 
-			ViewUniformShaderParameters.MaterialTextureBilinearWrapedSampler = RHICreateSamplerState(
-				FSamplerStateInitializerRHI(WorldTextureGroupSamplerFilter, AM_Wrap, AM_Wrap, AM_Wrap, FinalMaterialTextureMipBias));
-
-			ViewUniformShaderParameters.MaterialTextureBilinearClampedSampler = RHICreateSamplerState(
-				FSamplerStateInitializerRHI(WorldTextureGroupSamplerFilter, AM_Clamp, AM_Clamp, AM_Clamp, FinalMaterialTextureMipBias));
+			WrappedSampler = RHICreateSamplerState(FSamplerStateInitializerRHI(WorldTextureGroupSamplerFilter, AM_Wrap,  AM_Wrap,  AM_Wrap,  FinalMaterialTextureMipBias));
+			ClampedSampler = RHICreateSamplerState(FSamplerStateInitializerRHI(WorldTextureGroupSamplerFilter, AM_Clamp, AM_Clamp, AM_Clamp, FinalMaterialTextureMipBias));
 		}
 
-		if (ViewState)
+		// At this point, a sampler must be set.
+		check(WrappedSampler.IsValid());
+		check(ClampedSampler.IsValid());
+
+		ViewUniformShaderParameters.MaterialTextureBilinearWrapedSampler = WrappedSampler;
+		ViewUniformShaderParameters.MaterialTextureBilinearClampedSampler = ClampedSampler;
+
+		// Update view state's cached sampler.
+		if (ViewState && ViewState->MaterialTextureBilinearWrapedSamplerCache != WrappedSampler)
 		{
 			ViewState->MaterialTextureCachedMipBias = FinalMaterialTextureMipBias;
-			ViewState->MaterialTextureBilinearWrapedSamplerCache = ViewUniformShaderParameters.MaterialTextureBilinearWrapedSampler;
-			ViewState->MaterialTextureBilinearClampedSamplerCache = ViewUniformShaderParameters.MaterialTextureBilinearClampedSampler;
+			ViewState->MaterialTextureBilinearWrapedSamplerCache = WrappedSampler;
+			ViewState->MaterialTextureBilinearClampedSamplerCache = ClampedSampler;
 		}
 	}
 
@@ -1744,7 +1752,7 @@ FIntPoint FSceneRenderer::ApplyResolutionFraction(const FSceneViewFamily& ViewFa
 	// Mosaic needs the viewport height to be a multiple of 2.
 	if (ViewFamily.GetFeatureLevel() <= ERHIFeatureLevel::ES3_1 && IsMobileHDRMosaic())
 	{
-		ViewSize.Y = ViewSize.Y + (~1) & ViewSize.Y;
+		ViewSize.Y = ViewSize.Y + (1 & ViewSize.Y);		
 	}
 
 	check(ViewSize.GetMin() > 0);

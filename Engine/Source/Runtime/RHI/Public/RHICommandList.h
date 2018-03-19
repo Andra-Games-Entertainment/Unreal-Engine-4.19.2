@@ -1804,7 +1804,7 @@ struct FRHICommandDebugBreak final : public FRHICommand<FRHICommandDebugBreak>
 	{
 		if (FPlatformMisc::IsDebuggerPresent())
 		{
-			FPlatformMisc::DebugBreak();
+			UE_DEBUG_BREAK();
 		}
 	}
 };
@@ -2334,7 +2334,7 @@ public:
 		{
 			if (FPlatformMisc::IsDebuggerPresent())
 			{
-				FPlatformMisc::DebugBreak();
+				UE_DEBUG_BREAK();
 			}
 			return;
 		}
@@ -3370,7 +3370,7 @@ public:
 		{
 			if (FPlatformMisc::IsDebuggerPresent())
 			{
-				FPlatformMisc::DebugBreak();
+				UE_DEBUG_BREAK();
 			}
 			return;
 		}
@@ -3592,7 +3592,7 @@ public:
 		{
 			if (FPlatformMisc::IsDebuggerPresent())
 			{
-				FPlatformMisc::DebugBreak();
+				UE_DEBUG_BREAK();
 			}
 			return;
 		}
@@ -3644,6 +3644,22 @@ public:
 
 class RHI_API FRHICommandListImmediate : public FRHICommandList
 {
+	template <typename LAMBDA>
+	struct TRHILambdaCommand : public FRHICommandBase
+	{
+		LAMBDA Lambda;
+
+		TRHILambdaCommand(LAMBDA&& InLambda)
+			: Lambda(Forward<LAMBDA>(InLambda))
+		{}
+
+		void ExecuteAndDestruct(FRHICommandListBase& CmdList, FRHICommandListDebugContext& Context) override final
+		{
+			Lambda(*static_cast<FRHICommandListImmediate*>(&CmdList));
+			Lambda.~LAMBDA();
+		}
+	};
+
 	friend class FRHICommandListExecutor;
 	FRHICommandListImmediate()
 	{
@@ -3670,7 +3686,28 @@ public:
 
 	//Queue the given async compute commandlists in order with the current immediate commandlist
 	void QueueAsyncCompute(FRHIAsyncComputeCommandList& RHIComputeCmdList);
-	
+
+	template <typename LAMBDA>
+	FORCEINLINE_DEBUGGABLE bool EnqueueLambda(bool bRunOnCurrentThread, LAMBDA&& Lambda)
+	{
+		if (bRunOnCurrentThread)
+		{
+			Lambda(*this);
+			return false;
+		}
+		else
+		{
+			new (AllocCommand<TRHILambdaCommand<LAMBDA>>()) TRHILambdaCommand<LAMBDA>(Forward<LAMBDA>(Lambda));
+			return true;
+		}
+	}
+
+	template <typename LAMBDA>
+	FORCEINLINE_DEBUGGABLE bool EnqueueLambda(LAMBDA&& Lambda)
+	{
+		return EnqueueLambda(Bypass(), Forward<LAMBDA>(Lambda));
+	}
+
 	FORCEINLINE FSamplerStateRHIRef CreateSamplerState(const FSamplerStateInitializerRHI& Initializer)
 	{
 		LLM_SCOPE(ELLMTag::RHIMisc);
