@@ -11726,7 +11726,7 @@ void UMaterialExpressionCollectionParameter::GetCaption(TArray<FString>& OutCapt
 		OutCaptions.Add(TEXT("Unspecified"));
 	}
 }
-#endif // WITH_EDITOR
+
 
 bool UMaterialExpressionCollectionParameter::MatchesSearchQuery(const TCHAR* SearchQuery)
 {
@@ -11742,7 +11742,7 @@ bool UMaterialExpressionCollectionParameter::MatchesSearchQuery(const TCHAR* Sea
 
 	return Super::MatchesSearchQuery(SearchQuery);
 }
-
+#endif // WITH_EDITOR
 //
 //	UMaterialExpressionLightmapUVs
 //
