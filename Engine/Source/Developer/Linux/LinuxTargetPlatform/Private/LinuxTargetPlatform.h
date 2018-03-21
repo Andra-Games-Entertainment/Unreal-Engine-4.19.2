@@ -31,13 +31,12 @@ class UTextureLODSettings;
 /**
  * Template for Linux target platforms
  */
-template<bool HAS_EDITOR_DATA, bool IS_DEDICATED_SERVER, bool IS_CLIENT_ONLY>
+template<typename TProperties>
 class TLinuxTargetPlatform
-	: public TTargetPlatformBase<FLinuxPlatformProperties<HAS_EDITOR_DATA, IS_DEDICATED_SERVER, IS_CLIENT_ONLY> >
+	: public TTargetPlatformBase<TProperties>
 {
 public:
 	
-	typedef FLinuxPlatformProperties<HAS_EDITOR_DATA, IS_DEDICATED_SERVER, IS_CLIENT_ONLY> TProperties;
 	typedef TTargetPlatformBase<TProperties> TSuper;
 
 	/**
@@ -160,7 +159,7 @@ public:
 	virtual bool IsRunningPlatform( ) const override
 	{
 		// Must be Linux platform as editor for this to be considered a running platform
-		return PLATFORM_LINUX && !UE_SERVER && !UE_GAME && WITH_EDITOR && HAS_EDITOR_DATA;
+		return PLATFORM_LINUX && !UE_SERVER && !UE_GAME && WITH_EDITOR && TProperties::HasEditorOnlyData();
 	}
 
 	virtual bool SupportsFeature(ETargetPlatformFeatures Feature) const override
@@ -170,7 +169,7 @@ public:
 			return true;
 		}
 
-		return TTargetPlatformBase<FLinuxPlatformProperties<HAS_EDITOR_DATA, IS_DEDICATED_SERVER, IS_CLIENT_ONLY>>::SupportsFeature(Feature);
+		return TSuper::SupportsFeature(Feature);
 	}
 
 	virtual bool IsSdkInstalled(bool bProjectHasCode, FString& OutDocumentationPath) const override
@@ -247,7 +246,7 @@ public:
 	virtual void GetAllPossibleShaderFormats( TArray<FName>& OutFormats ) const override
 	{
 		// no shaders needed for dedicated server target
-		if (!IS_DEDICATED_SERVER)
+		if (!TProperties::IsServerOnly())
 		{
 			static FName NAME_GLSL_150(TEXT("GLSL_150"));
 			static FName NAME_GLSL_430(TEXT("GLSL_430"));
@@ -295,7 +294,7 @@ public:
 
 	virtual void GetTextureFormats( const UTexture* InTexture, TArray<FName>& OutFormats ) const override
 	{
-		if (!IS_DEDICATED_SERVER)
+		if (!TProperties::IsServerOnly())
 		{
 			// just use the standard texture format name for this texture
 			FName TextureFormatName = GetDefaultTextureFormatName(this, InTexture, EngineSettings, false);
@@ -306,7 +305,7 @@ public:
 
 	virtual void GetAllTextureFormats(TArray<FName>& OutFormats) const override
 	{
-		if (!IS_DEDICATED_SERVER)
+		if (!TProperties::IsServerOnly())
 		{
 			// just use the standard texture format name for this texture
 			GetAllDefaultTextureFormats(this, OutFormats, false);
@@ -349,17 +348,17 @@ public:
 
 	virtual FText GetVariantDisplayName() const override
 	{
-		if (IS_DEDICATED_SERVER)
+		if (TProperties::IsServerOnly())
 		{
 			return LOCTEXT("LinuxServerVariantTitle", "Dedicated Server");
 		}
 
-		if (HAS_EDITOR_DATA)
+		if (TProperties::HasEditorOnlyData())
 		{
 			return LOCTEXT("LinuxClientEditorDataVariantTitle", "Client with Editor Data");
 		}
 
-		if (IS_CLIENT_ONLY)
+		if (TProperties::IsClientOnly())
 		{
 			return LOCTEXT("LinuxClientOnlyVariantTitle", "Client only");
 		}
@@ -391,7 +390,7 @@ public:
 
 	//~ End ITargetPlatform Interface
 
-private:
+protected:
 
 #if WITH_ENGINE
 	/** Whether we're in process of changing device config - if yes, we will prevent recurrent calls. */
